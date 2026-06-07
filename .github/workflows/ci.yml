@@ -1,0 +1,46 @@
+name: CI
+
+# Verifies the example installs + runs against the PUBLISHED @agenticprimitives/*
+# packages from npm (no monorepo, no workspace links).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: typecheck · no-licensed-content · smoke · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (from npm, frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: No licensed content (ADR-0033 R1)
+        run: pnpm check:no-licensed-content
+
+      - name: Typecheck (all apps)
+        run: pnpm -r typecheck
+
+      - name: Triad smoke (resolve → verify → gate → cite)
+        run: pnpm smoke
+
+      - name: Build web app
+        run: pnpm --filter @verifiable-content-demo/bible-web build
