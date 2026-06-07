@@ -1,0 +1,28 @@
+{
+  "name": "@verifiable-content-demo/bible-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Demo MCP server: resolves scripture passages via the verifiable-content naming/descriptor approach (spec 266/267). Public-domain BSB only; entitlement-gated mock licensed edition.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev --port 8790 --persist-to ../../.wrangler/state-bible-mcp",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agenticprimitives/audit": "^1.0.0-alpha.6",
+    "@agenticprimitives/scripture-content-extension": "^1.0.0-alpha.6",
+    "@agenticprimitives/tool-policy": "^1.0.0-alpha.6",
+    "@agenticprimitives/types": "^1.0.0-alpha.6",
+    "@agenticprimitives/content-primitives": "^1.0.0-alpha.6",
+    "hono": "^4.12.23",
+    "viem": "^2.52.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260604.1",
+    "@types/node": "^22.7.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "types": ["@cloudflare/workers-types", "node"],
+    // Consume built packages — see apps/demo-web/tsconfig.json for rationale.
+    "paths": {}
+  },
+  "include": ["src/**/*"]
+}

@@ -1,0 +1,20 @@
+# Cloudflare Worker config for demo-bible-a2a.
+# Local dev: wrangler dev --port 8791 (calls demo-bible-mcp at MCP_URL).
+
+name = "demo-bible-a2a"
+main = "src/index.ts"
+compatibility_date = "2026-05-19"
+compatibility_flags = ["nodejs_compat"]
+
+[dev]
+port = 8791
+local_protocol = "http"
+
+[vars]
+MCP_URL = "http://127.0.0.1:8790"
+
+[env.production]
+workers_dev = true
+
+[env.production.vars]
+MCP_URL = ""
