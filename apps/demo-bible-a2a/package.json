@@ -6,7 +6,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "wrangler dev --port 8791 --persist-to ../../.wrangler/state-bible-a2a",
+    "dev": "wrangler dev --port 8791 --inspector-port 9230 --persist-to ../../.wrangler/state-bible-a2a",
     "deploy": "wrangler deploy",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

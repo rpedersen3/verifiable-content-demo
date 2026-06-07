@@ -6,7 +6,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "wrangler dev --port 8790 --persist-to ../../.wrangler/state-bible-mcp",
+    "dev": "wrangler dev --port 8790 --inspector-port 9229 --persist-to ../../.wrangler/state-bible-mcp",
     "deploy": "wrangler deploy",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
