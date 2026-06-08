@@ -95,20 +95,25 @@ export interface RangeVerse {
   inclusionProof: Hex[];
 }
 
-/** Resolve every verse under `osisPrefix` (book.chapter) optionally filtered to
- *  [vStart,vEnd], and verify each one's Merkle membership against `root`. Local
- *  + fast for any range — the issuer's authority is the single on-chain anchor. */
-export async function findD1Range(db: D1Like, edition: string, osisPrefix: string, vStart: number | undefined, vEnd: number | undefined, corpus: D1Corpus, root: Hex, max = 250): Promise<RangeVerse[]> {
-  const rows = (await db.prepare('SELECT osis,canonical_id,leaf_index,commitment,text FROM verses WHERE edition=? AND osis LIKE ? ORDER BY leaf_index').bind(edition, `${osisPrefix}.%`).all<{ osis: string; canonical_id: string; leaf_index: number; commitment: string; text: string }>()).results;
-  const out: RangeVerse[] = [];
-  for (const r of rows) {
-    const v = Number(r.osis.split('.').pop());
-    if (vStart != null && v < vStart) continue;
-    if (vEnd != null && v > vEnd) continue;
+/** Leaf index of a specific verse (by canonical id), or null. */
+export async function leafIndexFor(db: D1Like, edition: string, canonicalId: string): Promise<number | null> {
+  const r = await db.prepare('SELECT leaf_index FROM verses WHERE edition=? AND canonical_id=?').bind(edition, canonicalId).first<{ leaf_index: number }>();
+  return r ? r.leaf_index : null;
+}
+
+/** Min/max leaf index of a chapter (osisPrefix = "Book.Chapter"), or null. */
+export async function chapterBounds(db: D1Like, edition: string, osisPrefix: string): Promise<{ min: number; max: number } | null> {
+  const r = await db.prepare('SELECT min(leaf_index) AS mn, max(leaf_index) AS mx FROM verses WHERE edition=? AND osis LIKE ?').bind(edition, `${osisPrefix}.%`).first<{ mn: number | null; mx: number | null }>();
+  return r && r.mn != null ? { min: r.mn, max: r.mx! } : null;
+}
+
+/** Every verse in the global-order range [startLeaf,endLeaf] (spans chapters),
+ *  each verified for Merkle membership against `root`. Local + fast; the issuer's
+ *  authority is the single on-chain anchor. */
+export async function findD1RangeByLeaf(db: D1Like, edition: string, startLeaf: number, endLeaf: number, corpus: D1Corpus, root: Hex, max = 400): Promise<RangeVerse[]> {
+  const rows = (await db.prepare('SELECT osis,canonical_id,leaf_index,commitment,text FROM verses WHERE edition=? AND leaf_index BETWEEN ? AND ? ORDER BY leaf_index LIMIT ?').bind(edition, startLeaf, endLeaf, max).all<{ osis: string; canonical_id: string; leaf_index: number; commitment: string; text: string }>()).results;
+  return rows.map((r) => {
     const proof = merkleProof(corpus.tree, r.leaf_index);
-    const included = verifyInclusion(leafHash(r.commitment as Hex), proof, root);
-    out.push({ osis: r.osis, canonicalId: r.canonical_id, leafIndex: r.leaf_index, commitment: r.commitment, text: r.text, included, inclusionProof: proof });
-    if (out.length >= max) break;
-  }
-  return out;
+    return { osis: r.osis, canonicalId: r.canonical_id, leafIndex: r.leaf_index, commitment: r.commitment, text: r.text, included: verifyInclusion(leafHash(r.commitment as Hex), proof, root), inclusionProof: proof };
+  });
 }

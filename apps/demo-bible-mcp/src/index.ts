@@ -28,7 +28,7 @@ import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT, type UnsignedCr
 // returned body. Pre-set the canonical pair.
 const VC_CONTEXTS = [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT];
 import { getCorpora, inclusionProof, EDITIONS, type BuiltCorpus } from './editions/registry.js';
-import { loadD1Corpus, findD1Verse, findD1Range, d1InclusionProof, type D1Like } from './editions/d1.js';
+import { loadD1Corpus, findD1Verse, findD1RangeByLeaf, leafIndexFor, chapterBounds, d1InclusionProof, type D1Like } from './editions/d1.js';
 import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import type { Hex } from 'viem';
@@ -208,16 +208,37 @@ app.post('/tools/resolve', async (c) => {
   });
 });
 
-// resolve_range — verify a RANGE of verses (e.g. "John 3:1-16" or a whole chapter
-// "John 3"). Each verse proves Merkle membership in the issuer's on-chain-anchored
-// corpusRoot — local + fast for any range (the issuer's authority is the one anchor).
-function parseRange(input: string): { book: string; chapter: number; vStart?: number; vEnd?: number } | null {
-  const s = input.trim().replace(/[–—]/g, '-'); // en/em dash → hyphen
+// resolve_range — verify a RANGE of verses. Supports single-chapter
+// ("John 3:1-16"), whole chapter ("John 3"), chapter range ("John 1-3"), and
+// CROSS-chapter ("John 1:1-John 3:16" or "John 1:1-3:16"). Each verse proves
+// Merkle membership in the issuer's on-chain-anchored corpusRoot — local + fast
+// (the issuer's authority is the one anchor).
+type RangeRef = { book: string; chapter: number; verse?: number };
+function parseRef(s: string, inheritBook?: string, inheritChapter?: number, leftHadVerse?: boolean): RangeRef | null {
+  s = s.trim();
   let m: RegExpMatchArray | null;
-  if ((m = s.match(/^(.+?)\s+(\d+):(\d+)\s*-\s*(\d+)$/))) return { book: m[1]!, chapter: +m[2]!, vStart: +m[3]!, vEnd: +m[4]! };
-  if ((m = s.match(/^(.+?)\s+(\d+):(\d+)$/))) return { book: m[1]!, chapter: +m[2]!, vStart: +m[3]!, vEnd: +m[3]! };
+  if ((m = s.match(/^(.+?)\s+(\d+):(\d+)$/))) return { book: m[1]!, chapter: +m[2]!, verse: +m[3]! };
   if ((m = s.match(/^(.+?)\s+(\d+)$/))) return { book: m[1]!, chapter: +m[2]! };
+  if (!inheritBook) return null;
+  if ((m = s.match(/^(\d+):(\d+)$/))) return { book: inheritBook, chapter: +m[1]!, verse: +m[2]! };
+  if ((m = s.match(/^(\d+)$/))) {
+    const n = +m[1]!;
+    // bare N on the right of a range: a VERSE if the left had one, else a CHAPTER.
+    return leftHadVerse && inheritChapter != null ? { book: inheritBook, chapter: inheritChapter, verse: n } : { book: inheritBook, chapter: n };
+  }
   return null;
+}
+function parseRange(input: string): { start: RangeRef; end: RangeRef } | null {
+  const s = input.trim().replace(/[–—]/g, '-');
+  const dash = s.indexOf('-');
+  if (dash < 0) {
+    const r = parseRef(s);
+    return r ? { start: r, end: r } : null;
+  }
+  const start = parseRef(s.slice(0, dash).trim());
+  if (!start) return null;
+  const end = parseRef(s.slice(dash + 1).trim(), start.book, start.chapter, start.verse != null);
+  return end ? { start, end } : null;
 }
 
 app.post('/tools/resolve_range', async (c) => {
@@ -228,17 +249,6 @@ app.post('/tools/resolve_range', async (c) => {
   if (!c.env.DB) return c.json({ ok: false, error: 'range needs the full-BSB D1 corpus' }, 503);
   const r = parseRange(body.reference);
   if (!r) return c.json({ ok: false, error: `unrecognized range: "${body.reference}"` }, 400);
-
-  let osisPrefix: string;
-  let display: string;
-  try {
-    const p1 = parseScriptureAlias(`${r.book} ${r.chapter}:1`);
-    osisPrefix = `${p1.book.osis}.${r.chapter}`;
-    const suffix = r.vStart != null ? `:${r.vStart}${r.vEnd && r.vEnd !== r.vStart ? `-${r.vEnd}` : ''}` : '';
-    display = `${p1.book.name} ${r.chapter}${suffix}`;
-  } catch (e) {
-    return c.json({ ok: false, error: (e as Error).message }, 400);
-  }
 
   const trust = await resolveTrust(c.env);
   const corpus = await loadD1Corpus(c.env.DB, 'bsb');
@@ -251,7 +261,26 @@ app.post('/tools/resolve_range', async (c) => {
       corpusRootSource = 'onchain';
     }
   }
-  const verses = await findD1Range(c.env.DB, 'bsb', osisPrefix, r.vStart, r.vEnd, corpus, corpusRoot);
+
+  // Resolve start/end to global leaf indices (spans chapters via verse order).
+  let display: string;
+  let startLeaf: number | null;
+  let endLeaf: number | null;
+  try {
+    const sp = parseScriptureAlias(`${r.start.book} ${r.start.chapter}:1`);
+    const ep = parseScriptureAlias(`${r.end.book} ${r.end.chapter}:1`);
+    startLeaf = r.start.verse != null ? await leafIndexFor(c.env.DB, 'bsb', parseScriptureAlias(`${r.start.book} ${r.start.chapter}:${r.start.verse}`).reference.id) : (await chapterBounds(c.env.DB, 'bsb', `${sp.book.osis}.${r.start.chapter}`))?.min ?? null;
+    endLeaf = r.end.verse != null ? await leafIndexFor(c.env.DB, 'bsb', parseScriptureAlias(`${r.end.book} ${r.end.chapter}:${r.end.verse}`).reference.id) : (await chapterBounds(c.env.DB, 'bsb', `${ep.book.osis}.${r.end.chapter}`))?.max ?? null;
+    const sLabel = `${sp.book.name} ${r.start.chapter}${r.start.verse != null ? ':' + r.start.verse : ''}`;
+    const eLabel = `${ep.book.name} ${r.end.chapter}${r.end.verse != null ? ':' + r.end.verse : ''}`;
+    display = sLabel === eLabel ? sLabel : `${sLabel} – ${eLabel}`;
+  } catch (e) {
+    return c.json({ ok: false, error: (e as Error).message }, 400);
+  }
+  if (startLeaf == null || endLeaf == null) return c.json({ ok: false, error: `range endpoints not found for ${display}` }, 404);
+  if (startLeaf > endLeaf) [startLeaf, endLeaf] = [endLeaf, startLeaf];
+
+  const verses = await findD1RangeByLeaf(c.env.DB, 'bsb', startLeaf, endLeaf, corpus, corpusRoot);
   if (!verses.length) return c.json({ ok: false, error: `no verses for ${display}` }, 404);
   const verified = verses.filter((v) => v.included).length;
   audit('content.resolve_range', 'success', display, { count: verses.length, verified });
