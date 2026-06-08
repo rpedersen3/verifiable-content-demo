@@ -20,8 +20,71 @@ function short(hex?: string, n = 6): string {
   return hex.length > 2 * n + 2 ? `${hex.slice(0, n + 2)}…${hex.slice(-n)}` : hex;
 }
 
-function nodeLabel(graph: TrustValidation['graph'], id: string): string {
-  return graph?.nodes.find((n) => n.id === id)?.label ?? (id.startsWith('0x') || id.startsWith('eip155') ? id.slice(0, 14) + '…' : id);
+// Fixed layout by node kind (the graph shape is stable: 6 nodes, 5 edges).
+const NODE_POS: Record<string, { x: number; y: number }> = {
+  consumer: { x: 76, y: 152 },
+  validator: { x: 286, y: 56 },
+  agent: { x: 286, y: 152 },
+  profile: { x: 488, y: 56 },
+  descriptor: { x: 286, y: 248 },
+  issuer: { x: 488, y: 214 },
+};
+const NODE_COLOR: Record<string, string> = {
+  consumer: '#6b7280',
+  validator: '#2563eb',
+  agent: '#0e7490',
+  issuer: '#9333ea',
+  descriptor: '#64748b',
+  profile: '#b45309',
+};
+
+function TrustGraphSvg({ graph }: { graph: NonNullable<TrustValidation['graph']> }) {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const posOf = (id: string) => NODE_POS[byId.get(id)?.kind ?? 'agent'] ?? { x: 286, y: 152 };
+  const W = 118;
+  const H = 30;
+  return (
+    <svg viewBox="0 0 564 304" className="tg-svg" role="img" aria-label="trust graph">
+      <defs>
+        <marker id="tg-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#9aa6bd" />
+        </marker>
+      </defs>
+      {graph.edges.map((e, i) => {
+        const a = posOf(e.from);
+        const b = posOf(e.to);
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len;
+        const uy = dy / len;
+        const sx = a.x + ux * 32;
+        const sy = a.y + uy * 18;
+        const ex = b.x - ux * 36;
+        const ey = b.y - uy * 20;
+        return (
+          <g key={i}>
+            <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="#9aa6bd" strokeWidth="1.5" markerEnd="url(#tg-arrow)" />
+            <text x={(sx + ex) / 2} y={(sy + ey) / 2 - 3} className="tg-edge-label" textAnchor="middle">
+              {e.rel.replace(/_/g, ' ').toLowerCase()}
+            </text>
+          </g>
+        );
+      })}
+      {graph.nodes.map((n) => {
+        const p = NODE_POS[n.kind] ?? { x: 286, y: 152 };
+        const color = NODE_COLOR[n.kind] ?? '#475569';
+        return (
+          <g key={n.id}>
+            <rect x={p.x - W / 2} y={p.y - H / 2} width={W} height={H} rx="7" fill="#fff" stroke={color} strokeWidth="1.6" />
+            <text x={p.x} y={p.y + 4} className="tg-svg-label" textAnchor="middle" fill={color}>
+              {n.label.length > 19 ? n.label.slice(0, 18) + '…' : n.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
 }
 
 // The trust graph + signed ValidationAttestation from the INDEPENDENT validator.
@@ -30,6 +93,7 @@ function TrustGraphCard({ v }: { v: TrustValidation }) {
   const checks = Object.values(v.checks ?? {});
   const passed = checks.filter((c) => c.ok).length;
   const cls = v.outcome === 'validated' ? 'ok' : v.outcome === 'gated' ? 'gate' : 'no';
+  const tx = v.anchor?.onchain ? v.anchor.txHash : undefined;
   return (
     <div className="trustgraph">
       <div className="tg-head">
@@ -43,18 +107,20 @@ function TrustGraphCard({ v }: { v: TrustValidation }) {
         <dd>{passed}/{checks.length} passed</dd>
         <dt>Attestation</dt>
         <dd className="mono">{short(v.attestation?.proof?.proofValue, 8)}</dd>
+        {v.anchor?.onchain && (
+          <>
+            <dt>On-chain</dt>
+            <dd>
+              {tx ? (
+                <a href={`https://sepolia.basescan.org/tx/${tx}`} target="_blank" rel="noreferrer">⛓ anchored on Base Sepolia ↗</a>
+              ) : (
+                <span>⛓ anchored on Base Sepolia</span>
+              )}
+            </dd>
+          </>
+        )}
       </dl>
-      {v.graph && (
-        <ul className="tg-edges">
-          {v.graph.edges.map((e, i) => (
-            <li key={i}>
-              <span className="tg-node">{nodeLabel(v.graph, e.from)}</span>
-              <em>{e.rel.replace(/_/g, ' ').toLowerCase()}</em>
-              <span className="tg-node">{nodeLabel(v.graph, e.to)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {v.graph && <TrustGraphSvg graph={v.graph} />}
     </div>
   );
 }

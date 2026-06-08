@@ -164,6 +164,7 @@ export interface TrustValidation {
   checks: Record<string, { ok: boolean; detail?: string }>;
   attestation?: { credentialSubject?: Record<string, unknown>; proof?: { proofValue?: string } };
   graph?: { nodes: GraphNode[]; edges: GraphEdge[] };
+  anchor?: { onchain: boolean; attestationHash?: string; registry?: string; chainId?: number; txHash?: string; alreadyAnchored?: boolean } | null;
   validator?: string;
 }
 

@@ -276,6 +276,7 @@ app.post('/trust/validate', async (c) => {
     checks: validation.checks,
     attestation: validation.attestation,
     graph: validation.graph,
+    anchor: validation.anchor,
     validator: vurl,
   });
 });

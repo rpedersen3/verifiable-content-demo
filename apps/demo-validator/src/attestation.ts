@@ -20,6 +20,11 @@ const credentialSigner = {
   signDigest: (hash: Hex) => account.sign({ hash }),
 };
 
+/** EIP-191 sign by the validator (for the on-chain attestation anchor). */
+export function signAnchorDigest(digest: Hex): Promise<Hex> {
+  return account.signMessage({ message: { raw: digest } });
+}
+
 export function hashJson(x: unknown): Hex {
   return keccak256(toBytes(JSON.stringify(x)));
 }

@@ -8,6 +8,7 @@ import { validateBundle } from './validate.js';
 import { makeOnchainVerifier } from './onchain.js';
 import { buildValidationAttestation, hashJson, VALIDATOR_AGENT_ID, VALIDATOR_NAME } from './attestation.js';
 import { buildTrustGraph } from './trust-graph.js';
+import { anchorAttestation } from './anchor.js';
 import type { EvidenceBundle } from './bundle.js';
 
 const MCP_URL = (process.env.MCP_URL ?? 'http://localhost:8790').replace(/\/$/, '');
@@ -29,7 +30,14 @@ export const app = new Hono();
 app.use('*', cors());
 
 app.get('/health', (c) =>
-  c.json({ ok: true, service: 'demo-validator', mode: verifySignature ? 'onchain' : 'dev', trustedIssuers: TRUSTED_ISSUERS, mcp: MCP_URL }),
+  c.json({
+    ok: true,
+    service: 'demo-validator',
+    mode: verifySignature ? 'onchain' : 'dev',
+    trustedIssuers: TRUSTED_ISSUERS,
+    mcp: MCP_URL,
+    anchorConfigured: { registry: !!process.env.ATTESTATION_REGISTRY, relayer: !!process.env.VALIDATOR_ANCHOR_PK, rpc: !!process.env.VALIDATOR_RPC_URL },
+  }),
 );
 
 app.get('/', (c) =>
@@ -46,6 +54,7 @@ app.post('/validate', async (c) => {
     // bundle + return a small trust graph around the validated output.
     let attestation: unknown;
     let graph: unknown;
+    let anchor: unknown;
     if (result.checks.schema?.ok) {
       const profile = `${bundle.policy?.policyProfile ?? 'public-domain-demo'}${bundle.proof?.zkMembership ? '+zk-membership' : ''}`;
       attestation = await buildValidationAttestation({
@@ -75,8 +84,19 @@ app.post('/validate', async (c) => {
         agentRunId: bundle.intent.agentRunId,
         outputId: bundle.intent.outputId,
       });
+
+      // Phase 6 — best-effort: anchor the attestation on-chain (timeboxed so a
+      // slow RPC can't blow the function budget; validation never fails on it).
+      try {
+        anchor = await Promise.race([
+          anchorAttestation(attestation, { subjectAgentId: bundle.agent.agentId, profile, outcome: result.outcome }),
+          new Promise((resolve) => setTimeout(() => resolve({ onchain: false, error: 'anchor timed out' }), 45000)),
+        ]);
+      } catch (e) {
+        anchor = { onchain: false, error: (e as Error).message };
+      }
     }
-    return c.json({ ok: true, ...result, attestation, graph });
+    return c.json({ ok: true, ...result, attestation, graph, anchor });
   } catch (e) {
     return c.json({ ok: false, error: 'validation error', detail: (e as Error).message }, 500);
   }

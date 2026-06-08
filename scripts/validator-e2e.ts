@@ -6,7 +6,7 @@
 //   VALIDATOR_URL=https://<vercel>  pnpm validate:e2e
 // Defaults target the live Cloudflare a2a/mcp (on-chain mode, Base Sepolia).
 
-import { keccak256, toBytes, recoverAddress } from 'viem';
+import { keccak256, toBytes, recoverAddress, createPublicClient, http } from 'viem';
 import { verifyCredentialStructural } from '@agenticprimitives/verifiable-credentials';
 import { buildPoseidonTree, proveMembership, toField } from '@verifiable-content-demo/zk-membership';
 
@@ -65,6 +65,7 @@ async function main() {
 
   const ok = await jpost(`${VALIDATOR}/validate`, bundle);
   show('Honest bundle', ok);
+  if (process.env.DEBUG_ANCHOR) console.log('DEBUG anchor:', JSON.stringify(ok.anchor));
 
   // The validator is an attesting agent: verify its SIGNED ValidationAttestation
   // + that the trust graph asserts VALIDATED_OUTPUT.
@@ -84,12 +85,24 @@ async function main() {
     for (const e of ok.graph?.edges ?? []) console.log(`  ${e.from}  --${e.rel}-->  ${e.to}`);
   }
 
+  // Phase 6 — if the validator anchored the attestation, INDEPENDENTLY confirm
+  // it on-chain (ValidationAttestationRegistry.isValid).
+  let anchorOk = true;
+  const anchor = ok.anchor as any;
+  if (anchor?.onchain) {
+    const abi = [{ type: 'function', name: 'isValid', stateMutability: 'view', inputs: [{ name: 'h', type: 'bytes32' }], outputs: [{ type: 'bool' }] }] as const;
+    const rpc = process.env.BASE_SEPOLIA_RPC ?? 'https://sepolia.base.org';
+    const pub = createPublicClient({ transport: http(rpc) });
+    anchorOk = (await pub.readContract({ address: anchor.registry, abi, functionName: 'isValid', args: [anchor.attestationHash] })) as boolean;
+    console.log(`On-chain anchor: ${anchorOk ? '✓' : '✗'} | ${anchor.alreadyAnchored ? 'already anchored' : 'tx ' + anchor.txHash} | registry ${anchor.registry}`);
+  }
+
   const tampered = JSON.parse(JSON.stringify(bundle));
   tampered.response.text = (tampered.response.text ?? '') + ' (TAMPERED)';
   const bad = await jpost(`${VALIDATOR}/validate`, tampered);
   show('Tampered response', bad);
 
-  const pass = ok.outcome === 'validated' && bad.outcome === 'rejected' && attOk && edgeOk;
+  const pass = ok.outcome === 'validated' && bad.outcome === 'rejected' && attOk && edgeOk && anchorOk;
   console.log(`\n${pass ? 'HOSTED VALIDATOR E2E PASSED ✓' : 'HOSTED VALIDATOR E2E FAILED ✗'}`);
   process.exit(pass ? 0 : 1);
 }
