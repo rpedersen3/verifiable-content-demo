@@ -146,6 +146,16 @@ export function ingestSources(ctx) {
       if (esv) coordByName.set(norm(esv), { lat: parseFloat(lat), lon: parseFloat(lon), modern: (comment || root || '').trim() });
     }
   }
+  // geometry.jsonl → representative point for every OpenBible place (covers names not in merged.txt)
+  const geomFile = join(S, 'openbible-geometry.jsonl');
+  if (existsSync(geomFile)) {
+    for (const line of readFileSync(geomFile, 'utf8').split(/\r?\n/)) {
+      if (!line.trim()) continue; let g; try { g = JSON.parse(line); } catch { continue; }
+      const k = norm(g.name); if (!k || coordByName.has(k)) continue;
+      const ll = g.suggested?.label_line; const pt = Array.isArray(ll) && ll.length ? ll[0] : null;
+      if (pt) { const [lon, lat] = String(pt).split(',').map(parseFloat); if (isFinite(lat) && isFinite(lon)) coordByName.set(k, { lat, lon, modern: null }); }
+    }
+  }
   const ancientFile = join(S, 'openbible-ancient.jsonl');
   if (existsSync(ancientFile)) {
     for (const line of readFileSync(ancientFile, 'utf8').split(/\r?\n/)) {
@@ -162,7 +172,10 @@ export function ingestSources(ctx) {
     const pleiades = ld.s2428ed?.id ? String(ld.s2428ed.id).match(/\d+/)?.[0] : null;
     const geonames = ld.sd62f5f?.id ? String(ld.sd62f5f.id).match(/\d+/)?.[0] : null;
     const tipnrId = ld.s3b25cf?.id || null;
-    const coord = coordByName.get(norm(name));
+    let coord = coordByName.get(norm(name));
+    const ll = o.identifications?.[0]?.resolutions?.[0]?.lonlat; // inline "lon,lat" for this place
+    if ((!coord || !isFinite(coord.lat)) && ll) { const [lon, lat] = String(ll).split(',').map(parseFloat); if (isFinite(lat) && isFinite(lon)) coord = { lat, lon, modern: coord?.modern ?? null }; }
+    if (coord && isFinite(coord.lat)) coordByName.set(norm(name), coord); // share with same-named places from other sources
     const modern = o.identifications?.[0] ? stripMarkup(o.identifications[0].description || '') : (coord?.modern || null);
 
     // reconcile to an existing place node: prefer Wikidata-QID agreement (exactMatch), else name
@@ -199,6 +212,15 @@ export function ingestSources(ctx) {
     if (tipnrId) addXref(nodeId, 'tipnr', tipnrId, 'skos:closeMatch', conf, 'openbible-linked', 'openbible');
   }
 
+  // geo-reference every remaining place by name from OpenBible's geometry, so all locatable biblical
+  // places appear on the map. Truly-unidentified places stay unplaced — no fabricated coordinates.
+  let geoFilled = 0;
+  for (const [, n] of byId) {
+    if (n.kind !== 'place' || n.lat != null) continue;
+    const c = coordByName.get(norm(n.label));
+    if (c && isFinite(c.lat)) { n.lat = c.lat; n.lon = c.lon; n.wkt = `POINT(${c.lon} ${c.lat})`; geoFilled++; }
+  }
+  stats.geoFilled = geoFilled;
   return { sources, xrefs, nodeSources, forms, stats };
 }
 

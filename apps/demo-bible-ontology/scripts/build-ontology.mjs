@@ -446,7 +446,7 @@ function main() {
   const addVerseLinks = (id, osises) => { for (const o of osises ?? []) if (o) nodeVerse.push({ id, osis: o }); };
   const ingest = ingestSources({ ROOT, byId, addNode, addEdge, linkVerses, addVerseLinks, peopleByKey, placeByLabel, slugify, norm });
   console.log('ingest · tipnr', JSON.stringify(ingest.stats.tipnr), '· openbible', JSON.stringify(ingest.stats.openbible));
-  console.log('ingest · sources', ingest.sources.length, '· xrefs', ingest.xrefs.length, '· node_source', ingest.nodeSources.length, '· forms', ingest.forms.length);
+  console.log('ingest · sources', ingest.sources.length, '· xrefs', ingest.xrefs.length, '· node_source', ingest.nodeSources.length, '· forms', ingest.forms.length, '· geo-filled places', ingest.stats.geoFilled);
 
   // curated fine-grained interactions (letters / speech acts) — conversation-level trust-graph edges
   const interactions = ingestInteractions({ ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm });

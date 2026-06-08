@@ -16,6 +16,7 @@ const FILES = [
   ['openbible-ancient.jsonl', 'https://raw.githubusercontent.com/openbibleinfo/Bible-Geocoding-Data/main/data/ancient.jsonl'],
   ['openbible-source.jsonl', 'https://raw.githubusercontent.com/openbibleinfo/Bible-Geocoding-Data/main/data/source.jsonl'],
   ['openbible-merged.txt', 'https://www.openbible.info/geo/data/merged.txt'],
+  ['openbible-geometry.jsonl', 'https://raw.githubusercontent.com/openbibleinfo/Bible-Geocoding-Data/main/data/geometry.jsonl'],
   ['macula-greek.tsv', 'https://raw.githubusercontent.com/Clear-Bible/macula-greek/main/Nestle1904/tsv/macula-greek-Nestle1904.tsv'],
 ];
 
