@@ -1,0 +1,30 @@
+{
+  "_doc": "Biblical nations / peoples (gôyim · ethnē) modeled as gc:Nation organizations, distinct from their geographic place. Linked to that place (dul:hasLocation) and, where Scripture gives an eponymous ancestor, to that founder (gc:grewOutOf). Verses are picked up by the name→verse pass. [people label, place to link, ancestor or null, key verse, extra aliases].",
+  "nations": [
+    { "people": "Egyptians", "place": "Egypt", "founder": "Mizraim", "osis": "Gen.10.6", "aka": ["Mizraim", "people of Egypt"] },
+    { "people": "Babylonians", "place": "Babylon", "founder": null, "osis": "Hab.1.6", "aka": ["Chaldeans", "people of Babylon"] },
+    { "people": "Assyrians", "place": "Assyria", "founder": "Asshur", "osis": "Gen.10.22", "aka": ["people of Assyria"] },
+    { "people": "Philistines", "place": "Philistia", "founder": null, "osis": "Judg.13.1", "aka": ["people of Philistia"] },
+    { "people": "Moabites", "place": "Moab", "founder": "Moab", "osis": "Gen.19.37", "aka": ["people of Moab", "sons of Moab"] },
+    { "people": "Ammonites", "place": "Ammon", "founder": "Ben-Ammi", "osis": "Gen.19.38", "aka": ["children of Ammon", "people of Ammon"] },
+    { "people": "Edomites", "place": "Edom", "founder": "Esau", "osis": "Gen.36.9", "aka": ["sons of Esau", "people of Edom"] },
+    { "people": "Canaanites", "place": "Canaan", "founder": "Canaan", "osis": "Gen.10.18", "aka": ["people of Canaan"] },
+    { "people": "Amalekites", "place": null, "founder": "Amalek", "osis": "Exod.17.8", "aka": ["people of Amalek"] },
+    { "people": "Midianites", "place": "Midian", "founder": "Midian", "osis": "Judg.6.1", "aka": ["people of Midian"] },
+    { "people": "Ishmaelites", "place": null, "founder": "Ishmael", "osis": "Gen.37.28", "aka": ["sons of Ishmael"] },
+    { "people": "Hittites", "place": null, "founder": "Heth", "osis": "Gen.23.3", "aka": ["sons of Heth", "children of Heth"] },
+    { "people": "Amorites", "place": null, "founder": null, "osis": "Josh.10.5", "aka": ["people of the Amorites"] },
+    { "people": "Jebusites", "place": "Jerusalem", "founder": null, "osis": "Josh.15.63", "aka": ["people of Jebus"] },
+    { "people": "Arameans", "place": "Aram (Syria)", "founder": "Aram", "osis": "2Sam.8.5", "aka": ["Syrians", "people of Aram"] },
+    { "people": "Romans", "place": "Rome", "founder": null, "osis": "John.11.48", "aka": ["people of Rome"] },
+    { "people": "Greeks", "place": "Greece", "founder": null, "osis": "Acts.17.4", "aka": ["Hellenes", "people of Greece"] },
+    { "people": "Persians", "place": "Persia", "founder": null, "osis": "Esth.1.3", "aka": ["people of Persia"] },
+    { "people": "Medes", "place": null, "founder": null, "osis": "Dan.5.28", "aka": ["people of Media"] },
+    { "people": "Phoenicians", "place": "Tyre", "founder": null, "osis": "Acts.21.2", "aka": ["people of Tyre and Sidon"] },
+    { "people": "Samaritans", "place": "Samaria", "founder": null, "osis": "John.4.9", "aka": ["people of Samaria"] },
+    { "people": "Cushites", "place": null, "founder": "Cush", "osis": "Gen.10.6", "aka": ["Ethiopians", "people of Cush"] },
+    { "people": "Hivites", "place": null, "founder": null, "osis": "Josh.9.7", "aka": ["people of the Hivites"] },
+    { "people": "Perizzites", "place": null, "founder": null, "osis": "Gen.13.7", "aka": ["people of the Perizzites"] },
+    { "people": "Gentiles", "place": null, "founder": null, "osis": "Rom.1.16", "aka": ["the nations", "the peoples", "heathen"] }
+  ]
+}

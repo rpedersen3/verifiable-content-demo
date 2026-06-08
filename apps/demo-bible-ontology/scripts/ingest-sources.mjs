@@ -387,6 +387,31 @@ export function ingestRelationships(ctx) {
   return { kinship, companion };
 }
 
+// Biblical nations / peoples (gôyim · ethnē) as gc:Nation organizations — distinct from their place
+// (Egyptians ≠ Egypt). Located at that place, descended from an eponymous ancestor where Scripture
+// gives one. Minted with NO verse links so the build's name→verse pass attests them by name.
+export function ingestNations(ctx) {
+  const { ROOT, byId, addNode, addEdge, peopleByKey, placeByLabel, slugify, norm } = ctx;
+  let data;
+  try { data = JSON.parse(readFileSync(join(ROOT, 'apps', 'demo-bible-ontology', 'data', 'nations.json'), 'utf8')).nations; }
+  catch { return { count: 0 }; }
+  const pick = (idx, name) => { if (!name) return null; const a = idx.get(norm(name)); if (!a || !a.length) return null; const m = new Map(); for (const c of a) m.set(c.id, Math.max(m.get(c.id) ?? -1, c.v)); return [...m].sort((x, y) => y[1] - x[1])[0][0]; };
+  let count = 0;
+  for (const n of data) {
+    const id = `nation:${slugify(n.people)}`;
+    if (byId.has(id)) continue;
+    addNode({ id, canonId: `nation-${slugify(n.people)}`, label: n.people, kind: 'organization', disambig: 'Nation / People',
+      prov: 'prov:Organization', dul: 'dul:Organization', gc: 'gc:Nation', orgClass: 'gc:Nation', aps: null,
+      canonConf: 0.85, canonMethod: 'curated:scripture', canonBasis: `biblical nation / people${n.osis ? ` (${n.osis})` : ''}`, origin: 'nation', akaExtra: n.aka || [], extra: { place: n.place } });
+    const placeId = pick(placeByLabel, n.place);
+    if (placeId) addEdge(id, 'dul:hasLocation', placeId);
+    const founder = pick(peopleByKey, n.founder);
+    if (founder) { addEdge(id, 'gc:grewOutOf', founder); addEdge(founder, 'gc:gaveRiseTo', id); }
+    count++;
+  }
+  return { count };
+}
+
 // New Testament churches as agentive assemblies (gc:AgentiveEkklesia) — the groups Paul & others
 // planted and wrote to (the Philippians, Ephesians, …), located at their city, founded by their
 // planter. These are the "church" organizations Theographic lacks. Returns a name→church-id map.

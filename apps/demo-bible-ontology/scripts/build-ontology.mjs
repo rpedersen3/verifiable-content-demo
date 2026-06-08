@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ingestSources, ingestInteractions, ingestMacula, ingestPlans, ingestMovements, ingestChurches, ingestRelationships } from './ingest-sources.mjs';
+import { ingestSources, ingestInteractions, ingestMacula, ingestPlans, ingestMovements, ingestChurches, ingestRelationships, ingestNations } from './ingest-sources.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -598,6 +598,10 @@ function main() {
   const rel = ingestRelationships({ ROOT, byId, addEdge, peopleByKey, norm });
   console.log('relationships · kinship', rel.kinship, '· companion', rel.companion);
 
+  // biblical nations / peoples as gc:Nation organizations (Egyptians, Romans, Moabites, …)
+  const nat = ingestNations({ ROOT, byId, addNode, addEdge, peopleByKey, placeByLabel, slugify, norm });
+  console.log('nations ·', nat.count, 'gc:Nation peoples');
+
   // Relative dating — a person with no dates of their own but a dated relative or a dated event
   // they took part in gets an approximate year (marked 'relative' → shown as a triangle, not a bar).
   {
@@ -711,6 +715,26 @@ function main() {
         if (hits.length) { for (const o of hits) nodeVerse.push({ id: n.id, osis: o }); n.extra = { ...n.extra, verseMatch: 'name' }; matched++; }
       }
       console.log('name→verse · matched', matched, 'previously-unattested entities to verses');
+
+      // Person → nation membership (from Scripture): link a person to a gc:Nation when the phrase
+      // "<Name> the <gentilic>" occurs in their verses — "Uriah the Hittite", "Ruth the Moabite(ss)",
+      // "Doeg the Edomite", "Araunah the Jebusite", "Naaman … of Aram", etc.
+      const textOf = new Map(osisText.map((v) => [v.osis, v.text]));
+      const versesByNode = new Map();
+      for (const v of nodeVerse) { if (!versesByNode.has(v.id)) versesByNode.set(v.id, []); versesByNode.get(v.id).push(v.osis); }
+      const nationGent = [...byId.values()].filter((n) => n.gc === 'gc:Nation' && n.label !== 'Nation of Israel')
+        .map((n) => ({ id: n.id, gent: n.label.replace(/s$/, '').toLowerCase() }));
+      let memb = 0;
+      for (const n of nodes) {
+        if (n.kind !== 'person') continue;
+        const fname = String(n.label || '').toLowerCase(); if (fname.length < 3) continue;
+        const oss = versesByNode.get(n.id); if (!oss || !oss.length) continue;
+        const blob = oss.map((o) => textOf.get(o) || '').join(' ');
+        for (const g of nationGent) {
+          if (blob.includes(`${fname} the ${g.gent}`)) { addEdge(n.id, 'org:memberOf', g.id); addEdge(g.id, 'org:hasMember', n.id); memb++; break; }
+        }
+      }
+      console.log('nation membership · linked', memb, 'people to their nation by gentilic in Scripture');
     }
   }
 
