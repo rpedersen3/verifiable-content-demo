@@ -166,6 +166,7 @@ export interface TrustValidation {
   graph?: { nodes: GraphNode[]; edges: GraphEdge[] };
   anchor?: { onchain: boolean; attestationHash?: string; registry?: string; chainId?: number; txHash?: string; alreadyAnchored?: boolean } | null;
   validator?: string;
+  services?: { agent?: string; mcp?: string; validator?: string };
 }
 
 /** Ask the agent to assemble an evidence bundle and have the INDEPENDENT

@@ -279,6 +279,12 @@ app.post('/trust/validate', async (c) => {
     graph: validation.graph,
     anchor: validation.anchor,
     validator: vurl,
+    // App URL per role, so the UI can label which deployed service each node is.
+    services: {
+      agent: (c.env.A2A_PUBLIC_ORIGIN ?? new URL(c.req.url).origin).replace(/\/$/, ''),
+      mcp: mcpUrl(c.env),
+      validator: vurl,
+    },
   });
 });
 
