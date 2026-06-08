@@ -231,7 +231,7 @@ app.get('/api/timeline', async (c) => {
   const from = parseInt(c.req.query('from') ?? '-4200', 10);
   const to = parseInt(c.req.query('to') ?? '120', 10);
   const evCap = Math.min(300, Math.max(20, parseInt(c.req.query('events') ?? '150', 10)));
-  const sel = "id,canon_id,label,kind,disambig,t_start tStart,t_end tEnd,image_thumb,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v";
+  const sel = "id,canon_id,label,kind,disambig,t_start tStart,t_end tEnd,image_thumb,json_extract(meta,'$.dateBasis') basis,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v";
   const [people, events, evTot, pplTot] = await Promise.all([
     rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='person' AND t_start IS NOT NULL AND t_start<=? AND COALESCE(t_end,t_start)>=? ORDER BY v DESC LIMIT 130`, to, from),
     rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='event' AND t_start IS NOT NULL AND t_start<=? AND t_start>=? ORDER BY v DESC LIMIT ?`, to, from, evCap),

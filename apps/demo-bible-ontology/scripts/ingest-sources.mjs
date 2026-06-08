@@ -6,6 +6,14 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+// great-circle distance in km (for de-duplicating places at the same location)
+function haversineKm(la1, lo1, la2, lo2) {
+  const R = 6371, t = Math.PI / 180;
+  const dLa = (la2 - la1) * t, dLo = (lo2 - lo1) * t;
+  const a = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * t) * Math.cos(la2 * t) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
 const SRC = {
   theographic: ['Theographic Bible Metadata', 'TBM', 'https://github.com/robertrouse/theographic-bible-metadata', 'CC BY-SA 4.0', '© robertrouse'],
   tipnr: ['STEPBible TIPNR — Translators Individualised Proper Names', 'TIPNR', 'https://github.com/STEPBible/STEPBible-Data', 'CC BY 4.0', '© STEPBible.org / Tyndale House Cambridge'],
@@ -178,12 +186,27 @@ export function ingestSources(ctx) {
     if (coord && isFinite(coord.lat)) coordByName.set(norm(name), coord); // share with same-named places from other sources
     const modern = o.identifications?.[0] ? stripMarkup(o.identifications[0].description || '') : (coord?.modern || null);
 
-    // reconcile to an existing place node: prefer Wikidata-QID agreement (exactMatch), else name
+    // reconcile to an existing place node. Canonical de-dup: OpenBible's friendly_id carries a
+    // disambiguation number ("Dibon 1/2/3"); strip it and merge into a same-named place at the SAME
+    // location (≤8 km) so we don't keep duplicates. Genuinely distinct same-name places (different
+    // location) stay separate and get disambiguated by region later.
     let nodeId = null, conf = 0, method = null, relation = 'skos:closeMatch';
-    const cand = pick(placeByLabel.get(norm(name)));
+    const baseName = name.replace(/\s+\d+$/, '').trim();
+    const obLat = coord?.lat, obLon = coord?.lon;
+    let cand = null, geoKm = null;
+    if (isFinite(obLat)) {
+      const seen = new Set(); let bestD = Infinity, bestId = null;
+      for (const c of [...(placeByLabel.get(norm(name)) || []), ...(placeByLabel.get(norm(baseName)) || [])]) {
+        if (seen.has(c.id)) continue; seen.add(c.id);
+        const nd = byId.get(c.id); if (nd && nd.lat != null) { const dd = haversineKm(obLat, obLon, nd.lat, nd.lon); if (dd < bestD) { bestD = dd; bestId = c.id; } }
+      }
+      if (bestId && bestD <= 8) { cand = { id: bestId, n: 1, dom: 1 }; geoKm = bestD; }
+    }
+    if (!cand) cand = pick(placeByLabel.get(norm(name)));   // exact-name fallback (coordless places)
     if (cand) {
       const existingQid = qidOf(byId.get(cand.id)?.wikidata);
       if (wikidata && existingQid && wikidata === existingQid) { nodeId = cand.id; conf = 0.98; method = 'wikidata-agree'; relation = 'skos:exactMatch'; stats.openbible.exact++; }
+      else if (geoKm != null) { nodeId = cand.id; conf = 0.95; method = `geo-merge(${geoKm.toFixed(1)}km)`; relation = 'skos:exactMatch'; stats.openbible.merged = (stats.openbible.merged || 0) + 1; }
       else { nodeId = cand.id; conf = cand.n === 1 ? 0.9 : +Math.max(0.5, 0.6 + (cand.dom - 0.5) * 0.6).toFixed(2); method = cand.n === 1 ? 'name-unique' : `name-collision(${cand.n})`; }
       stats.openbible.matched++;
       addNodeSource(nodeId, 'openbible', o.id, name, conf);
@@ -191,7 +214,7 @@ export function ingestSources(ctx) {
       nodeId = `openbible:${o.id}`;
       if (byId.has(nodeId)) return;
       const lat = coord?.lat, lon = coord?.lon;
-      addNode({ id: nodeId, canonId: `${slugify(name)}_${o.id}`, label: name, kind: 'place', disambig: (o.types || []).join('/') || modern || null,
+      addNode({ id: nodeId, canonId: `${slugify(baseName)}_${o.id}`, label: baseName, kind: 'place', disambig: modern || (o.types || []).join('/') || null,
         prov: 'prov:Entity', dul: 'dul:Place', gc: 'gc:Place', aps: null, geoClass: 'geo:Feature',
         lat: isFinite(lat) ? lat : null, lon: isFinite(lon) ? lon : null, wkt: isFinite(lat) && isFinite(lon) ? `POINT(${lon} ${lat})` : null,
         canonConf: wikidata ? 0.75 : 0.6, canonMethod: 'openbible:source-only', canonBasis: `minted from OpenBible ${o.id} (no Theographic match)`, origin: 'openbible', extra: { obTypes: o.types, modern } });

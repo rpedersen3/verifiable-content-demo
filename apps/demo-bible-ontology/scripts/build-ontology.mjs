@@ -492,6 +492,33 @@ function main() {
   const ingest = ingestSources({ ROOT, byId, addNode, addEdge, linkVerses, addVerseLinks, peopleByKey, placeByLabel, slugify, norm });
   console.log('ingest · tipnr', JSON.stringify(ingest.stats.tipnr), '· openbible', JSON.stringify(ingest.stats.openbible));
   console.log('ingest · sources', ingest.sources.length, '· xrefs', ingest.xrefs.length, '· node_source', ingest.nodeSources.length, '· forms', ingest.forms.length, '· geo-filled places', ingest.stats.geoFilled);
+  if (ingest.stats.openbible.merged) console.log('ingest · openbible geo-merged (de-duplicated)', ingest.stats.openbible.merged, 'places');
+
+  // Canonical places: distinguish same-named places that sit in different locations by region
+  // (e.g. "Dibon" in Moab vs the one in Judah). Rough lat/lon boxes for the biblical world.
+  const REGIONS = [
+    ['Egypt', 22, 31.6, 24, 34], ['Sinai', 27.5, 30.4, 32, 35], ['Arabia', 15, 30, 35, 50],
+    ['the Negev', 30, 31.25, 34.2, 35.5], ['Philistia', 31.25, 31.85, 34.2, 34.8], ['Judah', 31.25, 31.95, 34.8, 35.5],
+    ['Moab', 30.8, 31.95, 35.5, 36.1], ['Edom', 29.8, 30.9, 34.8, 36.2], ['Ammon', 31.7, 32.4, 35.6, 36.3],
+    ['Samaria', 31.85, 32.6, 34.9, 35.65], ['Gilead', 32, 33.2, 35.6, 36.5], ['Galilee', 32.55, 33.35, 34.95, 35.75],
+    ['Phoenicia', 33, 34.7, 35.0, 35.8], ['Aram (Syria)', 33, 35.5, 35.9, 38.5], ['Cyprus', 34.4, 35.8, 32, 34.7],
+    ['Mesopotamia', 29, 38, 38.5, 49], ['Asia Minor', 35.8, 42, 26, 40.5], ['Greece', 34.8, 41.5, 19, 26.5], ['Italy', 37, 46, 7, 19],
+  ];
+  const classifyRegion = (lat, lon) => { for (const [name, la0, la1, lo0, lo1] of REGIONS) if (lat >= la0 && lat <= la1 && lon >= lo0 && lon <= lo1) return name; return null; };
+  {
+    const byLabel = new Map();
+    for (const n of byId.values()) if (n.kind === 'place' && n.label) { const k = String(n.label).toLowerCase(); if (!byLabel.has(k)) byLabel.set(k, []); byLabel.get(k).push(n); }
+    let tagged = 0;
+    for (const group of byLabel.values()) {
+      if (group.length < 2) continue;                       // only disambiguate genuine same-name collisions
+      for (const n of group) {
+        if (n.lat == null) continue;
+        const r = classifyRegion(n.lat, n.lon);
+        if (r) { const ex = n.disambig && /^[A-Za-z/() ]+$/.test(n.disambig) ? ' · ' + n.disambig : ''; n.disambig = r + ex; tagged++; }
+      }
+    }
+    console.log('place de-dup · region-disambiguated', tagged, 'same-named places');
+  }
 
   // NT churches as assemblies (gc:AgentiveEkklesia) — the groups Paul planted & wrote to
   const versesOf = (id) => nodeVerse.filter((v) => v.id === id).map((v) => v.osis);
@@ -517,6 +544,65 @@ function main() {
   // interpersonal relationships beyond family — kinship + companionship (with scripture)
   const rel = ingestRelationships({ ROOT, byId, addEdge, peopleByKey, norm });
   console.log('relationships · kinship', rel.kinship, '· companion', rel.companion);
+
+  // Relative dating — a person with no dates of their own but a dated relative or a dated event
+  // they took part in gets an approximate year (marked 'relative' → shown as a triangle, not a bar).
+  {
+    const adj = new Map();
+    const link = (a, b) => { if (!adj.has(a)) adj.set(a, []); adj.get(a).push(b); };
+    for (const e of edges) {
+      if (/hasParent|hasChild|hasSibling|hasPartner|hasRelative|wasAssociatedWith|participatedIn|spokeTo|bornAt|diedAt/.test(e.rel)) { link(e.src, e.dst); link(e.dst, e.src); }
+    }
+    let inferred = 0;
+    for (const n of byId.values()) {
+      if (n.kind !== 'person' || n.tStart != null) continue;
+      for (const nb of adj.get(n.id) ?? []) { const nd = byId.get(nb); if (nd && nd.tStart != null) { n.tStart = nd.tStart; n.extra = { ...n.extra, dateBasis: 'relative' }; inferred++; break; } }
+    }
+    console.log('relative dating · inferred', inferred, 'people from dated kin/events');
+  }
+
+  // Disambiguate same-named events by their location (Theographic reuses titles like "Resurrection
+  // and Ascension" for records at different places) — append the place to the label so they differ.
+  {
+    const evLoc = new Map();
+    for (const e of edges) if (e.rel === 'dul:hasLocation') { const s = byId.get(e.src); if (s && s.kind === 'event' && !evLoc.has(e.src)) { const p = byId.get(e.dst); if (p) evLoc.set(e.src, p.label); } }
+    const byLabel = new Map();
+    for (const n of byId.values()) if (n.kind === 'event' && n.label) { const k = n.label.toLowerCase(); if (!byLabel.has(k)) byLabel.set(k, []); byLabel.get(k).push(n); }
+    let adj = 0;
+    for (const group of byLabel.values()) {
+      if (group.length < 2) continue;
+      const seen = new Set(); let i = 0;
+      for (const n of group) { i++; const loc = evLoc.get(n.id); let suffix = loc && !seen.has(loc.toLowerCase()) ? loc : null; if (suffix) seen.add(suffix.toLowerCase()); else if (i > 1) suffix = `#${i}`; if (suffix) { n.label = `${n.label} · ${suffix}`; adj++; } }
+    }
+    console.log('event de-dup · disambiguated', adj, 'same-named events by location');
+  }
+
+  // Disambiguate same-named PEOPLE (e.g. 3 distinct "Hezekiah"s: son of Ahaz the king, son of
+  // Neariah, son of Ater). These are different biblical people who share a name — not duplicates —
+  // so we tag each with role + parentage ("King · son of Ahaz") to tell them apart.
+  {
+    const parentOf = new Map();
+    for (const e of edges) if (e.rel === 'gc:hasParent' && !parentOf.has(e.src)) { const p = byId.get(e.dst); if (p) parentOf.set(e.src, p.label); }
+    const vCount = new Map();
+    for (const nv of nodeVerse) vCount.set(nv.id, (vCount.get(nv.id) ?? 0) + 1);
+    const byLabel = new Map();
+    for (const n of byId.values()) if (n.kind === 'person' && n.label) { const k = n.label.toLowerCase(); if (!byLabel.has(k)) byLabel.set(k, []); byLabel.get(k).push(n); }
+    let tagged = 0;
+    for (const group of byLabel.values()) {
+      if (group.length < 2) continue;
+      // most-attested keeps the simplest label; rank by verse attestation so "the" famous one is clear
+      group.sort((a, b) => (vCount.get(b.id) ?? 0) - (vCount.get(a.id) ?? 0));
+      for (const n of group) {
+        const parts0 = String(n.disambig ?? '').split(' · ');
+        const role = parts0[0] && !/^(Male|Female)$/.test(parts0[0]) ? parts0[0] : null;
+        const fa = parentOf.get(n.id);
+        const kin = fa ? `${n.extra?.gender === 'Female' ? 'daughter' : 'son'} of ${fa}` : null;
+        const parts = [role, kin].filter(Boolean);
+        if (parts.length) { n.disambig = parts.join(' · '); tagged++; }
+      }
+    }
+    console.log('person de-dup · disambiguated', tagged, 'same-named people by role + parentage');
+  }
 
   // ── emit chunked SQL ──
   mkdirSync(OUT, { recursive: true });

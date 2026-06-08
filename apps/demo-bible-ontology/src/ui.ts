@@ -51,6 +51,7 @@ nav button.nav-util.on{background:#eef2fb;color:var(--accent);border-color:var(-
 .map-search input:focus{border-color:var(--accent)}
 .map-search #mapres{background:#fff;border:1px solid var(--line);border-radius:8px;margin-top:4px;box-shadow:0 4px 14px rgba(20,30,50,.14);max-height:240px;overflow:auto}
 .map-search ul.list{margin:0}.map-search ul.list li{padding:6px 10px;font-size:13px}
+.reg-tri i{display:block;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:14px solid #c47d2e;opacity:.8}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .stat{background:#f8fafd;border:1px solid var(--line);border-radius:10px;padding:12px}
@@ -578,14 +579,16 @@ async function drawTimeline(){
   let ticks='';for(let y=Math.ceil(d.from/step)*step;y<=d.to;y+=step){const x=X(y);ticks+='<line x1="'+x+'" y1="'+axisY+'" x2="'+x+'" y2="'+H+'" stroke="#eef2f7"/><text x="'+x+'" y="'+(axisY-6)+'" text-anchor="middle" font-size="10" fill="#8a96a3">'+ordY(y)+'</text>';}
   let s='<svg id="tsvg" viewBox="0 0 '+W+' '+H+'">'+ticks+'<line x1="'+mL+'" y1="'+axisY+'" x2="'+(W-mR)+'" y2="'+axisY+'" stroke="#cbd5e1"/>'+
     '<text x="'+mL+'" y="'+(pTop-4)+'" font-size="10" font-weight="700" fill="#8a96a3">PEOPLE</text>';
-  ppl.forEach(p=>{const y=pTop+p._lane*laneH,x0=p._x0,xe=Math.max(p._xe,x0+3),c=col(p);
-    s+='<g class="tnode" data-id="'+esc(p.id)+'"><rect x="'+x0+'" y="'+y+'" width="'+(xe-x0)+'" height="'+barH+'" rx="3" fill="'+c+'" fill-opacity="0.85"/><text x="'+(xe+4)+'" y="'+(y+barH-3)+'" font-size="10" fill="#33404f">'+esc(p.label.length>22?p.label.slice(0,21)+'…':p.label)+'</text></g>';});
+  ppl.forEach(p=>{const y=pTop+p._lane*laneH,x0=p._x0,c=col(p),lbl=esc(p.label.length>22?p.label.slice(0,21)+'…':p.label);
+    const full=p.tEnd!=null&&p.tEnd!==p.tStart;
+    if(full){const xe=Math.max(p._xe,x0+3);s+='<g class="tnode" data-id="'+esc(p.id)+'"><rect x="'+x0+'" y="'+y+'" width="'+(xe-x0)+'" height="'+barH+'" rx="3" fill="'+c+'" fill-opacity="0.85"/><text x="'+(xe+4)+'" y="'+(y+barH-3)+'" font-size="10" fill="#33404f">'+lbl+'</text></g>';}
+    else{const tc=p.basis==='relative'?'#94a3b8':'#d9822b',cy=y+barH/2,r=barH/1.3;s+='<g class="tnode" data-id="'+esc(p.id)+'"><polygon points="'+x0+','+(cy-r)+' '+(x0+r)+','+(cy+r)+' '+(x0-r)+','+(cy+r)+'" fill="'+tc+'"/><text x="'+(x0+r+4)+'" y="'+(cy+r-1)+'" font-size="10" fill="#33404f">'+lbl+'</text></g>';}});
   s+='<text x="'+mL+'" y="'+(eTop-6)+'" font-size="10" font-weight="700" fill="#8a96a3">ACTIVITIES</text>';
   evs.forEach(e=>{const y=eTop+e._lane*15+5,x=e._x,c=col(e),r=4;s+='<g class="tnode" data-id="'+esc(e.id)+'"><polygon points="'+x+','+(y-r)+' '+(x+r)+','+y+' '+x+','+(y+r)+' '+(x-r)+','+y+'" fill="'+c+'"/></g>';});
   s+='</svg>';
   const tr=d.eventTotal>d.events.length?' <span class="muted">(top '+d.events.length+' of '+d.eventTotal+' by attestation)</span>':'';
   wrap.innerHTML='<div class="ghint" style="margin:4px 0 6px">'+d.people.length+' people · '+d.events.length+' activities'+tr+' · '+ordY(d.from)+' – '+ordY(d.to)+'</div>'+s+
-    '<div class="glegend">▬ person lifespan &nbsp; ◆ activity &nbsp;·&nbsp; signal <span style="color:#1a8a4f">＋ good</span> / <span style="color:#c0392b">－ evil</span> / <span style="color:#b45309">~ mixed</span> &nbsp;·&nbsp; hover for detail, click to open</div>';
+    '<div class="glegend">▬ lifespan (birth–death) &nbsp; <span style="color:#d9822b">▲</span> born, death unknown &nbsp; <span style="color:#94a3b8">▲</span> approx. (relative dating) &nbsp; ◆ activity &nbsp;·&nbsp; bar colour = signal <span style="color:#1a8a4f">＋</span>/<span style="color:#c0392b">－</span>/<span style="color:#b45309">~</span> &nbsp;·&nbsp; hover for detail, click to open</div>';
   const tip=document.getElementById('ttip'),byId={};[...d.people,...d.events].forEach(n=>byId[n.id]=n);
   wrap.querySelectorAll('.tnode').forEach(g=>{const n=byId[g.dataset.id];if(!n)return;
     g.addEventListener('mouseenter',()=>{tip.style.display='block';tip.innerHTML=(n.image_thumb?'<img src="'+esc(n.image_thumb)+'" style="width:100%;height:70px;object-fit:cover;border-radius:6px;margin-bottom:4px"/>':'')+'<b>'+esc(n.label)+'</b> <span class="muted">'+n.kind+'</span><div class="muted">'+ordY(n.tStart)+(n.tEnd!=null&&n.tEnd!==n.tStart?' – '+ordY(n.tEnd):'')+'</div>'+(n.disambig?'<div class="muted">'+esc(n.disambig)+'</div>':'');});
@@ -598,6 +601,7 @@ let geoMap=null,geoTimer=null;
 async function geo(){
   V.innerHTML='<div class="card"><div class="sec-head">Map</div>'+
    '<div class="gchips" id="glayers"></div>'+
+   '<div class="hint" style="margin:6px 0 8px"><span style="color:#c47d2e">▲</span> Regions (general areas like the Negev) are <b>off by default</b> — toggle the <b>Regions</b> chip to show them.</div>'+
    '<div id="map" style="height:520px;border:1px solid var(--line);border-radius:10px;z-index:0"></div>'+
    '<div id="gtime" style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div></div>';
   const mapEl=document.getElementById('map');
@@ -622,8 +626,9 @@ async function geo(){
   const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
   const placeG=L.layerGroup();
   const markerById={},regionG=L.layerGroup();
-  d.places.forEach(p=>{const isR=p.region;const m=L.circleMarker([p.lat,p.lon],{radius:isR?7:Math.min(9,3+Math.sqrt(p.v||1)),color:isR?'#b45309':'#7c8696',weight:isR?2:1,fillColor:isR?'#fbe3c6':'#aab4c2',fillOpacity:isR?.35:.5,dashArray:isR?'3 3':null});m.bindPopup(pop(p,(isR?'<br><span class="muted">region · general area (approx.)</span>':'')+(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);(isR?regionG:placeG).addLayer(m);markerById[p.id]={m,lat:p.lat,lon:p.lon,label:p.label};});
-  const evItems=d.events.map(e=>{const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop(e,'<br><span style="color:#6b7785">at '+esc(e.place||'')+'</span>'));m.bindTooltip(e.label);markerById[e.id]={m,lat:e.lat,lon:e.lon,label:e.label};return{m,t:e.tStart};});
+  const triIcon=L.divIcon({className:'reg-tri',html:'<i></i>',iconSize:[16,15],iconAnchor:[8,8]});
+  d.places.forEach(p=>{const isR=p.region;const m=isR?L.marker([p.lat,p.lon],{icon:triIcon}):L.circleMarker([p.lat,p.lon],{radius:Math.min(9,3+Math.sqrt(p.v||1)),color:'#7c8696',weight:1,fillColor:'#aab4c2',fillOpacity:.5});m.bindPopup(pop(p,(isR?'<br><span class="muted">▲ region · general area (approx.)</span>':'')+(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);(isR?regionG:placeG).addLayer(m);markerById[p.id]={m,lat:p.lat,lon:p.lon,label:p.label};});
+  const evItems=d.events.map(e=>{const lab=e.label+(e.place?' · '+e.place:'');const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop({...e,label:lab},'<br><span style="color:#6b7785">at '+esc(e.place||'')+'</span>'));m.bindTooltip(lab);markerById[e.id+':'+(e.place||'')]={m,lat:e.lat,lon:e.lon,label:lab};return{m,t:e.tStart};});
   const evG=L.layerGroup();evItems.forEach(i=>evG.addLayer(i.m));
   const pItems=d.people.map(pe=>{const m=L.circleMarker([pe.lat,pe.lon],{radius:6,color:'#fff',weight:1,fillColor:sigC(pe,'#2563eb'),fillOpacity:.9});m.bindPopup(pop(pe,'<br><span style="color:#6b7785">b. '+esc(pe.place||'')+'</span>'));m.bindTooltip(pe.label);markerById[pe.id]={m,lat:pe.lat,lon:pe.lon,label:pe.label};return{m,t0:pe.tStart,t1:pe.tEnd!=null?pe.tEnd:pe.tStart};});
   const peopleG=L.layerGroup();pItems.forEach(i=>peopleG.addLayer(i.m));
