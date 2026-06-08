@@ -74,13 +74,24 @@ async function main() {
   const att = ok.attestation as any;
   if (att?.proof) {
     const vr = verifyCredentialStructural(att);
-    const expected = String(att.credentialSubject?.validatorAgentId ?? '').split(':').pop() ?? '';
+    const expected = (String(att.credentialSubject?.validatorAgentId ?? '').split(':').pop() ?? '') as `0x${string}`;
     if (vr.structural && vr.expectedDigest && vr.proofValue) {
-      const signer = await recoverAddress({ hash: vr.expectedDigest, signature: vr.proofValue });
-      attOk = signer.toLowerCase() === expected.toLowerCase();
+      const rpc = process.env.BASE_SEPOLIA_RPC ?? 'https://sepolia.base.org';
+      const pub = createPublicClient({ transport: http(rpc) });
+      const code = await pub.getCode({ address: expected }).catch(() => undefined);
+      if (code && code.length > 2) {
+        // Validator Smart Agent → verify the attestation via ERC-1271.
+        const abi = [{ type: 'function', name: 'isValidSignature', stateMutability: 'view', inputs: [{ name: 'h', type: 'bytes32' }, { name: 's', type: 'bytes' }], outputs: [{ type: 'bytes4' }] }] as const;
+        const r = (await pub.readContract({ address: expected, abi, functionName: 'isValidSignature', args: [vr.expectedDigest, vr.proofValue] }).catch(() => '0x')) as string;
+        attOk = r === '0x1626ba7e';
+      } else {
+        const signer = await recoverAddress({ hash: vr.expectedDigest, signature: vr.proofValue });
+        attOk = signer.toLowerCase() === expected.toLowerCase();
+      }
     }
+    const isSA = (await createPublicClient({ transport: http(process.env.BASE_SEPOLIA_RPC ?? 'https://sepolia.base.org') }).getCode({ address: expected }).catch(() => undefined))?.length ?? 0;
     edgeOk = (ok.graph?.edges ?? []).some((e: any) => e.rel === 'VALIDATED_OUTPUT' && e.to === bundle.agent.agentId);
-    console.log(`\nValidationAttestation by ${att.credentialSubject?.validatorName}: signature ${attOk ? '✓' : '✗'} | outcome "${att.credentialSubject?.outcome}" | profile "${att.credentialSubject?.validationProfile}"`);
+    console.log(`\nValidationAttestation by ${att.credentialSubject?.validatorName} (${isSA > 2 ? 'Smart Agent / ERC-1271' : 'EOA'}): signature ${attOk ? '✓' : '✗'} | outcome "${att.credentialSubject?.outcome}" | profile "${att.credentialSubject?.validationProfile}"`);
     console.log(`Trust graph: ${(ok.graph?.edges ?? []).length} edges; VALIDATED_OUTPUT ${edgeOk ? '✓' : '✗'}`);
     for (const e of ok.graph?.edges ?? []) console.log(`  ${e.from}  --${e.rel}-->  ${e.to}`);
   }
