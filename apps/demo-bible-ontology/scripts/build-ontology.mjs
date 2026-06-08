@@ -39,6 +39,11 @@ const AKA_EXTRA = {
   saul_2478: ['King Saul'], paul_2331: ['Saul of Tarsus'], abraham_58: ['Abram'], sarah_60: ['Sarai'],
   'nation-of-israel': ['Israel', 'House of Israel'],
 };
+// Curated epithets for namesakes of famous figures (a scriptural by-name), so an obscure same-name
+// person reads clearly instead of looking like a duplicate. Used as the disambiguator + an alias.
+const PERSON_EPITHET = {
+  jesus_904: 'called Justus', // "Jesus, who is called Justus" — Paul's fellow worker, Col 4:11
+};
 const titleCase = (s) => String(s).replace(/\b\w/g, (c) => c.toUpperCase());
 const akaOf = (n) => {
   const slug = titleCase(String(n.canonId ?? '').replace(/_[A-Za-z0-9]+$/, '').replace(/[-_]/g, ' ').trim());
@@ -569,25 +574,47 @@ function main() {
   console.log('ingest · sources', ingest.sources.length, '· xrefs', ingest.xrefs.length, '· node_source', ingest.nodeSources.length, '· forms', ingest.forms.length, '· geo-filled places', ingest.stats.geoFilled);
   if (ingest.stats.openbible.merged) console.log('ingest · openbible geo-merged (de-duplicated)', ingest.stats.openbible.merged, 'places');
 
-  // Fold coord-less place stubs (e.g. TIPNR "Antioch" with no location/verses) into the most-attested
-  // place that shares their core name — duplicates with no distinguishing data collapse into the real one.
+  // General place de-duplication (all sources): merge place records that share a core name AND sit at
+  // the same location (≤ MERGE_KM) — the same place from Theographic + TIPNR + OpenBible or with
+  // spelling/qualifier variants. Coord-less stubs fold into the biggest cluster. Genuinely different
+  // same-name places far apart (Antioch Syria vs Pisidia; the three Dibons) cluster separately and stay.
   {
+    const MERGE_KM = 4;
+    const haversineKm = (la1, lo1, la2, lo2) => { const R = 6371, t = Math.PI / 180, dLa = (la2 - la1) * t, dLo = (lo2 - lo1) * t; const a = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * t) * Math.cos(la2 * t) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(a))); };
     const coreOf = (s) => String(s || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/\b\d+\b/g, ' ').replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
     const vCount = new Map();
     for (const nv of nodeVerse) vCount.set(nv.id, (vCount.get(nv.id) ?? 0) + 1);
-    const canonByCore = new Map();
-    for (const n of byId.values()) if (n.kind === 'place' && n.lat != null) { const k = coreOf(n.label); if (k) { const cur = canonByCore.get(k); if (!cur || (vCount.get(n.id) ?? 0) > (vCount.get(cur) ?? 0)) canonByCore.set(k, n.id); } }
+    const score = (n) => (vCount.get(n.id) ?? 0) * 10 + ((n.origin ?? 'theographic') === 'theographic' ? 5 : n.origin === 'openbible' ? 2 : 0);
+    const byCore = new Map();
+    for (const n of byId.values()) if (n.kind === 'place') { const k = coreOf(n.label); if (k) { if (!byCore.has(k)) byCore.set(k, []); byCore.get(k).push(n); } }
     const remap = new Map();
-    for (const n of byId.values()) if (n.kind === 'place' && n.lat == null) { const c = canonByCore.get(coreOf(n.label)); if (c && c !== n.id) remap.set(n.id, c); }
+    for (const group of byCore.values()) {
+      if (group.length < 2) continue;
+      const coords = group.filter((n) => n.lat != null), none = group.filter((n) => n.lat == null);
+      const clusters = [];
+      for (const n of coords) { const cl = clusters.find((c) => c.some((m) => haversineKm(n.lat, n.lon, m.lat, m.lon) <= MERGE_KM)); if (cl) cl.push(n); else clusters.push([n]); }
+      let biggest = null;
+      for (const cl of clusters) {
+        const canon = cl.slice().sort((a, b) => score(b) - score(a))[0];
+        for (const m of cl) if (m.id !== canon.id) remap.set(m.id, canon.id);
+        if (!biggest || cl.length > biggest.cl.length || score(canon) > score(biggest.canon)) biggest = { cl, canon };
+      }
+      if (biggest) for (const n of none) remap.set(n.id, biggest.canon.id);
+    }
     if (remap.size) {
-      for (const e of edges) { if (remap.has(e.src)) e.src = remap.get(e.src); if (remap.has(e.dst)) e.dst = remap.get(e.dst); }
-      for (const nv of nodeVerse) if (remap.has(nv.id)) nv.id = remap.get(nv.id);
-      for (const x of ingest.xrefs) if (remap.has(x.nodeId)) x.nodeId = remap.get(x.nodeId);
-      for (const ns of ingest.nodeSources) if (remap.has(ns.nodeId)) ns.nodeId = remap.get(ns.nodeId);
-      for (const f of ingest.forms) if (remap.has(f.nodeId)) f.nodeId = remap.get(f.nodeId);
+      const resolve = (id) => { let x = id; const seen = new Set(); while (remap.has(x) && !seen.has(x)) { seen.add(x); x = remap.get(x); } return x; };
+      for (const e of edges) { if (remap.has(e.src)) e.src = resolve(e.src); if (remap.has(e.dst)) e.dst = resolve(e.dst); }
+      for (const nv of nodeVerse) if (remap.has(nv.id)) nv.id = resolve(nv.id);
+      for (const x of ingest.xrefs) if (remap.has(x.nodeId)) x.nodeId = resolve(x.nodeId);
+      for (const ns of ingest.nodeSources) if (remap.has(ns.nodeId)) ns.nodeId = resolve(ns.nodeId);
+      for (const f of ingest.forms) if (remap.has(f.nodeId)) f.nodeId = resolve(f.nodeId);
       for (const id of remap.keys()) byId.delete(id);
       const keep = nodes.filter((n) => !remap.has(n.id)); nodes.length = 0; nodes.push(...keep);
-      console.log('place de-dup · folded', remap.size, 'coord-less place stubs into canonical places');
+      const eseen = new Set(), ne = edges.filter((e) => { const k = `${e.src}|${e.rel}|${e.dst}|${e.ctx ?? ''}`; if (eseen.has(k)) return false; eseen.add(k); return true; });
+      edges.length = 0; edges.push(...ne);
+      const vseen = new Set(), nv2 = nodeVerse.filter((v) => { const k = `${v.id}|${v.osis}`; if (vseen.has(k)) return false; vseen.add(k); return true; });
+      nodeVerse.length = 0; nodeVerse.push(...nv2);
+      console.log('place de-dup · merged', remap.size, 'duplicate place records (all sources) into canonical places');
     }
   }
 
@@ -703,9 +730,9 @@ function main() {
         const role = parts0[0] && !/^(Male|Female)$/.test(parts0[0]) ? parts0[0] : null;
         const fa = parentOf.get(n.id), sp = spouseOf.get(n.id), ch = childOf.get(n.id), sb = sibOf.get(n.id), pl = placeOf.get(n.id);
         // whatever context we know, in order: parent → spouse → child → sibling → birthplace
-        const ctx = fa ? `${F ? 'daughter' : 'son'} of ${fa}` : sp ? `${F ? 'wife' : 'husband'} of ${sp}`
+        const ctx = PERSON_EPITHET[n.canonId] || (fa ? `${F ? 'daughter' : 'son'} of ${fa}` : sp ? `${F ? 'wife' : 'husband'} of ${sp}`
           : ch ? `${F ? 'mother' : 'father'} of ${ch}` : sb ? `${F ? 'sister' : 'brother'} of ${sb}`
-            : pl ? `of ${pl}` : firstOsis.get(n.id) ? `in ${prettyRef(firstOsis.get(n.id))}` : null;
+            : pl ? `of ${pl}` : firstOsis.get(n.id) ? `in ${prettyRef(firstOsis.get(n.id))}` : null);
         const parts = [role, ctx].filter(Boolean);
         if (parts.length) { n.disambig = parts.join(' · '); tagged++; }
       }
