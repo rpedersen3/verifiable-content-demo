@@ -14,9 +14,11 @@ import { dirname, join } from 'node:path';
 import {
   createPublicClient,
   createWalletClient,
+  getContract,
   http,
   keccak256,
   toHex,
+  toBytes,
   encodePacked,
   type Abi,
   type Address,
@@ -25,8 +27,9 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { AgentAccountClient } from '@agenticprimitives/agent-account';
 import { AgentNamingClient } from '@agenticprimitives/agent-naming';
-import { buildContentDescriptor, verifyContentDescriptor, contentCommitment } from '@agenticprimitives/content-primitives';
+import { buildContentDescriptor, verifyContentDescriptor, contentCommitment, corpusRef as makeCorpusRef, leafHash, merkleRoot } from '@agenticprimitives/content-primitives';
 import { parseScriptureAlias, SCRIPTURE_VERSE_CONTENT_TYPE } from '@agenticprimitives/scripture-content-extension';
+import { EDITIONS } from '../src/editions/registry.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RPC = process.env.RPC_URL ?? 'http://127.0.0.1:8545';
@@ -155,10 +158,38 @@ async function main() {
   console.log(`ContentDescriptor verified via SA ERC-1271: ${v.ok ? 'OK ✓' : `FAILED ✗ (${v.reason})`}`);
   if (!v.ok) throw new Error(`on-chain descriptor verification failed: ${v.reason}`);
 
+  // 4c. Phase 3 — deploy the ContentCorpusRegistry and ANCHOR each edition's
+  //     Merkle corpusRoot on chain (issuer SA signs the anchor digest via
+  //     ERC-1271). Verifiers then read the root from chain, not the off-chain
+  //     manifest.
+  const artifact = JSON.parse(
+    readFileSync(join(HERE, '../../../contracts/out/ContentCorpusRegistry.sol/ContentCorpusRegistry.json'), 'utf8'),
+  ) as { abi: Abi; bytecode: { object: Hex } };
+  const deployHash = await wallet.deployContract({ abi: artifact.abi, bytecode: artifact.bytecode.object, account: deployer, chain: null });
+  const deployRcpt = await pub.waitForTransactionReceipt({ hash: deployHash });
+  const contentRegistry = deployRcpt.contractAddress as Address;
+  console.log(`ContentCorpusRegistry deployed: ${contentRegistry}`);
+
+  const reg = getContract({ address: contentRegistry, abi: artifact.abi, client: { public: pub, wallet } });
+  for (const e of EDITIONS) {
+    const cRef = makeCorpusRef(issuerSA, e.edition, e.version);
+    const osisPaths = Object.keys(e.texts).sort();
+    const root = merkleRoot(osisPaths.map((o) => leafHash(contentCommitment(e.texts[o]!).value)));
+    const manifestHash = keccak256(toBytes(JSON.stringify({ corpusRef: cRef, issuer: issuerSA, edition: e.edition, version: e.version, corpusRoot: root })));
+    const digest = (await reg.read.anchorDigest([cRef, root, manifestHash, issuerSA])) as Hex;
+    const anchorSig = await owner.signMessage({ message: { raw: digest } });
+    const h = (await reg.write.anchor([cRef, root, manifestHash, issuerSA, anchorSig], { account: deployer, chain: null })) as Hex;
+    await pub.waitForTransactionReceipt({ hash: h });
+    const onchain = (await reg.read.getCorpus([cRef])) as readonly [Address, Hex, Hex, bigint];
+    const ok = onchain[1].toLowerCase() === root.toLowerCase();
+    console.log(`  anchored ${e.edition}: corpusRoot ${root.slice(0, 12)}… on-chain ${ok ? '✓' : '✗ MISMATCH'}`);
+    if (!ok) throw new Error(`on-chain corpusRoot mismatch for ${e.edition}`);
+  }
+
   // 5. Write the config the MCP reads in on-chain mode (onchain.json for
   //    reference + .dev.vars so `wrangler dev` injects it into the Worker).
   const entryPoint = d.entryPoint as Address;
-  const cfg = { rpcUrl: RPC, chainId, factory, registry, resolverAddr, universalResolver: universal, entryPoint, issuerName: ISSUER_NAME, issuerSA, ownerPrivateKey: ISSUER_OWNER_PK };
+  const cfg = { rpcUrl: RPC, chainId, factory, registry, resolverAddr, universalResolver: universal, entryPoint, contentRegistry, issuerName: ISSUER_NAME, issuerSA, ownerPrivateKey: ISSUER_OWNER_PK };
   writeFileSync(join(HERE, '..', 'onchain.json'), JSON.stringify(cfg, null, 2));
   const devVars = [
     'TRUST_MODE=onchain',
@@ -168,6 +199,7 @@ async function main() {
     `ENTRY_POINT=${entryPoint}`,
     `REGISTRY=${registry}`,
     `UNIVERSAL_RESOLVER=${universal}`,
+    `CONTENT_REGISTRY=${contentRegistry}`,
     `ISSUER_NAME=${ISSUER_NAME}`,
     `ISSUER_SA=${issuerSA}`,
     `ISSUER_OWNER_PK=${ISSUER_OWNER_PK}`,

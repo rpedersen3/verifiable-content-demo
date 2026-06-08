@@ -6,3 +6,6 @@ dist/
 .dev.vars
 .DS_Store
 apps/*/onchain.json
+contracts/out/
+contracts/cache/
+contracts/broadcast/

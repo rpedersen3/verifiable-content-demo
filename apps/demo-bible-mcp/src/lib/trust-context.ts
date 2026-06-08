@@ -12,7 +12,7 @@
 // ISSUER_OWNER_PK.
 
 import { privateKeyToAccount } from 'viem/accounts';
-import { recoverAddress, type Hex } from 'viem';
+import { recoverAddress, createPublicClient, http, type Hex } from 'viem';
 import type { Address } from '@agenticprimitives/types';
 import type { SignatureVerifier } from '@agenticprimitives/content-primitives';
 import type { CredentialSigner } from '@agenticprimitives/verifiable-credentials';
@@ -31,7 +31,23 @@ export interface McpEnv {
   ISSUER_NAME?: string;
   ISSUER_SA?: string;
   ISSUER_OWNER_PK?: string;
+  CONTENT_REGISTRY?: string;
 }
+
+const CONTENT_REGISTRY_ABI = [
+  {
+    type: 'function',
+    name: 'getCorpus',
+    stateMutability: 'view',
+    inputs: [{ name: 'corpusRef', type: 'bytes32' }],
+    outputs: [
+      { name: 'issuer', type: 'address' },
+      { name: 'corpusRoot', type: 'bytes32' },
+      { name: 'manifestHash', type: 'bytes32' },
+      { name: 'anchoredAt', type: 'uint64' },
+    ],
+  },
+] as const;
 
 export interface TrustContext {
   mode: 'dev' | 'onchain';
@@ -46,6 +62,9 @@ export interface TrustContext {
   trustedIssuers: Address[];
   /** Credential signer for issuing Entitlement VCs. */
   credentialSigner: CredentialSigner;
+  /** Read a corpus's Merkle root from the on-chain ContentCorpusRegistry
+   *  (Phase 3). undefined in dev mode → use the off-chain manifest root. */
+  corpusRootReader?: (corpusRef: Hex) => Promise<Hex | null>;
 }
 
 const DEV_CHAIN_ID = 31337;
@@ -90,6 +109,18 @@ async function buildOnchain(env: McpEnv): Promise<TrustContext> {
   const issuer = resolved as Address;
   const signDigest = (hash: Hex) => owner.signMessage({ message: { raw: hash } });
 
+  // Phase 3: read corpus roots from the on-chain ContentCorpusRegistry.
+  let corpusRootReader: TrustContext['corpusRootReader'];
+  if (env.CONTENT_REGISTRY) {
+    const pub = createPublicClient({ transport: http(rpcUrl) });
+    const registryAddr = env.CONTENT_REGISTRY as Address;
+    corpusRootReader = async (corpusRef: Hex) => {
+      const r = (await pub.readContract({ address: registryAddr, abi: CONTENT_REGISTRY_ABI, functionName: 'getCorpus', args: [corpusRef] })) as readonly [Address, Hex, Hex, bigint];
+      const ZERO = ('0x' + '00'.repeat(32)) as Hex;
+      return r[1] !== ZERO ? r[1] : null; // null = not anchored
+    };
+  }
+
   return {
     mode: 'onchain',
     issuer,
@@ -98,6 +129,7 @@ async function buildOnchain(env: McpEnv): Promise<TrustContext> {
     verifySignature: ({ signer, hash, signature }) => aac.isValidSignature(signer, hash, signature),
     trustedIssuers: [issuer],
     credentialSigner: { issuerAddress: issuer, chainId, verifyingContract: issuer, signDigest },
+    corpusRootReader,
   };
 }
 

@@ -108,7 +108,7 @@ export interface CorpusSigner {
 }
 
 async function buildCorpus(entry: EditionEntry, signer: CorpusSigner): Promise<BuiltCorpus> {
-  const ref = corpusRef(DEV_ISSUER, entry.edition, entry.version);
+  const ref = corpusRef(signer.issuer, entry.edition, entry.version);
   const osisPaths = Object.keys(entry.texts).sort();
 
   const rows = osisPaths.map((osis) => {

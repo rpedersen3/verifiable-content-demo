@@ -61,7 +61,7 @@ function policyGate(toolName: string, cls: ToolClassification) {
 
 app.get('/health', async (c) => {
   const trust = await resolveTrust(c.env);
-  return c.json({ ok: true, service: 'demo-bible-mcp', mode: trust.mode, issuer: trust.issuer, issuerName: trust.issuerName });
+  return c.json({ ok: true, service: 'demo-bible-mcp', mode: trust.mode, issuer: trust.issuer, issuerName: trust.issuerName, onchainCorpusAnchoring: !!trust.corpusRootReader });
 });
 
 // list_editions — public edition registry.
@@ -119,14 +119,24 @@ app.post('/tools/resolve', async (c) => {
 
   const result = resolveCandidates(parsed.reference, descriptors, trustProfile(trust), body.constraints ?? {});
 
-  // Verify each admitted candidate (issuer signature [ERC-1271 on-chain] + merkle).
+  // Verify each admitted candidate (issuer signature [ERC-1271 on-chain] + merkle
+  // inclusion against the corpusRoot — read FROM CHAIN in on-chain mode, Phase 3).
   const candidates = await Promise.all(
     result.candidates.map(async (cand) => {
       const where = rowByDescId.get(cand.descriptor.id)!;
+      let corpusRoot = where.corpus.manifest.corpusRoot;
+      let corpusRootSource: 'onchain' | 'manifest' = 'manifest';
+      if (trust.corpusRootReader) {
+        const anchored = await trust.corpusRootReader(where.corpus.manifest.corpusRef);
+        if (anchored) {
+          corpusRoot = anchored;
+          corpusRootSource = 'onchain';
+        }
+      }
       const verification = cand.admitted
         ? await verifyContentDescriptor(cand.descriptor, {
             verifySignature: trust.verifySignature,
-            corpusRoot: where.corpus.manifest.corpusRoot,
+            corpusRoot,
             inclusionProof: inclusionProof(where.corpus, where.leafIndex),
           })
         : undefined;
@@ -144,6 +154,7 @@ app.post('/tools/resolve', async (c) => {
         issuerTrusted: cand.issuerTrusted,
         reason: cand.reason,
         verification,
+        corpusRootSource,
         descriptor: cand.descriptor,
       };
     }),
