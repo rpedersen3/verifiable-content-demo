@@ -71,6 +71,7 @@ img.mini.styled{filter:sepia(.6) saturate(1.25) contrast(1.06)}
 /* trust/alignment score bars */
 .scores{display:grid;grid-template-columns:122px 1fr 50px;gap:7px 10px;align-items:center;margin:10px 0;font-size:12px}
 .scores .sname{color:var(--muted)}
+.scores .sname,.scores .sbar,.scores .sval{cursor:help}
 .sbar{height:13px;border-radius:7px;background:#eef2f7;position:relative;overflow:hidden}
 .sbar i{position:absolute;top:0;bottom:0;display:block;border-radius:7px}
 .sbar.bipolar{background:linear-gradient(90deg,#fbe3e3,#fff,#e4f3e8)}
@@ -110,6 +111,7 @@ svg#tsvg{display:block;background:#fbfcfe}
  <button data-t="admin">Admin</button>
 </nav>
 <div id="view"></div>
+<div id="htip" class="gtip"></div>
 </div>
 <script>
 const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b',interaction:'#db2777',speechact:'#db2777',plan:'#0891b2',step:'#14b8a6'};
@@ -178,10 +180,14 @@ function scoreBars(scores){
   if(!scores||!scores.length)return '';
   const byD={};scores.forEach(s=>byD[s.dimension]=s);
   const rows=['moral','graph_trust','scriptural_trust','historical_trust','source_trust'].filter(d=>byD[d]).map(d=>{const s=byD[d];const v=+s.value;
-    const name='<div class="sname" title="'+esc(s.basis||'')+' ('+esc(s.method||'')+')">'+SDIM[d]+'</div>';
+    const kind=/curated/.test(s.method||'')?'curated':'computed';
+    const vs=d==='moral'?(v>0?'+':'')+v.toFixed(2):v.toFixed(2);
+    const tip=('<b>'+SDIM[d]+'</b> &nbsp;'+vs+'<br><span style="color:#8a96a3;text-transform:uppercase;font-size:10px">'+kind+' · '+esc(s.method||'')+'</span><br>'+esc(s.basis||'(no basis recorded)')).replace(/"/g,'&quot;');
+    const dt=' data-tip="'+tip+'"';
+    const name='<div class="sname"'+dt+'>'+SDIM[d]+'</div>';
     if(d==='moral'){const w=Math.abs(v)/2*100,left=v>=0?50:50-w,col=v>=0?'#1a8a4f':'#c0392b';
-      return name+'<div class="sbar bipolar"><span class="mid"></span><i style="left:'+left+'%;width:'+w+'%;background:'+col+'"></i></div><div class="sval" style="color:'+col+'">'+(v>0?'+':'')+v.toFixed(2)+'</div>';}
-    return name+'<div class="sbar"><i style="left:0;width:'+Math.round(v*100)+'%;background:'+SCOL[d]+'"></i></div><div class="sval">'+v.toFixed(2)+'</div>';
+      return name+'<div class="sbar bipolar"'+dt+'><span class="mid"></span><i style="left:'+left+'%;width:'+w+'%;background:'+col+'"></i></div><div class="sval" style="color:'+col+'"'+dt+'>'+vs+'</div>';}
+    return name+'<div class="sbar"'+dt+'><i style="left:0;width:'+Math.round(v*100)+'%;background:'+SCOL[d]+'"></i></div><div class="sval"'+dt+'>'+v.toFixed(2)+'</div>';
   }).join('');
   return '<h3 class="muted" style="margin-top:16px">trust &amp; alignment signals</h3><div class="scores">'+rows+'</div>'+
    '<div class="hint">Graph, scriptural &amp; source trust are <b>computed</b> (graph connectivity · verse coverage · independent source assertions agreeing — DOLCE+DnS corroboration); good↔evil &amp; historical trust are <b>curated</b> (Bible signals · archaeology).</div>';
@@ -308,6 +314,12 @@ async function showNode(id){
    '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses</h3><div class="verses">'+d.verses.map(v=>'<span>'+esc(v)+'</span>').join('')+'</div>'+
    provHtml(d.sources,n.origin_source)+
    '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ view in trust graph</a></div></div>';
+  const htip=document.getElementById('htip');
+  det.querySelectorAll('[data-tip]').forEach(el=>{
+    el.addEventListener('mouseenter',()=>{htip.style.display='block';htip.innerHTML=el.dataset.tip;});
+    el.addEventListener('mousemove',ev=>{htip.style.left=Math.min(ev.clientX+14,innerWidth-290)+'px';htip.style.top=(ev.clientY+16)+'px';});
+    el.addEventListener('mouseleave',()=>{htip.style.display='none';});
+  });
   det.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 let graphCenter=null,gFilters={},gExpand={};
