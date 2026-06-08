@@ -21,7 +21,7 @@ const instanceWhere = (classes: string[]) => {
   return { sql: LAYER_COLS.map((col) => `${col} IN (${ph})`).join(' OR '), args: LAYER_COLS.flatMap(() => classes) };
 };
 
-app.get('/', (c) => c.html(UI));
+app.get('/', (c) => { c.header('Cache-Control', 'no-cache, must-revalidate'); return c.html(UI); });
 app.get('/health', (c) => c.json({ ok: true, service: 'demo-bible-ontology' }));
 
 // Overview — totals, PROV-O class counts, GCO→PROV-O alignment tally.

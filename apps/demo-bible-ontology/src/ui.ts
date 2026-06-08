@@ -451,9 +451,10 @@ async function geo(){
   const esriTopo=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:17,attribution:'Tiles &copy; Esri'});
   const esriStreet=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:17,attribution:'Tiles &copy; Esri'});
   const esriImagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:17,attribution:'Tiles &copy; Esri'});
+  const osmStd=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'});
   const cartoClean=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:18,subdomains:'abcd',attribution:'&copy; OpenStreetMap &copy; CARTO'});
-  esriTopo.addTo(map);
-  L.control.layers({'Topographic (English)':esriTopo,'Streets (English)':esriStreet,'Satellite':esriImagery,'Clean':cartoClean},null,{position:'topright'}).addTo(map);
+  esriStreet.addTo(map);   // default: full street map with English city + water labels
+  L.control.layers({'Streets (English)':esriStreet,'Topographic (English)':esriTopo,'Satellite':esriImagery,'OpenStreetMap':osmStd,'Clean (no labels)':cartoClean},null,{position:'topright',collapsed:false}).addTo(map);
   const sigC=(n,def)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':def;
   const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
   const placeG=L.layerGroup();
