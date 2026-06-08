@@ -27,13 +27,11 @@ import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT, type UnsignedCr
 // body MUST already carry both contexts or proof.credentialHash won't match the
 // returned body. Pre-set the canonical pair.
 const VC_CONTEXTS = [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT];
-import { getCorpora, inclusionProof, devSignatureVerifier, DEV_ISSUER, EDITIONS, issuerAccount, type BuiltCorpus } from './editions/registry.js';
-import { eoaCredentialSigner, verifySignedEntitlement } from './lib/trust.js';
+import { getCorpora, inclusionProof, EDITIONS, type BuiltCorpus } from './editions/registry.js';
+import { verifySignedEntitlement } from './lib/trust.js';
+import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-context.js';
 
-// The corpus issuer's credential signer (dev EOA; ERC-1271 SA in production).
-const issuerSigner = eoaCredentialSigner(issuerAccount);
-
-type Env = Record<string, never>;
+type Env = McpEnv;
 
 const app = new Hono<{ Bindings: Env }>();
 app.use('*', cors());
@@ -45,15 +43,12 @@ declareTool({ name: 'resolve' }, RESOLVE_CLS);
 declareTool({ name: 'get_passage_text' }, TEXT_CLS);
 declareTool({ name: 'verify_citation' }, VERIFY_CLS);
 
-// Phase-1 trust profile: public-domain-demo trusts only the demo issuer and
-// admits public-domain rights only (spec 266 §policy). A descriptor is a POLICY
+// Phase-1 trust profile derived from the resolved trust context (the trusted
+// issuer is the dev EOA or the on-chain issuer SA). A descriptor is a POLICY
 // INPUT, not a grant (ADR-0033 R5).
-const PUBLIC_DOMAIN_DEMO: TrustProfileConfig = {
-  profile: 'public-domain-demo',
-  trustedIssuers: [DEV_ISSUER],
-  allowedRightsStatus: ['public-domain'],
-  requireTrustedIssuer: true,
-};
+function trustProfile(trust: TrustContext): TrustProfileConfig {
+  return { profile: 'public-domain-demo', trustedIssuers: trust.trustedIssuers, allowedRightsStatus: ['public-domain'], requireTrustedIssuer: true };
+}
 
 const auditSink: AuditSink = composeSinks(createConsoleAuditSink({ prefix: '[audit bible-mcp]' }));
 function audit(action: string, outcome: 'success' | 'denied' | 'error', subjectId: string, context: Record<string, string | number | boolean | null>) {
@@ -64,16 +59,20 @@ function policyGate(toolName: string, cls: ToolClassification) {
   return evaluatePolicy({ toolName, classification: cls, callerKind: 'service' });
 }
 
-app.get('/health', (c) => c.json({ ok: true, service: 'demo-bible-mcp', issuer: DEV_ISSUER }));
+app.get('/health', async (c) => {
+  const trust = await resolveTrust(c.env);
+  return c.json({ ok: true, service: 'demo-bible-mcp', mode: trust.mode, issuer: trust.issuer, issuerName: trust.issuerName });
+});
 
 // list_editions — public edition registry.
 app.get('/mcp/editions', async (c) => {
-  const corpora = await getCorpora();
+  const trust = await resolveTrust(c.env);
+  const corpora = await getCorpora(trust);
   const editions = EDITIONS.map((e) => {
     const b = corpora.get(e.edition)!;
     return {
       edition: e.edition, version: e.version, displayName: e.displayName, issuerName: e.issuerName,
-      issuer: DEV_ISSUER, language: e.language, accessPolicy: e.accessPolicy, rightsStatus: e.rightsStatus,
+      issuer: trust.issuer, language: e.language, accessPolicy: e.accessPolicy, rightsStatus: e.rightsStatus,
       corpusRef: b.manifest.corpusRef, corpusRoot: b.manifest.corpusRoot, verseCount: b.byCanonicalId.size,
     };
   });
@@ -105,7 +104,8 @@ app.post('/tools/resolve', async (c) => {
     return c.json({ ok: false, error: (e as Error).message }, 400);
   }
 
-  const corpora = await getCorpora();
+  const trust = await resolveTrust(c.env);
+  const corpora = await getCorpora(trust);
   // Gather every edition's descriptor for this canonical locus.
   const descriptors: ContentDescriptor[] = [];
   const rowByDescId = new Map<string, { corpus: BuiltCorpus; leafIndex: number }>();
@@ -117,15 +117,15 @@ app.post('/tools/resolve', async (c) => {
     }
   }
 
-  const result = resolveCandidates(parsed.reference, descriptors, PUBLIC_DOMAIN_DEMO, body.constraints ?? {});
+  const result = resolveCandidates(parsed.reference, descriptors, trustProfile(trust), body.constraints ?? {});
 
-  // Verify each admitted candidate (signature + merkle inclusion).
+  // Verify each admitted candidate (issuer signature [ERC-1271 on-chain] + merkle).
   const candidates = await Promise.all(
     result.candidates.map(async (cand) => {
       const where = rowByDescId.get(cand.descriptor.id)!;
       const verification = cand.admitted
         ? await verifyContentDescriptor(cand.descriptor, {
-            verifySignature: devSignatureVerifier,
+            verifySignature: trust.verifySignature,
             corpusRoot: where.corpus.manifest.corpusRoot,
             inclusionProof: inclusionProof(where.corpus, where.leafIndex),
           })
@@ -174,16 +174,17 @@ app.post('/tools/get_passage_text', async (c) => {
   } catch (e) {
     return c.json({ ok: false, error: (e as Error).message }, 400);
   }
-  const corpus = (await getCorpora()).get(body.edition);
+  const trust = await resolveTrust(c.env);
+  const corpus = (await getCorpora(trust)).get(body.edition);
   if (!corpus) return c.json({ ok: false, error: `unknown edition: ${body.edition}` }, 404);
   const row = findRow(corpus, parsed.reference.id);
   if (!row) return c.json({ ok: false, error: `no descriptor for ${parsed.reference.alias} in ${body.edition}` }, 404);
 
   // Gated editions: the presented Entitlement must be cryptographically signed
-  // by the corpus issuer (structural + EIP-712 recovery) BEFORE the policy gate.
+  // by the corpus issuer (structural + signature) BEFORE the policy gate.
   let entitlementSigner: string | undefined;
   if (row.descriptor.accessPolicy !== 'public' && body.entitlement) {
-    const sig = await verifySignedEntitlement(body.entitlement, corpus.manifest.issuer);
+    const sig = await verifySignedEntitlement(body.entitlement, corpus.manifest.issuer, trust.verifySignature);
     if (!sig.ok) {
       audit('content.entitlement.verify', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: sig.reason ?? 'bad signature' });
       return c.json({ ok: false, error: 'entitlement signature invalid', detail: sig, accessPolicy: row.descriptor.accessPolicy }, 403);
@@ -212,7 +213,8 @@ app.post('/tools/issue_entitlement', async (c) => {
     .json<{ edition?: string; subject?: string; ttlSeconds?: number }>()
     .catch(() => ({}) as { edition?: string; subject?: string; ttlSeconds?: number });
   if (!body.edition) return c.json({ ok: false, error: 'edition required' }, 400);
-  const corpus = (await getCorpora()).get(body.edition);
+  const trust = await resolveTrust(c.env);
+  const corpus = (await getCorpora(trust)).get(body.edition);
   if (!corpus) return c.json({ ok: false, error: `unknown edition: ${body.edition}` }, 404);
   if (corpus.manifest.accessPolicy === 'public') {
     return c.json({ ok: false, error: 'public edition needs no entitlement' }, 400);
@@ -228,7 +230,7 @@ app.post('/tools/issue_entitlement', async (c) => {
     validUntil: new Date(nowMs + (body.ttlSeconds ?? 31_536_000) * 1000).toISOString(),
     credentialSubject: { id: subject, corpusRef: corpus.manifest.corpusRef, accessPolicy: corpus.manifest.accessPolicy },
   };
-  const entitlement = await signCredential(unsigned, issuerSigner);
+  const entitlement = await signCredential(unsigned, trust.credentialSigner);
   audit('content.entitlement.issue', 'success', body.edition, { subject, issuer: corpus.manifest.issuer });
   return c.json({ ok: true, entitlement });
 });
@@ -249,7 +251,7 @@ app.post('/tools/verify_citation', async (c) => {
   } catch (e) {
     return c.json({ ok: false, error: (e as Error).message }, 400);
   }
-  const corpus = (await getCorpora()).get(body.edition);
+  const corpus = (await getCorpora(await resolveTrust(c.env))).get(body.edition);
   const row = corpus && findRow(corpus, parsed.reference.id);
   if (!row) return c.json({ ok: false, error: 'not found' }, 404);
   const expected = row.descriptor.commitment?.value ?? '';

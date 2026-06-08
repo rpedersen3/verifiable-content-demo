@@ -101,7 +101,13 @@ export interface BuiltCorpus {
   byCanonicalId: Map<string, DescriptorRow>;
 }
 
-async function buildCorpus(entry: EditionEntry): Promise<BuiltCorpus> {
+/** The issuer + signing strategy a corpus is built/signed with (dev or on-chain). */
+export interface CorpusSigner {
+  issuer: Address;
+  signDigest: (hash: Hex) => Promise<Hex>;
+}
+
+async function buildCorpus(entry: EditionEntry, signer: CorpusSigner): Promise<BuiltCorpus> {
   const ref = corpusRef(DEV_ISSUER, entry.edition, entry.version);
   const osisPaths = Object.keys(entry.texts).sort();
 
@@ -115,7 +121,7 @@ async function buildCorpus(entry: EditionEntry): Promise<BuiltCorpus> {
 
   const manifest: CorpusManifest = {
     corpusRef: ref,
-    issuer: DEV_ISSUER,
+    issuer: signer.issuer,
     edition: entry.edition,
     version: entry.version,
     scheme: SCRIPTURE_VERSE_CONTENT_TYPE,
@@ -134,7 +140,7 @@ async function buildCorpus(entry: EditionEntry): Promise<BuiltCorpus> {
         id: `desc_${entry.edition}_${canonicalId.slice(2, 14)}`,
         canonicalId,
         contentType: SCRIPTURE_VERSE_CONTENT_TYPE,
-        issuer: { address: DEV_ISSUER, did: `did:ap:issuer:${entry.edition}` },
+        issuer: { address: signer.issuer, did: `did:ap:issuer:${entry.edition}` },
         issuedAt: '2026-06-07T00:00:00Z',
         status: 'active',
         version: entry.version,
@@ -146,7 +152,7 @@ async function buildCorpus(entry: EditionEntry): Promise<BuiltCorpus> {
         accessPolicy: entry.accessPolicy,
         corpusRef: ref,
       },
-      (hash: Hex) => issuerAccount.sign({ hash }),
+      (hash: Hex) => signer.signDigest(hash),
     );
     byCanonicalId.set(canonicalId.toLowerCase(), { descriptor, leafIndex: i, osis: r.osis });
   }
@@ -154,18 +160,23 @@ async function buildCorpus(entry: EditionEntry): Promise<BuiltCorpus> {
   return { entry, manifest, tree, byCanonicalId };
 }
 
-let corporaPromise: Promise<Map<string, BuiltCorpus>> | null = null;
+// Cache the built corpora per issuer, so dev + on-chain modes don't collide.
+const corporaByIssuer = new Map<string, Promise<Map<string, BuiltCorpus>>>();
 
-/** Build (once) and cache all editions' corpora. */
-export function getCorpora(): Promise<Map<string, BuiltCorpus>> {
-  if (!corporaPromise) {
-    corporaPromise = (async () => {
-      const map = new Map<string, BuiltCorpus>();
-      for (const entry of EDITIONS) map.set(entry.edition, await buildCorpus(entry));
-      return map;
-    })();
+/** Build (once per issuer) and cache all editions' corpora for the given signer. */
+export function getCorpora(signer: CorpusSigner): Promise<Map<string, BuiltCorpus>> {
+  const key = signer.issuer.toLowerCase();
+  if (!corporaByIssuer.has(key)) {
+    corporaByIssuer.set(
+      key,
+      (async () => {
+        const map = new Map<string, BuiltCorpus>();
+        for (const entry of EDITIONS) map.set(entry.edition, await buildCorpus(entry, signer));
+        return map;
+      })(),
+    );
   }
-  return corporaPromise;
+  return corporaByIssuer.get(key)!;
 }
 
 export function inclusionProof(corpus: BuiltCorpus, leafIndex: number): Hex[] {

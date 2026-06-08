@@ -155,10 +155,26 @@ async function main() {
   console.log(`ContentDescriptor verified via SA ERC-1271: ${v.ok ? 'OK ✓' : `FAILED ✗ (${v.reason})`}`);
   if (!v.ok) throw new Error(`on-chain descriptor verification failed: ${v.reason}`);
 
-  // 5. Write the config the MCP reads in on-chain mode.
-  const cfg = { rpcUrl: RPC, chainId, factory, registry, resolverAddr, universalResolver: universal, issuerName: ISSUER_NAME, issuerSA, ownerPrivateKey: ISSUER_OWNER_PK };
+  // 5. Write the config the MCP reads in on-chain mode (onchain.json for
+  //    reference + .dev.vars so `wrangler dev` injects it into the Worker).
+  const entryPoint = d.entryPoint as Address;
+  const cfg = { rpcUrl: RPC, chainId, factory, registry, resolverAddr, universalResolver: universal, entryPoint, issuerName: ISSUER_NAME, issuerSA, ownerPrivateKey: ISSUER_OWNER_PK };
   writeFileSync(join(HERE, '..', 'onchain.json'), JSON.stringify(cfg, null, 2));
-  console.log('\nwrote apps/demo-bible-mcp/onchain.json — set TRUST_MODE=onchain to use it.');
+  const devVars = [
+    'TRUST_MODE=onchain',
+    `RPC_URL=${RPC}`,
+    `CHAIN_ID=${chainId}`,
+    `FACTORY=${factory}`,
+    `ENTRY_POINT=${entryPoint}`,
+    `REGISTRY=${registry}`,
+    `UNIVERSAL_RESOLVER=${universal}`,
+    `ISSUER_NAME=${ISSUER_NAME}`,
+    `ISSUER_SA=${issuerSA}`,
+    `ISSUER_OWNER_PK=${ISSUER_OWNER_PK}`,
+    '',
+  ].join('\n');
+  writeFileSync(join(HERE, '..', '.dev.vars'), devVars);
+  console.log('\nwrote onchain.json + .dev.vars — restart `pnpm dev:mcp` for on-chain mode.');
   console.log('ON-CHAIN BOOTSTRAP OK');
 }
 
