@@ -64,7 +64,7 @@ app.get('/api/search', async (c) => {
   const where: string[] = []; const args: unknown[] = [];
   if (q) { where.push('(label LIKE ? OR aka LIKE ?)'); args.push(`%${q}%`, `%${q.toLowerCase()}%`); }
   if (group) { where.push(`kind IN (${group.map(() => '?').join(',')})`); args.push(...group); }
-  const r = await rows(c.env.DB, `SELECT id,canon_id,label,kind,disambig,prov_class,gc_class,canon_confidence,image_thumb FROM node WHERE ${where.join(' AND ')} ORDER BY (SELECT count(*) FROM node_verse WHERE node_id=node.id) DESC LIMIT 50`, ...args);
+  const r = await rows(c.env.DB, `SELECT id,canon_id,label,kind,disambig,aka,prov_class,gc_class,canon_confidence,image_thumb FROM node WHERE ${where.join(' AND ')} ORDER BY (SELECT count(*) FROM node_verse WHERE node_id=node.id) DESC LIMIT 50`, ...args);
   return c.json({ ok: true, results: r });
 });
 

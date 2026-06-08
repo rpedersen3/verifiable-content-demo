@@ -28,12 +28,21 @@ const yr = (v) => {
 };
 const ord = (y) => (y == null ? null : `${Math.abs(y)} ${y < 0 ? 'BC' : 'AD'}`);
 const slugify = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
-// "also known as" search blob: label + the canonical-slug name (so "Peter" finds the node labelled
-// "Simon" via slug peter_2745) + a few curated alternate names. Lowercased for LIKE search.
-const AKA_EXTRA = { peter_2745: 'cephas', jesus_905: 'christ messiah jesus of nazareth', israel_682: 'jacob', saul_2478: 'king saul', paul_2331: 'saul of tarsus' };
+// "also known as": distinct name forms (label + canonical-slug name so "Peter" finds the node
+// labelled "Simon" + curated alternate names). Stored pipe-separated so it's both LIKE-searchable
+// (SQLite LIKE is case-insensitive) AND displayable as an alias list in the explorer.
+const AKA_EXTRA = {
+  israel_682: ['Jacob'], peter_2745: ['Cephas', 'Simon Peter'], jesus_905: ['Christ', 'Messiah', 'Jesus of Nazareth'],
+  saul_2478: ['King Saul'], paul_2331: ['Saul of Tarsus'], abraham_58: ['Abram'], sarah_60: ['Sarai'],
+  'nation-of-israel': ['Israel', 'House of Israel'],
+};
+const titleCase = (s) => String(s).replace(/\b\w/g, (c) => c.toUpperCase());
 const akaOf = (n) => {
-  const slug = String(n.canonId ?? '').replace(/_[A-Za-z0-9]+$/, '').replace(/[-_]/g, ' ').trim();
-  return [...new Set([n.label, slug, AKA_EXTRA[n.canonId]].filter(Boolean).map((x) => String(x).toLowerCase()))].join(' ').slice(0, 200);
+  const slug = titleCase(String(n.canonId ?? '').replace(/_[A-Za-z0-9]+$/, '').replace(/[-_]/g, ' ').trim());
+  const forms = [n.label, slug, ...(AKA_EXTRA[n.canonId] ?? [])].filter(Boolean);
+  const seen = new Set(); const out = [];
+  for (const f of forms) { const k = String(f).toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(f); } }
+  return out.join('|').slice(0, 240);
 };
 
 // ─── External enrichment (Wikidata/Commons): canonical authority + licensed images ──

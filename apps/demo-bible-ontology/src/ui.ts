@@ -163,8 +163,10 @@ function idrow(n){
   if(n.authority_uri&&n.authority_uri!==n.wikidata)links.push('<a class="link" href="'+esc(n.authority_uri)+'" target="_blank" rel="noopener">authority ↗</a>');
   const cb=confBadge(n.canon_confidence,n.canon_method,n.canon_basis);
   const og=n.origin_source&&n.origin_source!=='theographic'?'<span class="origin" title="canonical node minted from this source (not in the Theographic backbone)">'+esc(n.origin_source)+'</span>':'';
-  if(!n.canon_id&&!n.disambig&&!links.length&&!cb&&!og)return '';
-  return '<div class="idrow">'+(n.canon_id?'<span class="idpill" title="canonical id — unique even when names collide">'+esc(n.canon_id)+'</span>':'')+og+(n.disambig?'<span class="muted">'+esc(n.disambig)+'</span>':'')+links.join(' ')+cb+'</div>';
+  const akaList=(n.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(n.label||'').toLowerCase());
+  const akaHtml=akaList.length?'<span class="muted" title="also known as">a.k.a. <b>'+akaList.map(esc).join(', ')+'</b></span>':'';
+  if(!n.canon_id&&!n.disambig&&!links.length&&!cb&&!og&&!akaHtml)return '';
+  return '<div class="idrow">'+(n.canon_id?'<span class="idpill" title="canonical id — unique even when names collide">'+esc(n.canon_id)+'</span>':'')+og+(n.disambig?'<span class="muted">'+esc(n.disambig)+'</span>':'')+akaHtml+links.join(' ')+cb+'</div>';
 }
 // multi-source: original-language forms, external identifiers, provenance
 const XSCHEME={wikidata:['Wikidata','#a30000'],pleiades:['Pleiades','#7b3f00'],geonames:['GeoNames','#0b6e4f'],tipnr:['STEPBible','#2f6df0'],strongs:["Strong's",'#6b21a8'],openbible:['OpenBible','#b45309'],theographic:['Theographic','#475569']};
@@ -324,7 +326,7 @@ async function explore(){
   const run=async()=>{const term=q.value.trim();const res=document.getElementById('res');
     if(term.length<2&&!expKind){res.innerHTML='';return;}
     const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):''));
-    res.innerHTML=d.results.length?'<ul class="list">'+d.results.map(r=>'<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b> <span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>').join('')+'</ul>':'<div class="ghint">No matches'+(expKind?' for this filter':'')+'.</div>';
+    res.innerHTML=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b> '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind?' for this filter':'')+'.</div>';
   };
   const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
   const kc=document.getElementById('kfil');
