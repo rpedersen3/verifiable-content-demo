@@ -316,14 +316,22 @@ function tagAlign(a){
   if(a==='unaligned')return '<span class="chip tag-un">unaligned</span>';
   return '<span class="chip">'+esc(a)+'</span>';
 }
+let expKind='';
 async function explore(){
-  V.innerHTML='<div class="card"><input id="q" placeholder="Search people, places, events, orgs… (e.g. David, Jerusalem, Exodus)"/><div id="res"></div></div><div id="detail"></div>';
+  V.innerHTML='<div class="card"><input id="q" placeholder="Search by name or alias… (e.g. Peter, David, Jerusalem, Exodus)"/>'+
+   '<div class="gchips" id="kfil" style="margin-top:10px"></div><div id="res"></div></div><div id="detail"></div>';
   const q=document.getElementById('q');q.focus();
-  let timer;q.oninput=()=>{clearTimeout(timer);timer=setTimeout(async()=>{
-    if(q.value.trim().length<2){document.getElementById('res').innerHTML='';return;}
-    const d=await api('/search?q='+encodeURIComponent(q.value.trim()));
-    document.getElementById('res').innerHTML='<ul class="list">'+d.results.map(r=>'<li onclick="showNode(\\''+r.id+'\\')">'+dot(r.kind)+'<b>'+esc(r.label)+'</b> <span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+(r.prov_class||'')+(r.gc_class?' · '+r.gc_class:'')+'</span>'+confDot(r.canon_confidence)+'</li>').join('')+'</ul>';
-  },180);};
+  const run=async()=>{const term=q.value.trim();const res=document.getElementById('res');
+    if(term.length<2&&!expKind){res.innerHTML='';return;}
+    const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):''));
+    res.innerHTML=d.results.length?'<ul class="list">'+d.results.map(r=>'<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b> <span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>').join('')+'</ul>':'<div class="ghint">No matches'+(expKind?' for this filter':'')+'.</div>';
+  };
+  const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
+  const kc=document.getElementById('kfil');
+  const drawChips=()=>{kc.innerHTML=KF.map(k=>'<span class="gchip'+(expKind===k[0]?' on':'')+'" data-k="'+k[0]+'"'+(expKind===k[0]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+esc(k[1])+'</span>').join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;drawChips();run();});};
+  drawChips();
+  let timer;q.oninput=()=>{clearTimeout(timer);timer=setTimeout(run,180);};
+  if(expKind)run();
 }
 async function showNode(id){
   const d=await api('/node/'+encodeURIComponent(id));if(!d.ok)return;

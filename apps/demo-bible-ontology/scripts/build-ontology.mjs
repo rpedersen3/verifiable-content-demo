@@ -28,6 +28,13 @@ const yr = (v) => {
 };
 const ord = (y) => (y == null ? null : `${Math.abs(y)} ${y < 0 ? 'BC' : 'AD'}`);
 const slugify = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+// "also known as" search blob: label + the canonical-slug name (so "Peter" finds the node labelled
+// "Simon" via slug peter_2745) + a few curated alternate names. Lowercased for LIKE search.
+const AKA_EXTRA = { peter_2745: 'cephas', jesus_905: 'christ messiah jesus of nazareth', israel_682: 'jacob', saul_2478: 'king saul', paul_2331: 'saul of tarsus' };
+const akaOf = (n) => {
+  const slug = String(n.canonId ?? '').replace(/_[A-Za-z0-9]+$/, '').replace(/[-_]/g, ' ').trim();
+  return [...new Set([n.label, slug, AKA_EXTRA[n.canonId]].filter(Boolean).map((x) => String(x).toLowerCase()))].join(' ').slice(0, 200);
+};
 
 // ─── External enrichment (Wikidata/Commons): canonical authority + licensed images ──
 // Curated, verified mapping committed at apps/.../data/wikidata-enrichment.json.
@@ -479,8 +486,8 @@ function main() {
   files.push(`${OUT}/00_class.sql`, `${OUT}/01_prop.sql`);
 
   const q = (s) => (s == null ? 'NULL' : `'${esc(s)}'`);
-  writeChunks('node', 'INSERT OR REPLACE INTO node(id,canon_id,canon_confidence,canon_method,canon_basis,label,kind,disambig,prov_class,dul_class,org_class,geo_class,gc_class,aps_class,lat,long,wkt,t_start,t_end,wikidata,authority_uri,image_url,image_thumb,image_license,image_attr,image_styled_url,origin_source,meta)', nodes, (n) =>
-    `(${q(n.id)},${q(n.canonId)},${n.canonConf ?? 1},${q(n.canonMethod ?? 'source')},${q(n.canonBasis ?? 'native Theographic record id (recID + slug)')},${q(n.label)},'${n.kind}',${q(n.disambig)},${q(n.prov)},${q(n.dul)},${q(n.orgClass)},${q(n.geoClass)},${q(n.gc)},${q(n.aps)},${n.lat ?? 'NULL'},${n.lon ?? 'NULL'},${q(n.wkt)},${n.tStart ?? 'NULL'},${n.tEnd ?? 'NULL'},${q(n.wikidata)},${q(n.authority)},${q(n.imageUrl)},${q(n.imageThumb)},${q(n.imageLicense)},${q(n.imageAttr)},${q(n.imageStyled)},${q(n.origin ?? 'theographic')},'${esc(JSON.stringify(n.extra ?? {}))}')`,
+  writeChunks('node', 'INSERT OR REPLACE INTO node(id,canon_id,canon_confidence,canon_method,canon_basis,label,kind,disambig,aka,prov_class,dul_class,org_class,geo_class,gc_class,aps_class,lat,long,wkt,t_start,t_end,wikidata,authority_uri,image_url,image_thumb,image_license,image_attr,image_styled_url,origin_source,meta)', nodes, (n) =>
+    `(${q(n.id)},${q(n.canonId)},${n.canonConf ?? 1},${q(n.canonMethod ?? 'source')},${q(n.canonBasis ?? 'native Theographic record id (recID + slug)')},${q(n.label)},'${n.kind}',${q(n.disambig)},${q(akaOf(n))},${q(n.prov)},${q(n.dul)},${q(n.orgClass)},${q(n.geoClass)},${q(n.gc)},${q(n.aps)},${n.lat ?? 'NULL'},${n.lon ?? 'NULL'},${q(n.wkt)},${n.tStart ?? 'NULL'},${n.tEnd ?? 'NULL'},${q(n.wikidata)},${q(n.authority)},${q(n.imageUrl)},${q(n.imageThumb)},${q(n.imageLicense)},${q(n.imageAttr)},${q(n.imageStyled)},${q(n.origin ?? 'theographic')},'${esc(JSON.stringify(n.extra ?? {}))}')`,
   );
   writeChunks('edge', 'INSERT INTO edge(src,rel,dst,ctx)', edges, (e) => `('${esc(e.src)}','${esc(e.rel)}','${esc(e.dst)}',${e.ctx ? `'${esc(e.ctx)}'` : 'NULL'})`, 80);
   writeChunks('nv', 'INSERT INTO node_verse(node_id,osis)', nodeVerse, (v) => `('${esc(v.id)}','${esc(v.osis)}')`, 120);

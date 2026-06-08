@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS node (
   canon_basis TEXT,          -- human explanation of the match + any name-collision resolution
   label TEXT, kind TEXT,
   disambig TEXT,             -- short human disambiguator (role + lifespan / feature type) for same-named entities
+  aka TEXT,                  -- "also known as" search blob (label + canonical-slug name + aliases), lowercased
   prov_class TEXT, dul_class TEXT, org_class TEXT, geo_class TEXT, gc_class TEXT, aps_class TEXT,
   lat REAL, long REAL, wkt TEXT, t_start INTEGER, t_end INTEGER,
   wikidata TEXT,             -- external authority URI (Wikidata entity)

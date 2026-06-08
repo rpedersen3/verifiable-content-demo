@@ -50,11 +50,21 @@ app.get('/api/overview', async (c) => {
   return c.json({ ok: true, totals: Object.fromEntries(tot.map((r) => [r.t, r.n])), prov, kinds, gcoAlign: gco, layers, signals: sig, scores, withImage: imgs[0]?.n ?? 0, integrity, origins, coverage: Object.fromEntries(coverage.map((r) => [r.t, r.n])), sourceCoverage: srcCov, inheritance: { class: 'prov:Agent', subclasses: agentCls.length, viaClosure: agents?.n ?? 0, naiveExact: agentsNaive?.n ?? 0 } });
 });
 
-// Search nodes by label.
+// Search nodes by name OR alias ("also known as": Peter finds the node labelled Simon), with an
+// optional kind filter (person / organization / activity / place / …).
+const KIND_GROUPS: Record<string, string[]> = {
+  person: ['person'], organization: ['organization'], place: ['place'], deity: ['deity'],
+  activity: ['event', 'interaction', 'speechact', 'plan'], concept: ['concept', 'role', 'skill', 'responsibility'],
+};
 app.get('/api/search', async (c) => {
   const q = (c.req.query('q') ?? '').trim();
-  if (!q) return c.json({ ok: true, results: [] });
-  const r = await rows(c.env.DB, 'SELECT id,canon_id,label,kind,disambig,prov_class,gc_class,canon_confidence,image_thumb FROM node WHERE label LIKE ? ORDER BY (SELECT count(*) FROM node_verse WHERE node_id=node.id) DESC LIMIT 40', `%${q}%`);
+  const kind = (c.req.query('kind') ?? '').trim();
+  const group = KIND_GROUPS[kind];
+  if (!q && !group) return c.json({ ok: true, results: [] });
+  const where: string[] = []; const args: unknown[] = [];
+  if (q) { where.push('(label LIKE ? OR aka LIKE ?)'); args.push(`%${q}%`, `%${q.toLowerCase()}%`); }
+  if (group) { where.push(`kind IN (${group.map(() => '?').join(',')})`); args.push(...group); }
+  const r = await rows(c.env.DB, `SELECT id,canon_id,label,kind,disambig,prov_class,gc_class,canon_confidence,image_thumb FROM node WHERE ${where.join(' AND ')} ORDER BY (SELECT count(*) FROM node_verse WHERE node_id=node.id) DESC LIMIT 50`, ...args);
   return c.json({ ok: true, results: r });
 });
 
