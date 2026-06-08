@@ -52,6 +52,13 @@ nav button.nav-util.on{background:#eef2fb;color:var(--accent);border-color:var(-
 .map-search #mapres{background:#fff;border:1px solid var(--line);border-radius:8px;margin-top:4px;box-shadow:0 4px 14px rgba(20,30,50,.14);max-height:240px;overflow:auto}
 .map-search ul.list{margin:0}.map-search ul.list li{padding:6px 10px;font-size:13px}
 .reg-tri i{display:block;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:14px solid #c47d2e;opacity:.8}
+.combo{position:relative;max-width:400px}
+.combo>input{width:100%;padding-right:30px}
+.combo::after{content:"▾";position:absolute;right:11px;top:9px;color:var(--muted);pointer-events:none;font-size:12px}
+.combo-menu{display:none;position:absolute;top:100%;left:0;right:0;z-index:30;background:#fff;border:1px solid var(--line);border-radius:8px;margin-top:4px;box-shadow:0 8px 24px rgba(20,30,50,.16);max-height:320px;overflow:auto}
+.combo-item{padding:8px 11px;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:7px}
+.combo-item:hover,.combo-item.kbd{background:#eef2fb}
+.combo-empty{padding:9px 11px;color:var(--muted);font-size:13px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .stat{background:#f8fafd;border:1px solid var(--line);border-radius:10px;padding:12px}
@@ -666,23 +673,26 @@ async function geo(){
   applyYear();setTimeout(()=>{try{map.invalidateSize();}catch(e){}},120);
 }
 // ── Oikos circles: concentric relationship rings out from a person ──
-let oikosCenter=null,oikosOrgs=false;
+let oikosCenter=null,oikosOrgs=false,oikosLabel='';
 const RING=[{label:'Family (oikos)',color:'#e87c3e',r:120},{label:'Household & kin',color:'#0d9488',r:212},{label:'Network & conversations',color:'#9333ea',r:300}];
 function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner|hasRelative/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|org:member|org:organization|org:role|companionOf/.test(rel))return 1;return 2;}
 async function oikos(){
   V.innerHTML='<div class="card"><div class="sec-head">Oikos · relationship circles</div>'+
-   '<input id="oq" placeholder="Center on a person… (e.g. Paul, Peter, David, Mary)"/>'+
-   '<label class="hint" style="display:inline-flex;gap:5px;align-items:center;margin:8px 0 0"><input type="checkbox" id="oorg"'+(oikosOrgs?' checked':'')+'> include organizations (churches, tribes…)</label>'+
-   '<div id="ores"></div><div id="owrap"></div></div><div id="otip" class="gtip"></div>';
+   '<div class="combo"><input id="oq" autocomplete="off" placeholder="Center on a person… (click to choose)"/><div id="ores" class="combo-menu"></div></div>'+
+   '<label class="hint" style="display:inline-flex;gap:5px;align-items:center;margin:10px 0 0"><input type="checkbox" id="oorg"'+(oikosOrgs?' checked':'')+'> include organizations (churches, tribes…)</label>'+
+   '<div id="owrap"></div></div><div id="otip" class="gtip"></div>';
   document.getElementById('oorg').onchange=(e)=>{oikosOrgs=e.target.checked;drawOikos();};
-  const oq=document.getElementById('oq');let timer;
-  oq.oninput=()=>{clearTimeout(timer);timer=setTimeout(async()=>{
-    const r=document.getElementById('ores');if(oq.value.trim().length<2){r.innerHTML='';return;}
-    const d=await api('/search?q='+encodeURIComponent(oq.value.trim()));
-    r.innerHTML='<ul class="list">'+d.results.slice(0,8).map(x=>'<li data-pick="'+x.id+'">'+dot(x.kind)+esc(x.label)+' <span class="muted">'+esc(x.disambig||x.prov_class||'')+'</span></li>').join('')+'</ul>';
-    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>nav('oikos/'+li.dataset.pick));
-  },180);};
-  if(!oikosCenter){const d=await api('/search?q=Paul');oikosCenter=(((d.results||[]).find(x=>x.label==='Paul'))||(d.results||[])[0]||{}).id;}
+  const oq=document.getElementById('oq'),menu=document.getElementById('ores');let timer;
+  const showMenu=async(term)=>{const d=await api('/search?q='+encodeURIComponent(term||'')+'&kind=person');const rs=(d.results||[]).filter(x=>x.kind==='person').slice(0,12);
+    menu.innerHTML=rs.length?rs.map(x=>'<div class="combo-item" data-pick="'+x.id+'" data-lab="'+esc(x.label+(x.disambig?' · '+x.disambig:''))+'">'+dot('person')+'<b>'+esc(x.label)+'</b>'+(x.disambig?' <span class="muted">'+esc(x.disambig)+'</span>':'')+'</div>').join(''):'<div class="combo-empty">no people found</div>';
+    menu.style.display='block';
+    menu.querySelectorAll('[data-pick]').forEach(it=>it.onmousedown=(ev)=>{ev.preventDefault();oikosLabel=it.dataset.lab;oq.value=it.dataset.lab;menu.style.display='none';nav('oikos/'+it.dataset.pick);});};
+  oq.oninput=()=>{clearTimeout(timer);timer=setTimeout(()=>showMenu(oq.value.trim()),160);};
+  oq.onfocus=()=>{oq.select();showMenu(oq.value.trim());};
+  oq.onblur=()=>setTimeout(()=>{menu.style.display='none';},170);
+  if(!oikosCenter){const d=await api('/search?q=Paul&kind=person');oikosCenter=(((d.results||[]).find(x=>x.label==='Paul'))||(d.results||[])[0]||{}).id;oikosLabel='Paul';}
+  if(oikosLabel)oq.value=oikosLabel;
+  else{const cn=await api('/node/'+oikosCenter);const nn=(cn&&cn.node)||cn||{};if(nn.label){oikosLabel=nn.label+(nn.disambig?' · '+nn.disambig:'');oq.value=oikosLabel;}}
   drawOikos();
 }
 async function drawOikos(){

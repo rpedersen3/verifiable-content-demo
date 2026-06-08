@@ -581,27 +581,39 @@ function main() {
   // Neariah, son of Ater). These are different biblical people who share a name — not duplicates —
   // so we tag each with role + parentage ("King · son of Ahaz") to tell them apart.
   {
-    const parentOf = new Map();
-    for (const e of edges) if (e.rel === 'gc:hasParent' && !parentOf.has(e.src)) { const p = byId.get(e.dst); if (p) parentOf.set(e.src, p.label); }
-    const vCount = new Map();
-    for (const nv of nodeVerse) vCount.set(nv.id, (vCount.get(nv.id) ?? 0) + 1);
+    // gather whatever relational context we have for each person, in priority order
+    const parentOf = new Map(), spouseOf = new Map(), childOf = new Map(), sibOf = new Map(), placeOf = new Map();
+    const lab = (id) => byId.get(id)?.label;
+    for (const e of edges) {
+      if (e.rel === 'gc:hasParent' && !parentOf.has(e.src)) parentOf.set(e.src, lab(e.dst));
+      else if (e.rel === 'gc:hasPartner' && !spouseOf.has(e.src)) spouseOf.set(e.src, lab(e.dst));
+      else if (e.rel === 'gc:hasChild' && !childOf.has(e.src)) childOf.set(e.src, lab(e.dst));
+      else if (e.rel === 'gc:hasSibling' && !sibOf.has(e.src)) sibOf.set(e.src, lab(e.dst));
+      else if (e.rel === 'gc:bornAt' && !placeOf.has(e.src)) placeOf.set(e.src, lab(e.dst));
+    }
+    const vCount = new Map(), firstOsis = new Map();
+    for (const nv of nodeVerse) { vCount.set(nv.id, (vCount.get(nv.id) ?? 0) + 1); if (!firstOsis.has(nv.id)) firstOsis.set(nv.id, nv.osis); }
+    const prettyRef = (o) => String(o).replace(/\.(\d+)$/, ':$1').replace('.', ' ');
     const byLabel = new Map();
     for (const n of byId.values()) if (n.kind === 'person' && n.label) { const k = n.label.toLowerCase(); if (!byLabel.has(k)) byLabel.set(k, []); byLabel.get(k).push(n); }
     let tagged = 0;
     for (const group of byLabel.values()) {
       if (group.length < 2) continue;
-      // most-attested keeps the simplest label; rank by verse attestation so "the" famous one is clear
-      group.sort((a, b) => (vCount.get(b.id) ?? 0) - (vCount.get(a.id) ?? 0));
+      group.sort((a, b) => (vCount.get(b.id) ?? 0) - (vCount.get(a.id) ?? 0));  // most-attested first
       for (const n of group) {
+        const g = n.extra?.gender, F = g === 'Female';
         const parts0 = String(n.disambig ?? '').split(' · ');
         const role = parts0[0] && !/^(Male|Female)$/.test(parts0[0]) ? parts0[0] : null;
-        const fa = parentOf.get(n.id);
-        const kin = fa ? `${n.extra?.gender === 'Female' ? 'daughter' : 'son'} of ${fa}` : null;
-        const parts = [role, kin].filter(Boolean);
+        const fa = parentOf.get(n.id), sp = spouseOf.get(n.id), ch = childOf.get(n.id), sb = sibOf.get(n.id), pl = placeOf.get(n.id);
+        // whatever context we know, in order: parent → spouse → child → sibling → birthplace
+        const ctx = fa ? `${F ? 'daughter' : 'son'} of ${fa}` : sp ? `${F ? 'wife' : 'husband'} of ${sp}`
+          : ch ? `${F ? 'mother' : 'father'} of ${ch}` : sb ? `${F ? 'sister' : 'brother'} of ${sb}`
+            : pl ? `of ${pl}` : firstOsis.get(n.id) ? `in ${prettyRef(firstOsis.get(n.id))}` : null;
+        const parts = [role, ctx].filter(Boolean);
         if (parts.length) { n.disambig = parts.join(' · '); tagged++; }
       }
     }
-    console.log('person de-dup · disambiguated', tagged, 'same-named people by role + parentage');
+    console.log('person de-dup · disambiguated', tagged, 'same-named people (parent/spouse/child/sibling/place)');
   }
 
   // ── emit chunked SQL ──
