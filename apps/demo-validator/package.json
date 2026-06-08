@@ -1,0 +1,26 @@
+{
+  "name": "@verifiable-content-demo/validator",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Independent third-party validator agent — checks an agentic-trust evidence bundle (canonical reference, issuer-signed descriptor, Merkle inclusion, zk membership, commitment, policy/entitlement, citation binding) and returns validated/gated/rejected.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "e2e": "tsx src/e2e.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agenticprimitives/content-primitives": "^1.0.0-alpha.6",
+    "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.2",
+    "@hono/node-server": "^1.13.0",
+    "@verifiable-content-demo/zk-membership": "workspace:*",
+    "hono": "^4.6.0",
+    "viem": "^2.52.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

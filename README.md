@@ -23,6 +23,25 @@ scripture code. Its tests include a genericity proof — a real US Code
 `ContentDescriptor` built + verified through the same SDK.
 `pnpm --filter @verifiable-content-demo/legal-content-extension test`.
 
+## Agentic trust: zk proofs + a third-party validator
+
+Instead of "trust me, here's John 3:16," the agent returns a verifiable **evidence
+bundle**, and an **independent validator** checks it — no need to trust the agent.
+
+- [`packages/zk-membership`](packages/zk-membership) — a **real Groth16 zk-SNARK**
+  (circom + snarkjs) proving a content commitment is a member of the issuer's
+  Merkle corpus **without revealing which leaf**.
+- [`apps/demo-validator`](apps/demo-validator) — a third-party validator that
+  checks the bundle: canonical reference, issuer-signed descriptor, **keccak
+  Merkle inclusion**, **zk membership**, commitment↔text, policy/entitlement, and
+  citation↔response binding → `validated / gated / rejected`.
+
+```bash
+pnpm zk:setup        # one-time circom compile + local Groth16 trusted setup
+pnpm dev             # triad in dev mode
+pnpm validate:e2e    # agent assembles a bundle (+ zk proof); validator checks honest / tampered / untrusted
+```
+
 ## The triad
 
 ```

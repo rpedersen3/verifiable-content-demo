@@ -12,6 +12,9 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "smoke": "pnpm exec tsx apps/demo-bible-a2a/smoke.ts",
+    "zk:setup": "pnpm --filter @verifiable-content-demo/zk-membership setup",
+    "validator": "pnpm --filter @verifiable-content-demo/validator start",
+    "validate:e2e": "pnpm --filter @verifiable-content-demo/validator e2e",
     "check:no-licensed-content": "tsx scripts/check-no-licensed-content.ts"
   },
   "devDependencies": {

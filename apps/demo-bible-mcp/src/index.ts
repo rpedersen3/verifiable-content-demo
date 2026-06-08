@@ -86,6 +86,23 @@ function findRow(corpus: BuiltCorpus, canonicalId: string) {
   return corpus.byCanonicalId.get(canonicalId.toLowerCase());
 }
 
+// corpus — the edition's PUBLIC descriptor commitments, ordered by leaf index.
+// A validator builds the issuer's Poseidon tree from these to verify a zk
+// membership proof (no text is exposed — commitments are already public).
+app.get('/corpus/:edition', async (c) => {
+  const trust = await resolveTrust(c.env);
+  const corpus = (await getCorpora(trust)).get(c.req.param('edition'));
+  if (!corpus) return c.json({ ok: false, error: 'unknown edition' }, 404);
+  const rows = [...corpus.byCanonicalId.values()].sort((a, b) => a.leafIndex - b.leafIndex);
+  return c.json({
+    ok: true,
+    edition: c.req.param('edition'),
+    corpusRef: corpus.manifest.corpusRef,
+    corpusRoot: corpus.manifest.corpusRoot,
+    commitments: rows.map((r) => r.descriptor.commitment?.value ?? '').filter((v) => v.length > 0),
+  });
+});
+
 // resolve — CANDIDATE resolution across editions/issuers (spec 266 §3 / §candidate).
 app.post('/tools/resolve', async (c) => {
   const gate = policyGate('resolve', RESOLVE_CLS);
@@ -155,6 +172,12 @@ app.post('/tools/resolve', async (c) => {
         reason: cand.reason,
         verification,
         corpusRootSource,
+        // evidence-bundle fields: let an independent validator re-check Merkle
+        // inclusion against the (possibly on-chain) corpus root.
+        corpusRef: where.corpus.manifest.corpusRef,
+        corpusRoot,
+        inclusionProof: inclusionProof(where.corpus, where.leafIndex),
+        leafIndex: where.leafIndex,
         descriptor: cand.descriptor,
       };
     }),
