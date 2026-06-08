@@ -1,19 +1,14 @@
 {
   "discipled": [
-    { "mentor": "Jesus", "disciples": ["Peter", "John", "James", "Andrew", "Matthew", "Thomas", "Philip", "Bartholomew", "Judas Iscariot", "Mary Magdalene"] },
-    { "mentor": "Barnabas", "disciples": ["Paul", "Mark"] },
-    { "mentor": "Paul", "disciples": ["Timotheus", "Titus", "Silas", "Onesimus", "Epaphras", "Luke", "Apollos", "Priscilla", "Aquila"] },
-    { "mentor": "Peter", "disciples": ["Mark"] },
-    { "mentor": "Moses", "disciples": ["Joshua"] },
-    { "mentor": "Elijah", "disciples": ["Elisha"] },
-    { "mentor": "Eli", "disciples": ["Samuel"] },
-    { "mentor": "Samuel", "disciples": ["Saul", "David"] },
-    { "mentor": "Naomi", "disciples": ["Ruth"] },
-    { "mentor": "Mordecai", "disciples": ["Esther"] }
-  ],
-  "planted": [
-    { "planter": "Paul", "churches": ["Ephesus", "Corinth", "Galatia", "Philippi", "Colossae", "Thessalonica", "Antioch", "Athens", "Berea"] },
-    { "planter": "Peter", "churches": ["Rome"] },
-    { "planter": "Barnabas", "churches": ["Cyprus", "Antioch"] }
+    { "mentor": "Jesus", "osis": "Mark.3.14", "disciples": ["Peter", "John", "James", "Andrew", "Matthew", "Thomas", "Philip", "Bartholomew", "Judas Iscariot", "Mary Magdalene"] },
+    { "mentor": "Barnabas", "osis": "Acts.9.27", "disciples": ["Paul", "Mark"] },
+    { "mentor": "Paul", "osis": "Acts.16.1", "disciples": ["Timotheus", "Titus", "Silas", "Onesimus", "Epaphras", "Luke", "Apollos", "Priscilla", "Aquila"] },
+    { "mentor": "Peter", "osis": "1Pet.5.13", "disciples": ["Mark"] },
+    { "mentor": "Moses", "osis": "Exod.24.13", "disciples": ["Joshua"] },
+    { "mentor": "Elijah", "osis": "1Kgs.19.19", "disciples": ["Elisha"] },
+    { "mentor": "Eli", "osis": "1Sam.3.1", "disciples": ["Samuel"] },
+    { "mentor": "Samuel", "osis": "1Sam.16.13", "disciples": ["Saul", "David"] },
+    { "mentor": "Naomi", "osis": "Ruth.1.16", "disciples": ["Ruth"] },
+    { "mentor": "Mordecai", "osis": "Esth.2.7", "disciples": ["Esther"] }
   ]
 }

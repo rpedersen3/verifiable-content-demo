@@ -229,7 +229,7 @@ export function ingestSources(ctx) {
 // to canonical nodes (data integrity); unresolved ones are logged, never silently dropped. This is the
 // hand-curated, high-confidence seed of the model that MACULA semantic-role extraction will scale.
 export function ingestInteractions(ctx) {
-  const { ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm } = ctx;
+  const { ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm, churchByName } = ctx;
   let data;
   try { data = JSON.parse(readFileSync(join(ROOT, 'apps', 'demo-bible-ontology', 'data', 'interactions.json'), 'utf8')); }
   catch { return { count: 0, edges: 0, skipped: 0 }; }
@@ -244,7 +244,8 @@ export function ingestInteractions(ctx) {
   for (const it of data) {
     const author = resolve(it.author);
     if (!author) { skipped.push(`${it.id}(author:${it.author})`); continue; }
-    const recs = (it.recipients ?? []).map((r) => ({ name: r, id: resolve(r) })).filter((r) => r.id);
+    // address the CHURCH (assembly) where there is one, else a person/place
+    const recs = (it.recipients ?? []).map((r) => ({ name: r, id: (churchByName && churchByName.get(norm(r))) || resolve(r) })).filter((r) => r.id);
     if (!recs.length) { skipped.push(`${it.id}(recipients)`); continue; }
     const gc = CLS[it.kind] ?? 'gc:Interaction';
     const id = `interaction:${it.id}`;
@@ -311,6 +312,38 @@ export function ingestPlans(ctx) {
   return { plans, steps, acts };
 }
 
+// New Testament churches as agentive assemblies (gc:AgentiveEkklesia) — the groups Paul & others
+// planted and wrote to (the Philippians, Ephesians, …), located at their city, founded by their
+// planter. These are the "church" organizations Theographic lacks. Returns a name→church-id map.
+export function ingestChurches(ctx) {
+  const { ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm, versesOf } = ctx;
+  let data;
+  try { data = JSON.parse(readFileSync(join(ROOT, 'apps', 'demo-bible-ontology', 'data', 'churches.json'), 'utf8')); }
+  catch { return { map: new Map(), count: 0 }; }
+  const pick = (idx, name) => { const a = idx.get(norm(name)); if (!a || !a.length) return null; const m = new Map(); for (const c of a) m.set(c.id, Math.max(m.get(c.id) ?? -1, c.v)); return [...m].sort((x, y) => y[1] - x[1])[0][0]; };
+  const map = new Map(); let count = 0;
+  for (const ch of data) {
+    const placeId = pick(placeByLabel, ch.place);
+    const id = `church:${slugify(ch.place)}`;
+    if (byId.has(id)) continue;
+    const aka = [ch.gentilic, `Church at ${ch.place}`, `church of ${ch.place}`, ch.gentilic ? `the ${ch.gentilic}` : null].filter(Boolean);
+    addNode({ id, canonId: `church-${slugify(ch.place)}`, label: `Church at ${ch.place}`, kind: 'organization', disambig: 'Assembly / Ekklesia',
+      prov: 'prov:Organization', dul: 'dul:Organization', gc: 'gc:AgentiveEkklesia', orgClass: 'gc:AgentiveEkklesia', aps: null,
+      canonConf: 0.85, canonMethod: 'curated:scripture', canonBasis: `New Testament church at ${ch.place}${ch.osis ? ` (${ch.osis})` : ''}`, origin: 'church', akaExtra: aka, extra: { place: ch.place } });
+    // verse provenance: the founding/epistle ref + the verses that mention the church's city
+    const verses = [ch.osis, ...(placeId && versesOf ? versesOf(placeId).slice(0, 40) : [])].filter(Boolean);
+    addVerseLinks(id, [...new Set(verses)]);
+    if (placeId) addEdge(id, 'dul:hasLocation', placeId);
+    map.set(norm(ch.place), id);
+    if (ch.gentilic) map.set(norm(ch.gentilic), id);
+    const cx = ch.osis ? JSON.stringify({ osis: ch.osis, basis: `church at ${ch.place}` }) : null;
+    const founder = ch.founder && pick(peopleByKey, ch.founder);
+    if (founder) { addEdge(founder, 'gc:planted', id, cx); addEdge(id, 'gc:grewOutOf', founder, cx); addEdge(founder, 'gc:gaveRiseTo', id, cx); }
+    count++;
+  }
+  return { map, count };
+}
+
 // Spiritual generations — curated discipleship/mentorship chains + church plants, so the generational
 // map shows movements (Paul disciples Timothy, plants the church at Ephesus, …) alongside biological
 // descent. Built only between endpoints that resolve to canonical nodes.
@@ -323,7 +356,8 @@ export function ingestMovements(ctx) {
   let discipled = 0, planted = 0;
   for (const d of data.discipled ?? []) {
     const mentor = pick(peopleByKey, d.mentor); if (!mentor) continue;
-    for (const name of d.disciples ?? []) { const id = pick(peopleByKey, name); if (id && id !== mentor) { addEdge(mentor, 'gc:discipled', id); discipled++; } }
+    const cx = d.osis ? JSON.stringify({ osis: d.osis }) : null;
+    for (const name of d.disciples ?? []) { const id = pick(peopleByKey, name); if (id && id !== mentor) { addEdge(mentor, 'gc:discipled', id, cx); discipled++; } }
   }
   for (const p of data.planted ?? []) {
     const planter = pick(peopleByKey, p.planter); if (!planter) continue;

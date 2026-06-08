@@ -180,7 +180,7 @@ app.get('/api/lineage', async (c) => {
   const maxDepth = Math.min(7, Math.max(1, parseInt(c.req.query('depth') ?? '5', 10)));
   const rootNode = await c.env.DB.prepare('SELECT id,canon_id,label,kind,image_thumb,t_start tStart,t_end tEnd FROM node WHERE id=?').bind(root).first();
   if (!rootNode) return c.json({ ok: false, error: 'not found' }, 404);
-  const relsAllowed = new Set(['gc:hasChild', 'gc:discipled', 'gc:planted']);
+  const relsAllowed = new Set(['gc:hasChild', 'gc:discipled', 'gc:planted', 'gc:gaveRiseTo', 'org:hasSubOrganization', 'gc:grewOutOf']);
   const rels = (c.req.query('rels') ?? 'gc:hasChild').split(',').map((s) => s.trim()).filter((r) => relsAllowed.has(r));
   const relList = rels.length ? rels : ['gc:hasChild'];
   const visited = new Set([root]); let frontier = [root]; const levels = [[rootNode]]; const edges: { from: string; to: string }[] = [];
@@ -213,10 +213,11 @@ app.get('/api/orgs', async (c) => {
 // and people at their birthplace (with lifespan for time animation). Only honest, edge-backed
 // locations are returned — no fabricated coordinates.
 app.get('/api/geo', async (c) => {
+  const refs = (col: string) => `(SELECT group_concat(osis,'|') FROM (SELECT osis FROM node_verse WHERE node_id=${col} LIMIT 6)) refs`;
   const [places, events, people] = await Promise.all([
-    rows(c.env.DB, "SELECT id,canon_id,label,lat,long lon,disambig,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL"),
-    rows(c.env.DB, "SELECT e.id,e.canon_id,e.label,e.t_start tStart,p.lat,p.long lon,p.label place,(SELECT polarity FROM signal WHERE subject_id=e.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=e.id) v FROM node e JOIN edge ed ON ed.src=e.id AND ed.rel='dul:hasLocation' JOIN node p ON p.id=ed.dst WHERE e.kind='event' AND p.lat IS NOT NULL"),
-    rows(c.env.DB, "SELECT pe.id,pe.canon_id,pe.label,pe.t_start tStart,pe.t_end tEnd,pl.lat,pl.long lon,pl.label place,(SELECT polarity FROM signal WHERE subject_id=pe.id LIMIT 1) sig FROM node pe JOIN edge ed ON ed.src=pe.id AND ed.rel='gc:bornAt' JOIN node pl ON pl.id=ed.dst WHERE pe.kind='person' AND pl.lat IS NOT NULL"),
+    rows(c.env.DB, `SELECT id,canon_id,label,lat,long lon,disambig,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v,${refs('node.id')} FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL`),
+    rows(c.env.DB, `SELECT e.id,e.canon_id,e.label,e.t_start tStart,p.lat,p.long lon,p.label place,(SELECT polarity FROM signal WHERE subject_id=e.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=e.id) v,${refs('e.id')} FROM node e JOIN edge ed ON ed.src=e.id AND ed.rel='dul:hasLocation' JOIN node p ON p.id=ed.dst WHERE e.kind='event' AND p.lat IS NOT NULL`),
+    rows(c.env.DB, `SELECT pe.id,pe.canon_id,pe.label,pe.t_start tStart,pe.t_end tEnd,pl.lat,pl.long lon,pl.label place,(SELECT polarity FROM signal WHERE subject_id=pe.id LIMIT 1) sig,${refs('pe.id')} FROM node pe JOIN edge ed ON ed.src=pe.id AND ed.rel='gc:bornAt' JOIN node pl ON pl.id=ed.dst WHERE pe.kind='person' AND pl.lat IS NOT NULL`),
   ]);
   return c.json({ ok: true, places, events, people });
 });

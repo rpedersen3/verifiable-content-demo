@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ingestSources, ingestInteractions, ingestMacula, ingestPlans, ingestMovements } from './ingest-sources.mjs';
+import { ingestSources, ingestInteractions, ingestMacula, ingestPlans, ingestMovements, ingestChurches } from './ingest-sources.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -39,7 +39,7 @@ const AKA_EXTRA = {
 const titleCase = (s) => String(s).replace(/\b\w/g, (c) => c.toUpperCase());
 const akaOf = (n) => {
   const slug = titleCase(String(n.canonId ?? '').replace(/_[A-Za-z0-9]+$/, '').replace(/[-_]/g, ' ').trim());
-  const forms = [n.label, slug, ...(AKA_EXTRA[n.canonId] ?? [])].filter(Boolean);
+  const forms = [n.label, slug, ...(AKA_EXTRA[n.canonId] ?? []), ...(n.akaExtra ?? [])].filter(Boolean);
   const seen = new Set(); const out = [];
   for (const f of forms) { const k = String(f).toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(f); } }
   return out.join('|').slice(0, 240);
@@ -204,9 +204,11 @@ const PROPS = [
   ['gc:spokeTo', 'spoke to', 'gc', 'prov:Agent', 'prov:Agent', 'gc:spokenToBy'],
   // generational / derivation — what an organization grew out of (founder, antecedent group)
   ['gc:grewOutOf', 'grew out of', 'gc', 'prov:Organization', 'prov:Agent', 'gc:gaveRiseTo'],
+  ['gc:gaveRiseTo', 'gave rise to', 'gc', 'prov:Agent', 'prov:Organization', 'gc:grewOutOf'],
+  ['org:hasSubOrganization', 'has sub-organization', 'org', 'org:Organization', 'org:Organization', 'org:subOrganizationOf'],
   // spiritual generations — discipleship / mentorship + church planting (movements grow from people)
   ['gc:discipled', 'discipled', 'gc', 'prov:Agent', 'prov:Agent', 'gc:discipleOf'],
-  ['gc:planted', 'planted', 'gc', 'prov:Agent', 'gc:Place', 'gc:plantedBy'],
+  ['gc:planted', 'planted', 'gc', 'prov:Agent', 'gc:AgentiveEkklesia', 'gc:plantedBy'],
   // P-Plan / EP-Plan + DOLCE planning relations (planning · requests · doing)
   ['pplan:isStepOfPlan', 'is step of plan', 'pplan', 'pplan:Step', 'pplan:Plan', 'pplan:isPlanOfStep'],
   ['pplan:isPrecededBy', 'is preceded by', 'pplan', 'pplan:Step', 'pplan:Step', null],
@@ -456,8 +458,8 @@ function main() {
   for (const g of groups) {
     const name = g.fields.groupName ?? '';
     const m = name.match(/^(?:Tribe|Nation|House|Line|Genealogy|Sons|Children|Descendants) of (.+)$/i);
-    if (m) { const founder = pickMax(peopleByKey.get(norm(m[1]))); if (founder && founder !== g.id) { addEdge(g.id, 'gc:grewOutOf', founder); derived++; } }
-    if (nationId && /^Tribe of /i.test(name) && g.id !== nationId) addEdge(g.id, 'org:subOrganizationOf', nationId);
+    if (m) { const founder = pickMax(peopleByKey.get(norm(m[1]))); if (founder && founder !== g.id) { addEdge(g.id, 'gc:grewOutOf', founder); addEdge(founder, 'gc:gaveRiseTo', g.id); derived++; } }
+    if (nationId && /^Tribe of /i.test(name) && g.id !== nationId) { addEdge(g.id, 'org:subOrganizationOf', nationId); addEdge(nationId, 'org:hasSubOrganization', g.id); }
   }
   console.log('org derivation edges:', derived);
 
@@ -467,8 +469,13 @@ function main() {
   console.log('ingest · tipnr', JSON.stringify(ingest.stats.tipnr), '· openbible', JSON.stringify(ingest.stats.openbible));
   console.log('ingest · sources', ingest.sources.length, '· xrefs', ingest.xrefs.length, '· node_source', ingest.nodeSources.length, '· forms', ingest.forms.length, '· geo-filled places', ingest.stats.geoFilled);
 
+  // NT churches as assemblies (gc:AgentiveEkklesia) — the groups Paul planted & wrote to
+  const versesOf = (id) => nodeVerse.filter((v) => v.id === id).map((v) => v.osis);
+  const churches = ingestChurches({ ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm, versesOf });
+  console.log('churches ·', churches.count, 'ekklesia (assembly) nodes');
+
   // curated fine-grained interactions (letters / speech acts) — conversation-level trust-graph edges
-  const interactions = ingestInteractions({ ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm });
+  const interactions = ingestInteractions({ ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm, churchByName: churches.map });
   console.log('interactions ·', interactions.count, 'created ·', interactions.edges, 'recipient edges ·', interactions.skipped, 'skipped');
 
   // MACULA semantic-role extraction → conversation-level gc:spokeTo edges across the Greek NT

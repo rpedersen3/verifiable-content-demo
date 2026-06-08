@@ -1,0 +1,20 @@
+[
+  { "place": "Rome", "gentilic": "Romans", "osis": "Rom.1.7" },
+  { "place": "Corinth", "founder": "Paul", "gentilic": "Corinthians", "osis": "1Cor.1.2" },
+  { "place": "Galatia", "founder": "Paul", "gentilic": "Galatians", "osis": "Gal.1.2" },
+  { "place": "Ephesus", "founder": "Paul", "gentilic": "Ephesians", "osis": "Eph.1.1" },
+  { "place": "Philippi", "founder": "Paul", "gentilic": "Philippians", "osis": "Phil.1.1" },
+  { "place": "Colossae", "founder": "Epaphras", "gentilic": "Colossians", "osis": "Col.1.2" },
+  { "place": "Thessalonica", "founder": "Paul", "gentilic": "Thessalonians", "osis": "1Thess.1.1" },
+  { "place": "Antioch", "founder": "Barnabas", "gentilic": "Antiochene church", "osis": "Acts.11.26" },
+  { "place": "Jerusalem", "gentilic": "Jerusalem church", "osis": "Acts.2.1" },
+  { "place": "Smyrna", "osis": "Rev.2.8" },
+  { "place": "Pergamum", "osis": "Rev.2.12" },
+  { "place": "Thyatira", "osis": "Rev.2.18" },
+  { "place": "Sardis", "osis": "Rev.3.1" },
+  { "place": "Philadelphia", "osis": "Rev.3.7" },
+  { "place": "Laodicea", "gentilic": "Laodiceans", "osis": "Rev.3.14" },
+  { "place": "Athens", "founder": "Paul", "osis": "Acts.17.34" },
+  { "place": "Berea", "founder": "Paul", "osis": "Acts.17.10" },
+  { "place": "Cyprus", "founder": "Barnabas", "osis": "Acts.13.4" }
+]

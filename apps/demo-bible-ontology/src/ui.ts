@@ -40,7 +40,7 @@ svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10p
 .leaflet-tooltip.maplabel:before{display:none;border:0}
 /* verse passage popup */
 .verses span{cursor:pointer}.verses span:hover{background:#dbe6fb}
-.vmodal{display:none;position:fixed;inset:0;z-index:50;background:rgba(20,30,50,.45);align-items:center;justify-content:center;padding:20px}
+.vmodal{display:none;position:fixed;inset:0;z-index:3000;background:rgba(20,30,50,.45);align-items:center;justify-content:center;padding:20px}
 .vmodal.on{display:flex}
 .vmodal .box{background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:82vh;overflow:auto;padding:18px 22px;box-shadow:0 14px 44px rgba(20,30,50,.32)}
 .vmodal h3{margin:0 0 2px;font-size:18px}
@@ -546,7 +546,8 @@ async function geo(){
   esriStreet.addTo(map);   // default: full street map with English city + water labels
   L.control.layers({'Streets (English)':esriStreet,'Topographic (English)':esriTopo,'Satellite':esriImagery,'OpenStreetMap':osmStd,'Clean (no labels)':cartoClean},null,{position:'topright',collapsed:false}).addTo(map);
   const sigC=(n,def)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':def;
-  const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
+  const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);return r.length?'<div style="margin-top:5px">'+r.map(o=>'<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:#eef2fb;color:#3a4a63;border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none">'+esc(o)+'</a>').join('')+'</div>':'';};
+  const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
   const placeG=L.layerGroup();
   d.places.forEach(p=>{const m=L.circleMarker([p.lat,p.lon],{radius:Math.min(9,3+Math.sqrt(p.v||1)),color:'#7c8696',weight:1,fillColor:'#aab4c2',fillOpacity:.5});m.bindPopup(pop(p,(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);placeG.addLayer(m);});
   const evItems=d.events.map(e=>{const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop(e,'<br><span style="color:#6b7785">'+ordY(e.tStart)+' · at '+esc(e.place||'')+'</span>'));m.bindTooltip(e.label);return{m,t:e.tStart};});
@@ -619,14 +620,14 @@ async function drawOikos(){
 }
 // ── Generational map: descent tree (parent→child by generation) + org derivation ──
 let genRoot=null,genRels='gc:hasChild';
-const GEN_LENS=[['gc:hasChild','Descent (parent→child)'],['gc:discipled,gc:planted','Discipleship & church plants']];
+const GEN_LENS=[['gc:hasChild','Descent (parent→child)'],['gc:discipled,gc:planted','Discipleship & church plants'],['gc:gaveRiseTo,org:hasSubOrganization,gc:grewOutOf,gc:planted,gc:discipled','Organizations (what grew out of what)']];
 async function generations(){
   V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Generational map — lineage, discipleship &amp; what grew out of what</h3>'+
    '<p class="hint" style="margin-top:0">Generations of a root by descent, or by <b>movement</b> — discipleship &amp; church plants (e.g. Jesus → the Twelve → Paul → Timothy; Paul plants Ephesus, Corinth…). Search a root; click to open. Below: how organizations grew out of their founders.</p>'+
    '<div class="gchips" id="glens"></div>'+
    '<input id="gnq" placeholder="Root… (descent: Abraham, Jacob · movement: Jesus, Paul, Barnabas)"/><div id="gnres"></div><div id="gnwrap"></div></div>'+
    '<div id="orgwrap"></div><div id="otip" class="gtip"></div>';
-  const drawLens=()=>{document.getElementById('glens').innerHTML=GEN_LENS.map(l=>'<span class="gchip'+(genRels===l[0]?' on':'')+'" data-l="'+l[0]+'"'+(genRels===l[0]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+esc(l[1])+'</span>').join('');document.querySelectorAll('#glens [data-l]').forEach(ch=>ch.onclick=async()=>{genRels=ch.dataset.l;if(genRels!=='gc:hasChild'){const d=await api('/search?q=Jesus');genRoot=(((d.results||[]).find(x=>x.label==='Jesus'))||(d.results||[])[0]||{}).id;}drawLens();drawGen();});};
+  const drawLens=()=>{document.getElementById('glens').innerHTML=GEN_LENS.map(l=>'<span class="gchip'+(genRels===l[0]?' on':'')+'" data-l="'+l[0]+'"'+(genRels===l[0]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+esc(l[1])+'</span>').join('');document.querySelectorAll('#glens [data-l]').forEach(ch=>ch.onclick=async()=>{genRels=ch.dataset.l;const q=genRels==='gc:hasChild'?null:(genRels.indexOf('hasSubOrganization')>=0?'Israel':'Jesus');if(q){const d=await api('/search?q='+q);genRoot=(((d.results||[]).find(x=>x.label===q))||(d.results||[])[0]||{}).id;}drawLens();drawGen();});};
   drawLens();
   const q=document.getElementById('gnq');let t;
   q.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=document.getElementById('gnres');if(q.value.trim().length<2){r.innerHTML='';return;}
