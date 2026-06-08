@@ -16,9 +16,11 @@ const rows = <T,>(db: D1, q: string, ...b: unknown[]) => db.prepare(q).bind(...b
 const subclassesOf = (db: D1, curie: string) => rows<{ class: string }>(db, 'SELECT class FROM class_closure WHERE ancestor=?', curie).then((r) => r.map((x) => x.class));
 // A node is an instance of `curie` if ANY of its layer-classes is a subclass-or-self of it.
 const LAYER_COLS = ['prov_class', 'dul_class', 'org_class', 'geo_class', 'gc_class', 'aps_class'];
+// Inline the class curies (controlled vocabulary from class_closure — no user input) to avoid
+// D1's 100-bound-parameter limit when a class has many subclasses.
 const instanceWhere = (classes: string[]) => {
-  const ph = classes.map(() => '?').join(',');
-  return { sql: LAYER_COLS.map((col) => `${col} IN (${ph})`).join(' OR '), args: LAYER_COLS.flatMap(() => classes) };
+  const inlist = classes.map((c) => `'${String(c).replace(/'/g, "''")}'`).join(',') || "''";
+  return { sql: LAYER_COLS.map((col) => `${col} IN (${inlist})`).join(' OR '), args: [] as unknown[] };
 };
 
 app.get('/', (c) => { c.header('Cache-Control', 'no-cache, must-revalidate'); return c.html(UI); });
