@@ -88,6 +88,12 @@ const CURATED_DIMS = Object.entries(TRUST.dimensions).map(([dim, map]) => [dim, 
 const ACTIONS = TRUST.actions;
 const BIBLICAL_LIFESPAN = TRUST.lifespans;
 const HISTORICAL = TRUST.historical;
+// LLM-generated, verse-grounded signals for the long tail of people (keyed by node id). Lower
+// confidence than curated; curated always wins. Produced by the extract-trust-signals workflow.
+const GEN_SIGNALS = (() => {
+  try { return JSON.parse(readFileSync(join(HERE, '..', 'data', 'trust-signals-generated.json'), 'utf8')).byId || {}; }
+  catch { return {}; }
+})();
 const POLVAL = { positive: 1, negative: -1, mixed: 0 };
 // classify a biblical event into the deeper GCO behaviour taxonomy by its title
 const EVENT_GC = [
@@ -760,9 +766,24 @@ function main() {
     const id = pickMax(peopleByKey.get(norm(name))) || nameToId.get(name);
     if (id && byId.has(id)) sigRows.push({ id, pol: pol === '-' ? 'negative' : pol === '~' ? 'mixed' : 'positive', basis: `Act — ${basis}`, osis: osis ?? null });
   }
+  // curated (id,dimension) keys — generated signals never override a curated one
+  const curatedKeys = new Set();
+  for (const [dim, map] of CURATED_DIMS) for (const nm of Object.keys(map)) { const cid = pickMax(peopleByKey.get(norm(nm))) || nameToId.get(nm); if (cid) curatedKeys.add(cid + '|' + dim); }
+  for (const [nm] of SIGNALS) { const cid = pickMax(peopleByKey.get(norm(nm))) || nameToId.get(nm); if (cid) curatedKeys.add(cid + '|moral'); }
+  // generated (LLM, verse-grounded) signals for the long tail of people — verse-backed chips
+  let genSig = 0;
+  for (const [id, e] of Object.entries(GEN_SIGNALS)) {
+    if (!byId.has(id)) continue;
+    for (const [dim, arr] of Object.entries(e.dims || {})) {
+      if (curatedKeys.has(id + '|' + dim)) continue;
+      const v = arr[0], dlabel = dim[0].toUpperCase() + dim.slice(1);
+      sigRows.push({ id, pol: v > 0 ? 'positive' : v < 0 ? 'negative' : 'mixed', basis: `${dlabel} — ${arr[1]}`, osis: arr[2] || null }); genSig++;
+    }
+    for (const a of (e.actions || [])) { sigRows.push({ id, pol: a[1] === '-' ? 'negative' : a[1] === '~' ? 'mixed' : 'positive', basis: `Act — ${a[0]}`, osis: a[2] || null }); genSig++; }
+  }
   writeFileSync(`${OUT}/signal.sql`, sigRows.map((s) => `INSERT INTO signal(subject_id,polarity,basis,osis) VALUES('${esc(s.id)}','${s.pol}','${esc(s.basis)}',${s.osis ? `'${esc(s.osis)}'` : 'NULL'});`).join('\n') + '\n');
   files.push(`${OUT}/signal.sql`);
-  console.log('signals', sigRows.length, '/', SIGNALS.length, 'resolved');
+  console.log('signals', sigRows.length, 'total ·', genSig, 'generated (curated wins)');
 
   // ── transitive subclass closure (ancestor ⊇ class) over ontology_class.parent ──
   // Each class is its own ancestor (depth 0); querying ancestor='prov:Agent' yields prov:Person,
@@ -814,6 +835,16 @@ function main() {
       if (id && byId.has(id)) scoreRows.push({ id, dim, val, basis, method: `curated (${sigClass})` });
     }
   }
+  // generated (LLM, verse-grounded) dimension scores for the long tail — curated wins per (id,dim)
+  let genScore = 0;
+  for (const [id, e] of Object.entries(GEN_SIGNALS)) {
+    if (!byId.has(id)) continue;
+    for (const [dim, arr] of Object.entries(e.dims || {})) {
+      if (curatedKeys.has(id + '|' + dim)) continue;
+      scoreRows.push({ id, dim, val: arr[0], basis: arr[1], method: 'scripture-derived (generated)' }); genScore++;
+    }
+  }
+  if (genScore) console.log('generated dimension scores ·', genScore, 'added');
   // curated: historical_trust (extra-biblical corroboration), attached where the node exists
   for (const [name, [val, basis]] of Object.entries(HISTORICAL)) {
     const id = nameToId.get(name) || pickMax(peopleByKey.get(norm(name))) || pickMax(placeByLabel.get(norm(name)));
