@@ -6,6 +6,30 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+// STEPBible TIPNR book code → OSIS (so TIPNR verse references resolve against our BSB OSIS verses).
+const TIPNR_OSIS = {
+  Gen: 'Gen', Exo: 'Exod', Lev: 'Lev', Num: 'Num', Deu: 'Deut', Jos: 'Josh', Jdg: 'Judg', Rut: 'Ruth',
+  '1Sa': '1Sam', '2Sa': '2Sam', '1Ki': '1Kgs', '2Ki': '2Kgs', '1Ch': '1Chr', '2Ch': '2Chr', Ezr: 'Ezra',
+  Neh: 'Neh', Est: 'Esth', Job: 'Job', Psa: 'Ps', Pro: 'Prov', Ecc: 'Eccl', Sng: 'Song', Isa: 'Isa',
+  Jer: 'Jer', Lam: 'Lam', Ezk: 'Ezek', Dan: 'Dan', Hos: 'Hos', Jol: 'Joel', Amo: 'Amos', Oba: 'Obad',
+  Jon: 'Jonah', Mic: 'Mic', Nam: 'Nah', Hab: 'Hab', Zep: 'Zeph', Hag: 'Hag', Zec: 'Zech', Mal: 'Mal',
+  Mat: 'Matt', Mrk: 'Mark', Luk: 'Luke', Jhn: 'John', Act: 'Acts', Rom: 'Rom', '1Co': '1Cor', '2Co': '2Cor',
+  Gal: 'Gal', Eph: 'Eph', Php: 'Phil', Col: 'Col', '1Th': '1Thess', '2Th': '2Thess', '1Ti': '1Tim', '2Ti': '2Tim',
+  Tit: 'Titus', Phm: 'Phlm', Heb: 'Heb', Jas: 'Jas', '1Pe': '1Pet', '2Pe': '2Pet', '1Jn': '1John', '2Jn': '2John',
+  '3Jn': '3John', Jud: 'Jude', Rev: 'Rev',
+};
+const tipnrRefsToOsis = (s) => {
+  const out = [];
+  for (const part of String(s || '').split(/;\s*/)) {
+    const m = part.trim().match(/^([1-3]?[A-Za-z]{2,4})\.(\d+)\.(\d+)(?:-(\d+))?/);
+    if (!m) continue;
+    const bk = TIPNR_OSIS[m[1]]; if (!bk) continue;
+    const ch = m[2], v1 = +m[3], v2 = m[4] ? +m[4] : v1;
+    for (let v = v1; v <= v2 && v <= v1 + 30; v++) out.push(`${bk}.${ch}.${v}`);
+  }
+  return [...new Set(out)].slice(0, 60);
+};
+
 // great-circle distance in km (for de-duplicating places at the same location)
 function haversineKm(la1, lo1, la2, lo2) {
   const R = 6371, t = Math.PI / 180;
@@ -100,6 +124,7 @@ export function ingestSources(ctx) {
     // original-language forms from sub-records: col2 = dStrong«eStrong=form
     const recForms = [];
     const allStrongs = new Set();
+    let totalRefs = '';
     for (const sub of rec.subs) {
       const sc = sub.split('\t');
       const sig = (sc[0] || '').replace(/^[––]\s*/, '').trim();
@@ -113,7 +138,7 @@ export function ingestSources(ctx) {
           recForms.push({ lang, form, strongs });
         }
       }
-      if (sig === 'Total') for (const s of (sc[2] || '').split(',')) { const t = s.trim(); if (/^[HG]\d/.test(t)) allStrongs.add(t); }
+      if (sig === 'Total') { for (const s of (sc[2] || '').split(',')) { const t = s.trim(); if (/^[HG]\d/.test(t)) allStrongs.add(t); } totalRefs = sc[3] || ''; }
     }
     allStrongs.add(uStrong);
     const isPlace = section === 'PLACE';
@@ -135,6 +160,9 @@ export function ingestSources(ctx) {
       addNode({ id: nodeId, canonId: `${slugify(name)}_${uStrong}`, label: name, kind, disambig: type || null, prov, dul, gc, aps: null,
         canonConf: 0.6, canonMethod: 'tipnr:source-only', canonBasis: `minted from STEPBible TIPNR ${uStrong} (no Theographic match)`, origin: 'tipnr', extra: { tipnrType: type } });
       addNodeSource(nodeId, 'tipnr', `${name}@${uStrong}`, name, 0.95);
+      // link the verses where TIPNR records this name (so minted people show their biblical attestation)
+      const osises = tipnrRefsToOsis(totalRefs || (at >= 0 ? namePart.slice(at + 1) : ''));
+      if (ctx.addVerseLinks && osises.length) ctx.addVerseLinks(nodeId, osises);
       stats.tipnr.new++;
     }
     // forms + strongs xrefs + tipnr xref

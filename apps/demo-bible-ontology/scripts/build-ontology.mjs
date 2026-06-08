@@ -45,6 +45,19 @@ const PERSON_EPITHET = {
   jesus_904: 'called Justus', // "Jesus, who is called Justus" — Paul's fellow worker, Col 4:11
 };
 const titleCase = (s) => String(s).replace(/\b\w/g, (c) => c.toUpperCase());
+// full BSB book name → OSIS, for matching entity names against verse text (data/bsb.txt: "Genesis 1:1\t…")
+const BOOK_NAME_OSIS = {
+  Genesis: 'Gen', Exodus: 'Exod', Leviticus: 'Lev', Numbers: 'Num', Deuteronomy: 'Deut', Joshua: 'Josh', Judges: 'Judg', Ruth: 'Ruth',
+  '1 Samuel': '1Sam', '2 Samuel': '2Sam', '1 Kings': '1Kgs', '2 Kings': '2Kgs', '1 Chronicles': '1Chr', '2 Chronicles': '2Chr',
+  Ezra: 'Ezra', Nehemiah: 'Neh', Esther: 'Esth', Job: 'Job', Psalm: 'Ps', Psalms: 'Ps', Proverbs: 'Prov', Ecclesiastes: 'Eccl',
+  'Song of Solomon': 'Song', Isaiah: 'Isa', Jeremiah: 'Jer', Lamentations: 'Lam', Ezekiel: 'Ezek', Daniel: 'Dan', Hosea: 'Hos',
+  Joel: 'Joel', Amos: 'Amos', Obadiah: 'Obad', Jonah: 'Jonah', Micah: 'Mic', Nahum: 'Nah', Habakkuk: 'Hab', Zephaniah: 'Zeph',
+  Haggai: 'Hag', Zechariah: 'Zech', Malachi: 'Mal', Matthew: 'Matt', Mark: 'Mark', Luke: 'Luke', John: 'John', Acts: 'Acts',
+  Romans: 'Rom', '1 Corinthians': '1Cor', '2 Corinthians': '2Cor', Galatians: 'Gal', Ephesians: 'Eph', Philippians: 'Phil',
+  Colossians: 'Col', '1 Thessalonians': '1Thess', '2 Thessalonians': '2Thess', '1 Timothy': '1Tim', '2 Timothy': '2Tim',
+  Titus: 'Titus', Philemon: 'Phlm', Hebrews: 'Heb', James: 'Jas', '1 Peter': '1Pet', '2 Peter': '2Pet', '1 John': '1John',
+  '2 John': '2John', '3 John': '3John', Jude: 'Jude', Revelation: 'Rev',
+};
 const akaOf = (n) => {
   const slug = titleCase(String(n.canonId ?? '').replace(/_[A-Za-z0-9]+$/, '').replace(/[-_]/g, ' ').trim());
   const forms = [n.label, slug, ...(AKA_EXTRA[n.canonId] ?? []), ...(n.akaExtra ?? [])].filter(Boolean);
@@ -144,6 +157,16 @@ const ACTIONS = [
   ['Noah', 'built the ark as commanded', '+', 'Gen.6.22'], ['Daniel', 'prayed despite the decree', '+', 'Dan.6.10'],
   ['Ruth', 'gleaned to provide for Naomi', '+', 'Ruth.2.2'], ['Paul', 'persecuted the church before conversion', '-', 'Acts.8.3'],
 ];
+// Biblically-STATED lifespans (years lived) — these are explicit in the text (Gen 5/11 genealogies,
+// patriarchs), unlike BC/AD calendar dates which are scholarly estimates. [name]: [years, verse].
+const BIBLICAL_LIFESPAN = {
+  Adam: [930, 'Gen.5.5'], Seth: [912, 'Gen.5.8'], Enosh: [905, 'Gen.5.11'], Kenan: [910, 'Gen.5.14'], Mahalalel: [895, 'Gen.5.17'],
+  Jared: [962, 'Gen.5.20'], Enoch: [365, 'Gen.5.23'], Methuselah: [969, 'Gen.5.27'], Lamech: [777, 'Gen.5.31'], Noah: [950, 'Gen.9.29'],
+  Shem: [600, 'Gen.11.10'], Arphaxad: [438, 'Gen.11.13'], Shelah: [433, 'Gen.11.15'], Eber: [464, 'Gen.11.17'], Peleg: [239, 'Gen.11.19'],
+  Reu: [239, 'Gen.11.21'], Serug: [230, 'Gen.11.23'], Nahor: [148, 'Gen.11.25'], Terah: [205, 'Gen.11.32'],
+  Abraham: [175, 'Gen.25.7'], Sarah: [127, 'Gen.23.1'], Isaac: [180, 'Gen.35.28'], Jacob: [147, 'Gen.47.28'], Joseph: [110, 'Gen.50.26'],
+  Moses: [120, 'Deut.34.7'], Aaron: [123, 'Num.33.39'], Joshua: [110, 'Josh.24.29'], Job: [140, 'Job.42.16'],
+};
 // historical_trust (extra-biblical corroboration, 0..1) — by entity name, attached only where a node exists.
 const HISTORICAL = {
   // people with epigraphic / archaeological attestation
@@ -738,6 +761,51 @@ function main() {
       }
     }
     console.log('person de-dup · disambiguated', tagged, 'same-named people (parent/spouse/child/sibling/place)');
+  }
+
+  // Biblically-stated lifespans (Gen 5/11 etc.) — attach as a node fact (NOT a BC/AD estimate).
+  {
+    let n = 0;
+    for (const [name, [years, osis]] of Object.entries(BIBLICAL_LIFESPAN)) {
+      const id = pickMax(peopleByKey.get(norm(name))); if (!id) continue;
+      const nd = byId.get(id); if (nd) { nd.extra = { ...nd.extra, lifespan: years, lifespanRef: osis }; n++; }
+    }
+    console.log('biblical lifespans · attached to', n, 'figures');
+  }
+
+  // Name → verse matching: entities with NO verse links (esp. organizations like tribes) pick up the
+  // verses whose text mentions them — preferring the full label phrase ("tribe of Asher"), then the
+  // core name. Fuzzy, so capped and flagged. Source text: .data/bsb.txt.
+  {
+    let osisText = null;
+    try {
+      osisText = [];
+      for (const line of readFileSync(join(ROOT, '.data', 'bsb.txt'), 'utf8').split(/\r?\n/)) {
+        const m = line.match(/^(.+?) (\d+):(\d+)\t(.*)$/);
+        if (!m) continue;
+        const bk = BOOK_NAME_OSIS[m[1]]; if (!bk) continue;
+        osisText.push({ osis: `${bk}.${m[2]}.${m[3]}`, text: m[4].toLowerCase() });
+      }
+    } catch { osisText = null; }
+    if (osisText && osisText.length) {
+      const have = new Set(nodeVerse.map((v) => v.id));
+      const strip = (s) => String(s || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/^(tribe|tribes|nation|house|kingdom|land|city|church|genealogy|line|sons|children|clan|family|people|descendants)\s+(of|at|in)\s+/, '').replace(/\b\d+\b/g, ' ').replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+      let matched = 0;
+      for (const n of nodes) {
+        if (have.has(n.id) || !['organization', 'person', 'place', 'event'].includes(n.kind)) continue;
+        const core = strip(n.label); if (core.length < 3) continue;
+        const phrase = String(n.label || '').toLowerCase().replace(/\([^)]*\)/g, '').trim();
+        const reWord = new RegExp('\\b' + core.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
+        const phraseHits = [], wordHits = [];
+        for (const v of osisText) {
+          if (phrase.length >= 6 && v.text.includes(phrase)) phraseHits.push(v.osis);
+          else if (reWord.test(v.text)) wordHits.push(v.osis);
+        }
+        const hits = [...phraseHits, ...wordHits].slice(0, 25);
+        if (hits.length) { for (const o of hits) nodeVerse.push({ id: n.id, osis: o }); n.extra = { ...n.extra, verseMatch: 'name' }; matched++; }
+      }
+      console.log('name→verse · matched', matched, 'previously-unattested entities to verses');
+    }
   }
 
   // ── emit chunked SQL ──

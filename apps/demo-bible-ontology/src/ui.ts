@@ -452,7 +452,7 @@ async function renderNode(id){
   const grp=(arr,dir)=>{const by={};arr.forEach(e=>{(by[e.rel]=by[e.rel]||[]).push(e)});return Object.entries(by).map(([rel,es])=>'<div class="edge-grp"><div class="rel">'+esc(rel)+(dir==='in'?' (inverse)':'')+'</div>'+es.map(e=>'<span style="margin-right:10px;white-space:nowrap"><a onclick="showNode(\\''+e.id+'\\')">'+dot(e.kind)+esc(e.label)+'</a>'+ectx(e)+'</span>').join('')+'</div>').join('');};
   const geo=n.lat!=null?'<div class="hint">📍 '+n.lat+', '+n.long+' &nbsp;<span class="mono">'+esc(n.wkt||'')+'</span></div>':'';
   const ord=(y)=>y==null?'':('c. '+Math.abs(y)+(y<0?' BC':' AD'));
-  const temporal='';
+  const temporal=(()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.lifespan?'<div class="hint">📅 Lived <b>'+m.lifespan+' years</b>'+(m.lifespanRef?' · <a class="vref" onclick="openPassage(\\''+esc(m.lifespanRef)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(m.lifespanRef)+'</a>':'')+' <span class="muted">(stated in Scripture)</span></div>':'';})();
   const sigCss=(p)=>p==='positive'?'background:#e7f6ee;color:#1a8a4f':p==='negative'?'background:#fdeceA;color:#c0392b':'background:#fbf0e6;color:#b45309';
   const sigs=(d.signals&&d.signals.length)?'<div style="margin-top:8px">'+d.signals.map(s=>'<span class="chip" style="'+sigCss(s.polarity)+'">'+(s.polarity==='positive'?'＋':s.polarity==='negative'?'－':'~')+' '+esc(s.basis)+(s.osis?' · <a class="vref" onclick="openPassage(\\''+esc(s.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(s.osis)+'</a>':'')+'</span>').join('')+'</div>':'';
   const det=document.getElementById('detail')||V;
@@ -460,7 +460,7 @@ async function renderNode(id){
    '<div>'+cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join('')+'</div>'+temporal+geo+sigs+scoreBars(d.scores)+formsHtml(d.forms)+xrefsHtml(d.xrefs)+
    (d.out.length?'<h3 class="muted" style="margin-top:16px">relationships</h3>'+grp(d.out,'out'):'')+
    (d.in.length?grp(d.in,'in'):'')+
-   '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses <span style="font-weight:400;text-transform:none">· click to read</span></h3><div class="verses">'+d.verses.map(v=>'<span class="vref" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
+   '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses <span style="font-weight:400;text-transform:none">· click to read'+((()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.verseMatch==='name'?' · matched by name (approximate)':'';})())+'</span></h3><div class="verses">'+d.verses.map(v=>'<span class="vref" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
    provHtml(d.sources,n.origin_source)+
    '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ trust graph</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="oikosFor(\\''+n.id+'\\')">→ oikos circles</a>':'')+' &nbsp;·&nbsp; <a class="link" onclick="nav(\\'generations/'+n.id+'\\')">→ generations</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="genMovementFor(\\''+n.id+'\\')">→ movement (plants &amp; disciples)</a>':'')+'</div></div>';
   const htip=document.getElementById('htip');
@@ -588,10 +588,10 @@ async function drawTimeline(){
   let ticks='';for(let y=Math.ceil(d.from/step)*step;y<=d.to;y+=step){const x=X(y);ticks+='<line x1="'+x+'" y1="'+axisY+'" x2="'+x+'" y2="'+H+'" stroke="#eef2f7"/><text x="'+x+'" y="'+(axisY-6)+'" text-anchor="middle" font-size="10" fill="#8a96a3">'+ordY(y)+'</text>';}
   let s='<svg id="tsvg" viewBox="0 0 '+W+' '+H+'">'+ticks+'<line x1="'+mL+'" y1="'+axisY+'" x2="'+(W-mR)+'" y2="'+axisY+'" stroke="#cbd5e1"/>'+
     '<text x="'+mL+'" y="'+(pTop-4)+'" font-size="10" font-weight="700" fill="#8a96a3">PEOPLE</text>';
-  ppl.forEach(p=>{const y=pTop+p._lane*laneH,x0=p._x0,c=col(p),lbl=esc(p.label.length>22?p.label.slice(0,21)+'…':p.label);
+  ppl.forEach(p=>{const y=pTop+p._lane*laneH,x0=p._x0,c=col(p),txt=p.label.length>22?p.label.slice(0,21)+'…':p.label,lbl=esc(txt),tw=txt.length*5.7;
     const full=p.tEnd!=null&&p.tEnd!==p.tStart;
-    if(full){const xe=Math.max(p._xe,x0+3);s+='<g class="tnode" data-id="'+esc(p.id)+'"><rect x="'+x0+'" y="'+y+'" width="'+(xe-x0)+'" height="'+barH+'" rx="3" fill="'+c+'" fill-opacity="0.85"/><text x="'+(xe+4)+'" y="'+(y+barH-3)+'" font-size="10" fill="#33404f">'+lbl+'</text></g>';}
-    else{const tc=p.basis==='relative'?'#94a3b8':'#d9822b',cy=y+barH/2,r=barH/1.3;s+='<g class="tnode" data-id="'+esc(p.id)+'"><polygon points="'+x0+','+(cy-r)+' '+(x0+r)+','+(cy+r)+' '+(x0-r)+','+(cy+r)+'" fill="'+tc+'"/><text x="'+(x0+r+4)+'" y="'+(cy+r-1)+'" font-size="10" fill="#33404f">'+lbl+'</text></g>';}});
+    if(full){const xe=Math.max(p._xe,x0+3),lx=xe+4,flip=lx+tw>W-2;s+='<g class="tnode" data-id="'+esc(p.id)+'"><rect x="'+x0+'" y="'+y+'" width="'+(xe-x0)+'" height="'+barH+'" rx="3" fill="'+c+'" fill-opacity="0.85"/><text x="'+(flip?x0-4:lx)+'" y="'+(y+barH-3)+'" text-anchor="'+(flip?'end':'start')+'" font-size="10" fill="#33404f">'+lbl+'</text></g>';}
+    else{const tc=p.basis==='relative'?'#94a3b8':'#d9822b',cy=y+barH/2,r=barH/1.3,lx=x0+r+4,flip=lx+tw>W-2;s+='<g class="tnode" data-id="'+esc(p.id)+'"><polygon points="'+x0+','+(cy-r)+' '+(x0+r)+','+(cy+r)+' '+(x0-r)+','+(cy+r)+'" fill="'+tc+'"/><text x="'+(flip?x0-r-4:lx)+'" y="'+(cy+r-1)+'" text-anchor="'+(flip?'end':'start')+'" font-size="10" fill="#33404f">'+lbl+'</text></g>';}});
   s+='<text x="'+mL+'" y="'+(eTop-6)+'" font-size="10" font-weight="700" fill="#8a96a3">ACTIVITIES</text>';
   evs.forEach(e=>{const y=eTop+e._lane*15+5,x=e._x,c=col(e),r=4;s+='<g class="tnode" data-id="'+esc(e.id)+'"><polygon points="'+x+','+(y-r)+' '+(x+r)+','+y+' '+x+','+(y+r)+' '+(x-r)+','+y+'" fill="'+c+'"/></g>';});
   s+='</svg>';
