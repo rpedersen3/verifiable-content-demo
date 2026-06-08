@@ -9,3 +9,4 @@ apps/*/onchain.json
 contracts/out/
 contracts/cache/
 contracts/broadcast/
+packages/*/dist/

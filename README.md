@@ -13,6 +13,16 @@ apps that `npm install` the primitives:
 | [`@agenticprimitives/audit`](https://www.npmjs.com/package/@agenticprimitives/audit) | structured audit events |
 | `@agenticprimitives/types` | branded `Address`/`Hex` types |
 
+## Genericity: a second vertical
+
+`content-primitives` is a *generic* substrate — scripture is just its first
+projection. [`packages/legal-content-extension`](packages/legal-content-extension)
+proves it: a **US legal-code** vertical (`42 U.S.C. § 1983` → one canonical locus)
+built entirely on the published `@agenticprimitives/content-primitives`, with no
+scripture code. Its tests include a genericity proof — a real US Code
+`ContentDescriptor` built + verified through the same SDK.
+`pnpm --filter @verifiable-content-demo/legal-content-extension test`.
+
 ## The triad
 
 ```

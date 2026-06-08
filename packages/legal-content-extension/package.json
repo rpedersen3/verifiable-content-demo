@@ -1,0 +1,24 @@
+{
+  "name": "@verifiable-content-demo/legal-content-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A SECOND content vertical (US legal code) built on the published @agenticprimitives/content-primitives — proving the substrate is generic, not Bible-specific. No scripture code.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agenticprimitives/content-primitives": "^1.0.0-alpha.6"
+  },
+  "devDependencies": {
+    "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.2",
+    "@types/node": "^22.7.0",
+    "viem": "^2.52.2",
+    "vitest": "^4.1.8"
+  }
+}
