@@ -235,7 +235,9 @@ app.get('/transparency', (c) => c.json({ ok: true, count: transparencyLog.length
 // ValidationAttestation + trust graph. (The zk membership proof needs a Node
 // prover, so it's added by the local `pnpm validate:e2e`, not this Worker.)
 app.post('/trust/validate', async (c) => {
-  const body = await c.req.json<{ reference?: string; edition?: string }>().catch(() => ({}) as { reference?: string; edition?: string });
+  // Optional `text` overrides the served text — used by the tamper demo: edit a
+  // verse and the validator's commitment check catches it (text ≠ committed hash).
+  const body = await c.req.json<{ reference?: string; edition?: string; text?: string }>().catch(() => ({}) as { reference?: string; edition?: string; text?: string });
   if (!body.reference) return c.json({ ok: false, error: 'reference required' }, 400);
   const vurl = (c.env.VALIDATOR_URL ?? '').replace(/\/$/, '');
   if (!vurl) return c.json({ ok: false, error: 'validator not configured (set VALIDATOR_URL)' }, 503);
@@ -248,7 +250,10 @@ app.post('/trust/validate', async (c) => {
   const cand = pl.candidates.find((x: any) => x.edition === (body.edition ?? pl.edition)) ?? pl.candidates[0];
   if (!cand) return c.json({ ok: false, error: 'no candidate' }, 404);
 
-  const text: string | null = pl.text ?? null;
+  // The descriptor + commitment stay the issuer's original; only the served text
+  // may be the (edited) override → an edit fails commitmentMatchesText.
+  const text: string | null = body.text != null ? body.text : pl.text ?? null;
+  const edited = body.text != null && body.text !== (pl.text ?? null);
   const responseHash = keccak256(toBytes(text ?? ''));
   const bundle = {
     intent: { intentType: 'quote', requestedReference: pl.display?.reference ?? body.reference, requestedEdition: cand.edition, agentRunId: runId, outputId },
@@ -280,6 +285,8 @@ app.post('/trust/validate', async (c) => {
     edition: cand.edition,
     accessible: pl.accessible,
     text,
+    edited,
+    originalText: pl.text,
     outcome: validation.outcome,
     checks: validation.checks,
     attestation: validation.attestation,

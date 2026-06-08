@@ -167,6 +167,10 @@ export interface TrustValidation {
   anchor?: { onchain: boolean; attestationHash?: string; registry?: string; chainId?: number; txHash?: string; alreadyAnchored?: boolean } | null;
   validator?: string;
   services?: { agent?: string; mcp?: string; validator?: string };
+  edited?: boolean;
+  originalText?: string;
+  text?: string | null;
+  error?: string;
 }
 
 export interface RangeVerseUI {
@@ -201,11 +205,11 @@ export async function resolveRange(reference: string, edition = 'bsb'): Promise<
 
 /** Ask the agent to assemble an evidence bundle and have the INDEPENDENT
  *  (hosted) validator check it — returns the outcome, signed attestation + graph. */
-export async function validateResponse(reference: string, edition: string): Promise<TrustValidation> {
+export async function validateResponse(reference: string, edition: string, text?: string): Promise<TrustValidation> {
   const res = await fetch(`${A2A_BASE}/trust/validate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ reference, edition }),
+    body: JSON.stringify({ reference, edition, text }),
   });
   return res.json() as Promise<TrustValidation>;
 }

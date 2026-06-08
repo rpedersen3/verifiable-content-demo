@@ -298,6 +298,74 @@ function RangePanel() {
   );
 }
 
+// Tamper test: show a verse range's text editable; edit any verse + validate, and
+// the hosted validator rejects it (edited text ≠ the issuer's on-chain commitment).
+function TamperPanel() {
+  const RANGE = 'John 3:16-18';
+  const [verses, setVerses] = useState<{ osis: string; text: string }[] | null>(null);
+  const [edited, setEdited] = useState<Record<string, string>>({});
+  const [results, setResults] = useState<Record<string, TrustValidation>>({});
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setBusy(true);
+    try {
+      const r = await resolveRange(RANGE);
+      const vs = (r.verses ?? []).map((v) => ({ osis: v.osis, text: v.text }));
+      setVerses(vs);
+      setEdited(Object.fromEntries(vs.map((v) => [v.osis, v.text])));
+      setResults({});
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function validateAll() {
+    if (!verses) return;
+    setBusy(true);
+    try {
+      const out: Record<string, TrustValidation> = {};
+      for (const v of verses) out[v.osis] = await validateResponse(v.osis, 'bsb', edited[v.osis]);
+      setResults(out);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="card tamper">
+      <h2>Tamper test — edit a verse, watch it fail</h2>
+      {!verses ? (
+        <button onClick={load} disabled={busy}>{busy ? '…' : `Load ${RANGE}`}</button>
+      ) : (
+        <>
+          <p className="hint">Each verse below is the issuer's committed rendering ({RANGE}). Edit any verse, then validate — the hosted validator recomputes the SHA-256 commitment and rejects it, because the edited text no longer matches the hash anchored on-chain.</p>
+          <div className="tamper-verses">
+            {verses.map((v) => {
+              const res = results[v.osis];
+              const dirty = (edited[v.osis] ?? '') !== v.text;
+              return (
+                <div key={v.osis} className="tamper-verse">
+                  <div className="tamper-row">
+                    <b>{v.osis}</b>
+                    {res ? <span className={`badge ${res.outcome === 'validated' ? 'ok' : 'no'}`}>{res.outcome}</span> : dirty ? <span className="tamper-edited">edited ●</span> : <span className="tamper-clean">original</span>}
+                  </div>
+                  <textarea value={edited[v.osis] ?? ''} onChange={(e) => setEdited({ ...edited, [v.osis]: e.target.value })} rows={2} />
+                  {res && res.outcome !== 'validated' && (
+                    <div className="verdict no">text ↔ on-chain commitment {res.checks?.commitmentMatchesText?.ok ? '✓' : '✗ MISMATCH'} · issuer descriptor still valid {res.checks?.descriptorSignatureAndInclusion?.ok ? '✓' : '✗'}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="row">
+            <button onClick={validateAll} disabled={busy}>{busy ? 'validating…' : 'Validate with the validator →'}</button>
+            <button onClick={load} disabled={busy}>reset to original</button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function App() {
   const [editions, setEditions] = useState<Edition[]>([]);
   const [books, setBooks] = useState<BibleBook[]>([]);
@@ -361,6 +429,8 @@ export function App() {
       <AskPanel />
 
       <RangePanel />
+
+      <TamperPanel />
 
       <section className="picker card">
         <h2>{COPY.pickPassage}</h2>
