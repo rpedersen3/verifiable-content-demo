@@ -28,7 +28,7 @@ import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT, type UnsignedCr
 // returned body. Pre-set the canonical pair.
 const VC_CONTEXTS = [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT];
 import { getCorpora, inclusionProof, EDITIONS, type BuiltCorpus } from './editions/registry.js';
-import { loadD1Corpus, findD1Verse, d1InclusionProof, type D1Like } from './editions/d1.js';
+import { loadD1Corpus, findD1Verse, findD1Range, d1InclusionProof, type D1Like } from './editions/d1.js';
 import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import type { Hex } from 'viem';
@@ -205,6 +205,67 @@ app.post('/tools/resolve', async (c) => {
     canonicalReference: { id: parsed.reference.id, alias: parsed.reference.alias, envelope: parsed.reference.envelope },
     display: { reference: `${parsed.book.name} ${parsed.chapter}:${parsed.verse}`, osis: `${parsed.book.osis}.${parsed.chapter}.${parsed.verse}` },
     candidates,
+  });
+});
+
+// resolve_range — verify a RANGE of verses (e.g. "John 3:1-16" or a whole chapter
+// "John 3"). Each verse proves Merkle membership in the issuer's on-chain-anchored
+// corpusRoot — local + fast for any range (the issuer's authority is the one anchor).
+function parseRange(input: string): { book: string; chapter: number; vStart?: number; vEnd?: number } | null {
+  const s = input.trim().replace(/[–—]/g, '-'); // en/em dash → hyphen
+  let m: RegExpMatchArray | null;
+  if ((m = s.match(/^(.+?)\s+(\d+):(\d+)\s*-\s*(\d+)$/))) return { book: m[1]!, chapter: +m[2]!, vStart: +m[3]!, vEnd: +m[4]! };
+  if ((m = s.match(/^(.+?)\s+(\d+):(\d+)$/))) return { book: m[1]!, chapter: +m[2]!, vStart: +m[3]!, vEnd: +m[3]! };
+  if ((m = s.match(/^(.+?)\s+(\d+)$/))) return { book: m[1]!, chapter: +m[2]! };
+  return null;
+}
+
+app.post('/tools/resolve_range', async (c) => {
+  const gate = policyGate('resolve', RESOLVE_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  const body = await c.req.json<{ reference?: string; edition?: string }>().catch(() => ({}) as { reference?: string });
+  if (!body.reference) return c.json({ ok: false, error: 'reference required' }, 400);
+  if (!c.env.DB) return c.json({ ok: false, error: 'range needs the full-BSB D1 corpus' }, 503);
+  const r = parseRange(body.reference);
+  if (!r) return c.json({ ok: false, error: `unrecognized range: "${body.reference}"` }, 400);
+
+  let osisPrefix: string;
+  let display: string;
+  try {
+    const p1 = parseScriptureAlias(`${r.book} ${r.chapter}:1`);
+    osisPrefix = `${p1.book.osis}.${r.chapter}`;
+    const suffix = r.vStart != null ? `:${r.vStart}${r.vEnd && r.vEnd !== r.vStart ? `-${r.vEnd}` : ''}` : '';
+    display = `${p1.book.name} ${r.chapter}${suffix}`;
+  } catch (e) {
+    return c.json({ ok: false, error: (e as Error).message }, 400);
+  }
+
+  const trust = await resolveTrust(c.env);
+  const corpus = await loadD1Corpus(c.env.DB, 'bsb');
+  let corpusRoot = corpus.corpusRoot;
+  let corpusRootSource: 'onchain' | 'manifest' = 'manifest';
+  if (trust.corpusRootReader) {
+    const anchored = await trust.corpusRootReader(corpus.corpusRef);
+    if (anchored) {
+      corpusRoot = anchored;
+      corpusRootSource = 'onchain';
+    }
+  }
+  const verses = await findD1Range(c.env.DB, 'bsb', osisPrefix, r.vStart, r.vEnd, corpus, corpusRoot);
+  if (!verses.length) return c.json({ ok: false, error: `no verses for ${display}` }, 404);
+  const verified = verses.filter((v) => v.included).length;
+  audit('content.resolve_range', 'success', display, { count: verses.length, verified });
+  return c.json({
+    ok: true,
+    edition: 'bsb',
+    range: display,
+    corpusRef: corpus.corpusRef,
+    corpusRoot,
+    corpusRootSource,
+    count: verses.length,
+    verified,
+    allVerified: verified === verses.length,
+    verses: verses.map((v) => ({ osis: v.osis, canonicalId: v.canonicalId, leafIndex: v.leafIndex, commitment: v.commitment, included: v.included, text: v.text })),
   });
 });
 

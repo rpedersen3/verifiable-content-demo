@@ -131,6 +131,13 @@ async function doResolve(env: Env, body: ResolveBody): Promise<{ status: number;
   };
 }
 
+// Verify a RANGE of verses (e.g. "John 3:1-16" or a whole chapter "John 3").
+app.post('/resolve-range', async (c) => {
+  const body = await c.req.json<{ reference?: string; edition?: string }>().catch(() => ({}) as { reference?: string; edition?: string });
+  const res = await mcpPost(c.env, '/tools/resolve_range', { reference: body.reference, edition: body.edition ?? 'bsb' });
+  return c.json(res.body, res.status as 200);
+});
+
 // The orchestrated skill (single passage): resolve → pick → text → verify → cite.
 app.post('/resolve', async (c) => {
   const body = await c.req.json<ResolveBody>().catch(() => ({}) as ResolveBody);

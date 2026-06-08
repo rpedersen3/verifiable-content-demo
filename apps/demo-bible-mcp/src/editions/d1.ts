@@ -4,7 +4,7 @@
 // proofs — never the descriptors (those are built + signed on demand, one per
 // request). On reboot the Worker reads from D1; it re-derives nothing from text.
 
-import { buildContentDescriptor, contentCommitment, leafHash, buildCorpusTree, merkleProof, type ContentDescriptor } from '@agenticprimitives/content-primitives';
+import { buildContentDescriptor, contentCommitment, leafHash, buildCorpusTree, merkleProof, verifyInclusion, type ContentDescriptor } from '@agenticprimitives/content-primitives';
 import { SCRIPTURE_VERSE_CONTENT_TYPE, parseScriptureAlias } from '@agenticprimitives/scripture-content-extension';
 import type { Hex } from 'viem';
 import type { CorpusSigner } from './registry.js';
@@ -83,4 +83,32 @@ export async function findD1Verse(db: D1Like, edition: string, canonicalId: stri
 
 export function d1InclusionProof(corpus: D1Corpus, leafIndex: number): Hex[] {
   return merkleProof(corpus.tree, leafIndex);
+}
+
+export interface RangeVerse {
+  osis: string;
+  canonicalId: string;
+  leafIndex: number;
+  commitment: string;
+  text: string;
+  included: boolean;
+  inclusionProof: Hex[];
+}
+
+/** Resolve every verse under `osisPrefix` (book.chapter) optionally filtered to
+ *  [vStart,vEnd], and verify each one's Merkle membership against `root`. Local
+ *  + fast for any range — the issuer's authority is the single on-chain anchor. */
+export async function findD1Range(db: D1Like, edition: string, osisPrefix: string, vStart: number | undefined, vEnd: number | undefined, corpus: D1Corpus, root: Hex, max = 250): Promise<RangeVerse[]> {
+  const rows = (await db.prepare('SELECT osis,canonical_id,leaf_index,commitment,text FROM verses WHERE edition=? AND osis LIKE ? ORDER BY leaf_index').bind(edition, `${osisPrefix}.%`).all<{ osis: string; canonical_id: string; leaf_index: number; commitment: string; text: string }>()).results;
+  const out: RangeVerse[] = [];
+  for (const r of rows) {
+    const v = Number(r.osis.split('.').pop());
+    if (vStart != null && v < vStart) continue;
+    if (vEnd != null && v > vEnd) continue;
+    const proof = merkleProof(corpus.tree, r.leaf_index);
+    const included = verifyInclusion(leafHash(r.commitment as Hex), proof, root);
+    out.push({ osis: r.osis, canonicalId: r.canonical_id, leafIndex: r.leaf_index, commitment: r.commitment, text: r.text, included, inclusionProof: proof });
+    if (out.length >= max) break;
+  }
+  return out;
 }

@@ -7,12 +7,14 @@ import {
   issueEntitlement,
   askQuestion,
   validateResponse,
+  resolveRange,
   type Edition,
   type BibleBook,
   type ResolveResult,
   type AskResult,
   type AskCitation,
   type TrustValidation,
+  type RangeResult,
 } from './api';
 
 function short(hex?: string, n = 6): string {
@@ -252,6 +254,50 @@ function AskPanel() {
   );
 }
 
+// Verify a RANGE of verses (verse range or whole chapter) from the full BSB.
+function RangePanel() {
+  const [q, setQ] = useState('John 3:1-16');
+  const [res, setRes] = useState<RangeResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function go() {
+    setBusy(true);
+    try {
+      setRes(await resolveRange(q));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="card range">
+      <h2>Verify a range</h2>
+      <div className="row">
+        <input className="ask-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. John 3:1-16  ·  Psalms 23  ·  Genesis 1" />
+        <button onClick={go} disabled={busy}>{busy ? '…' : 'Verify range'}</button>
+      </div>
+      <p className="hint">A verse range (John 3:1-16) or a whole chapter (Psalms 23). Each verse proves Merkle membership in the on-chain-anchored corpus root.</p>
+      {res?.ok && (
+        <div className="range-result">
+          <div className="tg-head">
+            <span className={`badge ${res.allVerified ? 'ok' : 'no'}`}>{res.verified}/{res.count} verified</span>
+            <span className="tg-by">
+              {res.range} · root <span className="mono">{short(res.corpusRoot, 8)}</span> · {res.corpusRootSource}
+            </span>
+          </div>
+          <ol className="range-verses">
+            {res.verses!.map((v) => (
+              <li key={v.canonicalId}>
+                <span className={v.included ? 'rv-ok' : 'rv-no'}>{v.included ? '✓' : '✗'}</span>
+                <b>{v.osis}</b> {v.text}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {res && !res.ok && <p className="hint" style={{ color: 'var(--no)' }}>{res.error}</p>}
+    </section>
+  );
+}
+
 export function App() {
   const [editions, setEditions] = useState<Edition[]>([]);
   const [books, setBooks] = useState<BibleBook[]>([]);
@@ -313,6 +359,8 @@ export function App() {
       </header>
 
       <AskPanel />
+
+      <RangePanel />
 
       <section className="picker card">
         <h2>{COPY.pickPassage}</h2>

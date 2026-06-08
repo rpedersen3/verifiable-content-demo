@@ -169,6 +169,36 @@ export interface TrustValidation {
   services?: { agent?: string; mcp?: string; validator?: string };
 }
 
+export interface RangeVerseUI {
+  osis: string;
+  canonicalId: string;
+  leafIndex: number;
+  included: boolean;
+  text: string;
+}
+export interface RangeResult {
+  ok: boolean;
+  range?: string;
+  count?: number;
+  verified?: number;
+  allVerified?: boolean;
+  corpusRoot?: string;
+  corpusRootSource?: string;
+  verses?: RangeVerseUI[];
+  error?: string;
+}
+
+/** Verify a RANGE of verses (e.g. "John 3:1-16" or a whole chapter "John 3").
+ *  Each verse proves Merkle membership in the on-chain-anchored corpus root. */
+export async function resolveRange(reference: string, edition = 'bsb'): Promise<RangeResult> {
+  const res = await fetch(`${A2A_BASE}/resolve-range`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ reference, edition }),
+  });
+  return res.json() as Promise<RangeResult>;
+}
+
 /** Ask the agent to assemble an evidence bundle and have the INDEPENDENT
  *  (hosted) validator check it — returns the outcome, signed attestation + graph. */
 export async function validateResponse(reference: string, edition: string): Promise<TrustValidation> {

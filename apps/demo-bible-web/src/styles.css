@@ -77,4 +77,10 @@ dd { margin: 0; }
 .tg-leg-name { font-weight: 600; }
 .tg-leg-link { color: var(--accent); text-decoration: none; font-size: 11.5px; }
 .tg-leg-link:hover { text-decoration: underline; }
+.range-result { margin-top: 12px; }
+.range-verses { margin: 12px 0 0; padding: 0 0 0 4px; list-style: none; max-height: 380px; overflow: auto; display: flex; flex-direction: column; gap: 5px; }
+.range-verses li { font-size: 14px; line-height: 1.5; }
+.range-verses b { margin-right: 4px; color: var(--muted); font-weight: 600; font-size: 12px; }
+.range-verses .rv-ok { color: var(--ok); margin-right: 6px; }
+.range-verses .rv-no { color: var(--no); margin-right: 6px; }
 footer { color: var(--muted); font-size: 12px; margin-top: 32px; border-top: 1px solid var(--line); padding-top: 16px; }
