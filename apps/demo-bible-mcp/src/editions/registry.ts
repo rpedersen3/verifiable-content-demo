@@ -32,7 +32,7 @@ import { BSB_VERSES, BSB_EDITION, BSB_VERSION } from '../data/bsb.js';
 // DEV-ONLY issuer key. In production each edition is published by a real issuer
 // Smart Agent and signed via its ERC-1271 path; here a fixed EOA stands in.
 const DEV_ISSUER_PK = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as const;
-const issuerAccount = privateKeyToAccount(DEV_ISSUER_PK);
+export const issuerAccount = privateKeyToAccount(DEV_ISSUER_PK);
 export const DEV_ISSUER: Address = issuerAccount.address;
 
 /** Injected verifier (ADR-0006): dev EOA recovery. Apps wire ERC-1271 in prod. */

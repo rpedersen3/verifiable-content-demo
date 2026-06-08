@@ -57,12 +57,15 @@ export interface ResolveResult {
   gate?: unknown;
 }
 
-export interface DemoEntitlement {
+/** A signed Entitlement VC, issued by the corpus issuer (has a `proof`). */
+export interface SignedEntitlement {
   '@context': string[];
   type: string[];
   issuer: string;
   validFrom: string;
+  validUntil?: string;
   credentialSubject: { id: string; corpusRef: string; accessPolicy: string };
+  proof?: { type: string; proofValue: string; created: string };
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -78,7 +81,7 @@ export async function fetchBooks(): Promise<BibleBook[]> {
   return (await getJson<{ ok: boolean; books: BibleBook[] }>('/books')).books;
 }
 
-export async function resolvePassage(reference: string, edition: string, entitlement?: DemoEntitlement): Promise<ResolveResult> {
+export async function resolvePassage(reference: string, edition: string, entitlement?: SignedEntitlement): Promise<ResolveResult> {
   const res = await fetch(`${A2A_BASE}/resolve`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -87,13 +90,14 @@ export async function resolvePassage(reference: string, edition: string, entitle
   return res.json() as Promise<ResolveResult>;
 }
 
-/** Build a demo entitlement matching a corpus (phase-1 policy gate; no signature). */
-export function buildDemoEntitlement(corpusRef: string, accessPolicy: string): DemoEntitlement {
-  return {
-    '@context': ['https://www.w3.org/ns/credentials/v2'],
-    type: ['VerifiableCredential', 'Entitlement'],
-    issuer: 'eip155:31337:0xdemoissuer',
-    validFrom: new Date().toISOString(),
-    credentialSubject: { id: 'urn:scripture:reader', corpusRef, accessPolicy },
-  };
+/** Request a SIGNED entitlement from the corpus issuer (the real trust path). */
+export async function issueEntitlement(edition: string): Promise<SignedEntitlement> {
+  const res = await fetch(`${A2A_BASE}/issue-entitlement`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ edition }),
+  });
+  const body = (await res.json()) as { ok: boolean; entitlement?: SignedEntitlement; error?: string };
+  if (!body.ok || !body.entitlement) throw new Error(body.error ?? 'could not issue entitlement');
+  return body.entitlement;
 }

@@ -32,9 +32,15 @@ importers:
       '@agenticprimitives/types':
         specifier: ^1.0.0-alpha.6
         version: 1.0.0-alpha.6
+      '@agenticprimitives/verifiable-credentials':
+        specifier: 0.0.0-alpha.2
+        version: 0.0.0-alpha.2(@agenticprimitives/ontology@1.0.0-alpha.6)(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))
       hono:
         specifier: ^4.12.23
         version: 4.12.23
+      viem:
+        specifier: ^2.52.2
+        version: 2.52.2(typescript@5.9.3)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260604.1
@@ -66,6 +72,9 @@ importers:
       '@agenticprimitives/types':
         specifier: ^1.0.0-alpha.6
         version: 1.0.0-alpha.6
+      '@agenticprimitives/verifiable-credentials':
+        specifier: 0.0.0-alpha.2
+        version: 0.0.0-alpha.2(@agenticprimitives/ontology@1.0.0-alpha.6)(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))
       hono:
         specifier: ^4.12.23
         version: 4.12.23

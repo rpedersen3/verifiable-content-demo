@@ -4,7 +4,7 @@ import {
   fetchEditions,
   fetchBooks,
   resolvePassage,
-  buildDemoEntitlement,
+  issueEntitlement,
   type Edition,
   type BibleBook,
   type ResolveResult,
@@ -43,8 +43,9 @@ export function App() {
     setLoading(true);
     setErr(null);
     try {
-      const entitlement =
-        withEntitlement && currentEdition ? buildDemoEntitlement(currentEdition.corpusRef, currentEdition.accessPolicy) : undefined;
+      // Real trust path: the corpus issuer SIGNS an entitlement (EIP-712) — not a
+      // client-built, unsigned one. The MCP verifies that signature before the gate.
+      const entitlement = withEntitlement ? await issueEntitlement(edition) : undefined;
       const r = await resolvePassage(reference, edition, entitlement);
       setResult(r);
       if (!r.ok && r.error) setErr(r.error);
@@ -164,7 +165,12 @@ export function App() {
           )}
 
           <details className="card citation">
-            <summary>{COPY.citation}</summary>
+            <summary>
+              {COPY.citation}
+              {(result.citation as { proof?: unknown } | undefined)?.proof ? (
+                <span className="badge ok" style={{ marginLeft: 10 }}>✓ agent-signed</span>
+              ) : null}
+            </summary>
             <pre>{JSON.stringify(result.citation, null, 2)}</pre>
           </details>
         </section>

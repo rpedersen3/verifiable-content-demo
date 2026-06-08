@@ -6,6 +6,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { buildCitationAssertion, verifyCommitment, type Entitlement } from '@agenticprimitives/content-primitives';
+import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT } from '@agenticprimitives/verifiable-credentials';
+import { agentSigner, AGENT_DID } from './lib/trust.js';
 
 interface Env {
   MCP_URL?: string;
@@ -49,6 +51,13 @@ app.get('/.well-known/agent-card.json', (c) => {
 app.get('/editions', async (c) => c.json(await mcpGet(c.env, '/mcp/editions')));
 app.get('/books', async (c) => c.json(await mcpGet(c.env, '/mcp/books')));
 
+// Issue a signed Entitlement for a gated edition (proxied to the corpus issuer).
+app.post('/issue-entitlement', async (c) => {
+  const body = await c.req.json<{ edition?: string }>().catch(() => ({}) as { edition?: string });
+  const res = await mcpPost(c.env, '/tools/issue_entitlement', { edition: body.edition });
+  return c.json(res.body, res.status as 200);
+});
+
 // The orchestrated skill: candidate resolve → pick → text (gated) → verify → cite.
 app.post('/resolve', async (c) => {
   type ResolveBody = { reference?: string; edition?: string; entitlement?: Entitlement; agentRunId?: string; outputId?: string };
@@ -80,9 +89,10 @@ app.post('/resolve', async (c) => {
     commitmentVerified = pick.commitment ? verifyCommitment(text, pick.commitment) : false;
   }
 
-  // 5. build a signed-shape (unsigned here) enriched citation — the AI-safe record.
-  const citation = buildCitationAssertion({
-    issuer: 'did:web:scripture-resolver.agent',
+  // 5. build the enriched citation, then SIGN it with the agent's key — a real,
+  //    verifiable AI-safe citation record (EIP-712; ERC-1271 SA in production).
+  const unsignedCitation = buildCitationAssertion({
+    issuer: AGENT_DID,
     subjectId: 'urn:scripture:reader',
     canonicalId: canonicalReference.id,
     descriptorId: pick.descriptorId,
@@ -96,6 +106,12 @@ app.post('/resolve', async (c) => {
     outputId: body.outputId,
     normalizationSpec: pick.commitment?.normalization,
   });
+  // signCredential appends the EIP-712 context; pre-set both so the signed
+  // citation's proof.credentialHash matches its body (verifiable downstream).
+  const citation = await signCredential(
+    { ...unsignedCitation, '@context': [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT] },
+    agentSigner,
+  );
 
   return c.json({
     ok: true,

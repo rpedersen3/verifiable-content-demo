@@ -13,6 +13,8 @@
   "dependencies": {
     "@agenticprimitives/types": "^1.0.0-alpha.6",
     "@agenticprimitives/content-primitives": "^1.0.0-alpha.6",
+    "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.2",
+    "viem": "^2.52.2",
     "hono": "^4.12.23"
   },
   "devDependencies": {

@@ -21,7 +21,17 @@ import {
 } from '@agenticprimitives/content-primitives';
 import { parseScriptureAlias, BOOKS, SCRIPTURE_VERSE_CONTENT_TYPE } from '@agenticprimitives/scripture-content-extension';
 import { buildEvent, createConsoleAuditSink, composeSinks, type AuditSink } from '@agenticprimitives/audit';
-import { getCorpora, inclusionProof, devSignatureVerifier, DEV_ISSUER, EDITIONS, type BuiltCorpus } from './editions/registry.js';
+import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT, type UnsignedCredential } from '@agenticprimitives/verifiable-credentials';
+
+// signCredential() appends EIP712_SIG_2026_CONTEXT to @context, so the unsigned
+// body MUST already carry both contexts or proof.credentialHash won't match the
+// returned body. Pre-set the canonical pair.
+const VC_CONTEXTS = [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT];
+import { getCorpora, inclusionProof, devSignatureVerifier, DEV_ISSUER, EDITIONS, issuerAccount, type BuiltCorpus } from './editions/registry.js';
+import { eoaCredentialSigner, verifySignedEntitlement } from './lib/trust.js';
+
+// The corpus issuer's credential signer (dev EOA; ERC-1271 SA in production).
+const issuerSigner = eoaCredentialSigner(issuerAccount);
 
 type Env = Record<string, never>;
 
@@ -169,6 +179,18 @@ app.post('/tools/get_passage_text', async (c) => {
   const row = findRow(corpus, parsed.reference.id);
   if (!row) return c.json({ ok: false, error: `no descriptor for ${parsed.reference.alias} in ${body.edition}` }, 404);
 
+  // Gated editions: the presented Entitlement must be cryptographically signed
+  // by the corpus issuer (structural + EIP-712 recovery) BEFORE the policy gate.
+  let entitlementSigner: string | undefined;
+  if (row.descriptor.accessPolicy !== 'public' && body.entitlement) {
+    const sig = await verifySignedEntitlement(body.entitlement, corpus.manifest.issuer);
+    if (!sig.ok) {
+      audit('content.entitlement.verify', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: sig.reason ?? 'bad signature' });
+      return c.json({ ok: false, error: 'entitlement signature invalid', detail: sig, accessPolicy: row.descriptor.accessPolicy }, 403);
+    }
+    entitlementSigner = sig.signer;
+  }
+
   const decision = evaluateEntitlement(row.descriptor.accessPolicy, corpus.manifest.corpusRef, body.entitlement);
   if (decision.decision !== 'allow') {
     audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: decision.reason ?? 'denied' });
@@ -177,8 +199,38 @@ app.post('/tools/get_passage_text', async (c) => {
 
   const text = corpus.entry.texts[row.osis]!;
   const commitmentOk = row.descriptor.commitment ? verifyCommitment(text, row.descriptor.commitment) : false;
-  audit('content.text.access', 'success', parsed.reference.alias ?? body.reference, { edition: body.edition, commitmentOk });
-  return c.json({ ok: true, text, commitment: row.descriptor.commitment, commitmentOk, descriptor: row.descriptor, accessPolicy: row.descriptor.accessPolicy });
+  audit('content.text.access', 'success', parsed.reference.alias ?? body.reference, { edition: body.edition, commitmentOk, entitlementSigner: entitlementSigner ?? null });
+  return c.json({ ok: true, text, commitment: row.descriptor.commitment, commitmentOk, descriptor: row.descriptor, accessPolicy: row.descriptor.accessPolicy, entitlementSigner });
+});
+
+// issue_entitlement — the corpus ISSUER signs an Entitlement VC granting a subject
+// access to a (licensed/private) edition. Real EIP-712 signature (dev EOA;
+// ERC-1271 SA in production). Demonstrates issuer-signed entitlements vs the
+// earlier client-built, unsigned demo entitlement.
+app.post('/tools/issue_entitlement', async (c) => {
+  const body = await c.req
+    .json<{ edition?: string; subject?: string; ttlSeconds?: number }>()
+    .catch(() => ({}) as { edition?: string; subject?: string; ttlSeconds?: number });
+  if (!body.edition) return c.json({ ok: false, error: 'edition required' }, 400);
+  const corpus = (await getCorpora()).get(body.edition);
+  if (!corpus) return c.json({ ok: false, error: `unknown edition: ${body.edition}` }, 404);
+  if (corpus.manifest.accessPolicy === 'public') {
+    return c.json({ ok: false, error: 'public edition needs no entitlement' }, 400);
+  }
+
+  const subject = body.subject ?? 'urn:scripture:reader';
+  const nowMs = Date.now();
+  const unsigned: UnsignedCredential<{ id: string; corpusRef: `0x${string}`; accessPolicy: string }> = {
+    '@context': VC_CONTEXTS,
+    type: ['VerifiableCredential', 'Entitlement'],
+    issuer: `did:ap:issuer:${body.edition}`,
+    validFrom: new Date(nowMs - 60_000).toISOString(),
+    validUntil: new Date(nowMs + (body.ttlSeconds ?? 31_536_000) * 1000).toISOString(),
+    credentialSubject: { id: subject, corpusRef: corpus.manifest.corpusRef, accessPolicy: corpus.manifest.accessPolicy },
+  };
+  const entitlement = await signCredential(unsigned, issuerSigner);
+  audit('content.entitlement.issue', 'success', body.edition, { subject, issuer: corpus.manifest.issuer });
+  return c.json({ ok: true, entitlement });
 });
 
 // verify_citation — re-check a commitment against the descriptor for a locus.

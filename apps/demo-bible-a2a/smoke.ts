@@ -39,6 +39,7 @@ let canonicalId = '';
   check('chosen bsb candidate is verified (signature + merkle)', r.chosen?.edition === 'bsb' && r.chosen?.verification?.ok === true, r.chosen?.verification);
   check('returns BSB text + commitmentVerified', r.accessible && /For God so loved/.test(r.text) && r.commitmentVerified === true, { accessible: r.accessible });
   check('builds an enriched CitationAssertion (citationKind quote, no text)', r.citation?.credentialSubject?.citationKind === 'quote' && !JSON.stringify(r.citation).includes('loved the world'), r.citation?.credentialSubject);
+  check('citation is agent-SIGNED (has an EIP-712 proof)', r.citation?.proof?.type === 'Eip712Signature2026' && typeof r.citation.proof.proofValue === 'string', r.citation?.proof);
   check('licensed candidate is screened out (untrusted/rights) but listed', r.candidates.some((c: any) => c.edition === 'demo-licensed' && c.admitted === false), r.candidates);
 }
 
@@ -54,17 +55,26 @@ let canonicalId = '';
 }
 
 {
+  // An UNSIGNED (hand-built) entitlement must now be REJECTED on the signature check.
   const eds = (await (await a2a.request('/editions', {}, env)).json()) as any;
   const lic = eds.editions.find((e: any) => e.edition === 'demo-licensed');
-  const entitlement = {
+  const unsigned = {
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     type: ['VerifiableCredential', 'Entitlement'],
     issuer: 'eip155:31337:0xi',
     validFrom: '2020-01-01T00:00:00Z',
     credentialSubject: { id: 'urn:scripture:reader', corpusRef: lic.corpusRef, accessPolicy: 'licensed' },
   };
-  const r = (await (await post('/resolve', { reference: 'John 3:16', edition: 'demo-licensed', entitlement })).json()) as any;
-  check('licensed edition: accessible WITH a matching entitlement', r.ok && r.accessible === true && typeof r.text === 'string', { accessible: r.accessible });
+  const r = (await (await post('/resolve', { reference: 'John 3:16', edition: 'demo-licensed', entitlement: unsigned })).json()) as any;
+  check('licensed: an UNSIGNED entitlement is rejected (signature gate)', r.ok && r.accessible === false, { accessible: r.accessible });
+}
+
+{
+  // A properly ISSUER-SIGNED entitlement (from /issue-entitlement) unlocks the gate.
+  const issued = (await (await post('/issue-entitlement', { edition: 'demo-licensed' })).json()) as any;
+  check('issuer signs an Entitlement VC (has proof)', issued.ok && issued.entitlement?.proof?.type === 'Eip712Signature2026', issued.entitlement?.proof);
+  const r = (await (await post('/resolve', { reference: 'John 3:16', edition: 'demo-licensed', entitlement: issued.entitlement })).json()) as any;
+  check('licensed: accessible WITH a SIGNED entitlement', r.ok && r.accessible === true && typeof r.text === 'string', { accessible: r.accessible, gate: r.gate });
 }
 
 console.log(failures === 0 ? '\nTRIAD v2 SMOKE PASSED' : `\n${failures} FAILED`);
