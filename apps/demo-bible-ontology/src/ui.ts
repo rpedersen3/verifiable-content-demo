@@ -48,6 +48,12 @@ svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10p
 .vmodal .vrow{padding:3px 0;line-height:1.6}
 .vmodal .vn{font:11px var(--mono);color:var(--muted);margin-right:7px;vertical-align:top}
 .vmodal .vrow.hot{background:#fff7e6;border-radius:5px;padding:4px 7px;margin:1px -7px}
+/* inheritance class tree */
+.grid2{display:grid;grid-template-columns:300px 1fr;gap:18px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.ctree{font-size:13px;max-height:580px;overflow:auto;border-right:1px solid var(--line);padding-right:8px}
+.ctrow a{cursor:pointer}.ctrow a.sel{font-weight:700;color:var(--ink)}
+.ccaret{cursor:pointer;user-select:none;display:inline-block;width:14px;color:var(--muted)}
 svg#gsvg{height:560px;display:block}
 .gnode{cursor:pointer;transition:opacity .12s}.gnode .gnlabel{pointer-events:none;font-weight:500}
 .gcluster{cursor:pointer;transition:opacity .12s}
@@ -206,7 +212,21 @@ function scoreBars(scores){
    '<div class="hint">Graph, scriptural &amp; source trust are <b>computed</b> (graph connectivity · verse coverage · independent source assertions agreeing — DOLCE+DnS corroboration); good↔evil &amp; historical trust are <b>curated</b> (Bible signals · archaeology).</div>';
 }
 
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));render();});
+// ── hash routing: every view is a URL route so browser back/forward works ──
+const TABS=['overview','explore','classes','timeline','geo','oikos','generations','graph','validate','admin'];
+function nav(h){if(('#'+h)===location.hash)applyHash();else location.hash=h;}
+function markNav(t){document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t===t));}
+function applyHash(){
+  let h=decodeURIComponent(location.hash.replace(/^#/,''));if(!h)h='overview';
+  const i=h.indexOf('/'),t=i<0?h:h.slice(0,i),arg=i<0?'':h.slice(i+1);
+  if(t==='node'){tab='explore';markNav('explore');if(document.getElementById('detail')){if(arg)renderNode(arg);}else{explore().then(()=>arg&&renderNode(arg));}return;}
+  if(t==='graph'&&arg){graphCenter=arg;gExpand={};gFilters={};}
+  if(t==='oikos'&&arg)oikosCenter=arg;
+  if(t==='generations'&&arg)genRoot=arg;
+  tab=TABS.includes(t)?t:'overview';markNav(tab);render();
+}
+window.addEventListener('hashchange',applyHash);
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>nav(b.dataset.t));
 
 // ── verse passage popup: click a verse ref → read it with its logically-grouped surrounding verses ──
 function prettyRef(a,b){const x=a.split('.'),y=b.split('.');if(x[0]===y[0]&&x[1]===y[1])return x[0]+' '+x[1]+':'+x[2]+(x[2]!==y[2]?'–'+y[2]:'');if(x[0]===y[0])return x[0]+' '+x[1]+':'+x[2]+' – '+y[1]+':'+y[2];return a+' – '+b;}
@@ -240,15 +260,25 @@ async function render(){
   if(tab==='admin')return admin();
 }
 // ── Inheritance browser: a class + ALL its subclasses across every layer ──
+let clsList=null,clsKids={},clsExp={},clsSel='';
+const CLS_ROOTS=['prov:Agent','prov:Activity','prov:Entity','dul:Concept','dul:Description','dul:Role','dul:Situation'];
 async function classes(){
   V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Ontology inheritance</h3>'+
-   '<p class="hint">Pick a class — results include every <b>subclass</b>, across all layers (DUL · PROV-O · W3C ORG · GeoSPARQL · gc:). Asking for <b>prov:Agent</b> returns people <i>and</i> organizations, because the database stores the transitive subclass closure (a query for the parent class resolves all descendants).</p>'+
-   '<div class="gchips" id="ccls"></div><div id="cout"></div></div>';
-  const picks=['prov:Agent','prov:Activity','prov:Entity','dul:Object','dul:Event','org:Organization','gc:Place','gc:Person','org:Role'];
-  document.getElementById('ccls').innerHTML=picks.map(c=>'<span class="gchip" data-c="'+c+'">'+c+'</span>').join('');
-  document.querySelectorAll('#ccls [data-c]').forEach(ch=>ch.onclick=()=>{document.querySelectorAll('#ccls [data-c]').forEach(x=>x.classList.toggle('on',x===ch));if(ch.classList.contains('on'))ch.style.cssText='background:var(--accent);color:#fff;border-color:var(--accent)';document.querySelectorAll('#ccls [data-c]').forEach(x=>{if(x!==ch)x.style.cssText=''});classQuery(ch.dataset.c);});
-  const first=document.querySelector('#ccls [data-c]');first.classList.add('on');first.style.cssText='background:var(--accent);color:#fff;border-color:var(--accent)';
-  classQuery('prov:Agent');
+   '<p class="hint">Click a class to see its instances; click <b>▸</b> to expand its <b>subclasses</b> and drill down (e.g. prov:Agent ▸ prov:Organization ▸ org:Organization ▸ assemblies / tribes / nations). Selecting a subclass filters to it and its descendants — the database stores the transitive subclass closure.</p>'+
+   '<div class="grid2"><div id="ctree"></div><div id="cout"></div></div></div>';
+  if(!clsList){const d=await api('/classes');clsList=d.classes;clsKids={};clsList.forEach(c=>{if(c.parent)(clsKids[c.parent]=clsKids[c.parent]||[]).push(c);});}
+  clsExp={'prov:Agent':true,'prov:Organization':true};clsSel='prov:Agent';
+  drawTree();classQuery('prov:Agent');
+}
+function drawTree(){
+  const lbl=(c)=>(clsList.find(x=>x.curie===c)||{}).label||c;
+  const render=(curie,depth)=>{const kids=(clsKids[curie]||[]).slice().sort((a,b)=>(a.label||'').localeCompare(b.label||''));const ex=clsExp[curie];
+    let h='<div class="ctrow" style="padding:2px 0 2px '+(depth*15)+'px;white-space:nowrap">'+(kids.length?'<span class="ccaret" data-ex="'+esc(curie)+'">'+(ex?'▾':'▸')+'</span>':'<span class="ccaret"></span>')+'<a class="'+(clsSel===curie?'sel':'')+'" data-cls="'+esc(curie)+'">'+esc(lbl(curie))+'</a> <span class="mono muted" style="font-size:9px">'+esc(curie)+'</span></div>';
+    if(ex)for(const k of kids)h+=render(k.curie,depth+1);
+    return h;};
+  document.getElementById('ctree').innerHTML='<div class="ctree">'+CLS_ROOTS.map(r=>render(r,0)).join('')+'</div>';
+  document.querySelectorAll('#ctree [data-ex]').forEach(el=>el.onclick=(e)=>{e.stopPropagation();clsExp[el.dataset.ex]=!clsExp[el.dataset.ex];drawTree();});
+  document.querySelectorAll('#ctree [data-cls]').forEach(el=>el.onclick=()=>{clsSel=el.dataset.cls;clsExp[clsSel]=true;drawTree();classQuery(clsSel);});
 }
 async function classQuery(curie){
   const out=document.getElementById('cout');out.innerHTML='<div class="hint">loading…</div>';
@@ -335,7 +365,10 @@ async function explore(){
   let timer;q.oninput=()=>{clearTimeout(timer);timer=setTimeout(run,180);};
   if(expKind)run();
 }
-async function showNode(id){
+function showNode(id){nav('node/'+id);}
+function showNodeTab(id){nav('node/'+id);}
+function oikosFor(id){nav('oikos/'+id);}
+async function renderNode(id){
   const d=await api('/node/'+encodeURIComponent(id));if(!d.ok)return;
   const n=d.node;const cls=[['prov',n.prov_class],['dul',n.dul_class],['org',n.org_class],['geo',n.geo_class],['aps',n.aps_class],['gc',n.gc_class]].filter(x=>x[1]);
   const grp=(arr,dir)=>{const by={};arr.forEach(e=>{(by[e.rel]=by[e.rel]||[]).push(e)});return Object.entries(by).map(([rel,es])=>'<div class="edge-grp"><div class="rel">'+esc(rel)+(dir==='in'?' (inverse)':'')+'</div>'+es.map(e=>'<a onclick="showNode(\\''+e.id+'\\')">'+dot(e.kind)+esc(e.label)+'</a>').join('')+'</div>').join('');};
@@ -351,7 +384,7 @@ async function showNode(id){
    (d.in.length?grp(d.in,'in'):'')+
    '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses <span style="font-weight:400;text-transform:none">· click to read</span></h3><div class="verses">'+d.verses.map(v=>'<span class="vref" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
    provHtml(d.sources,n.origin_source)+
-   '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ view in trust graph</a></div></div>';
+   '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ trust graph</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="oikosFor(\\''+n.id+'\\')">→ oikos circles</a>':'')+' &nbsp;·&nbsp; <a class="link" onclick="nav(\\'generations/'+n.id+'\\')">→ generations</a></div></div>';
   const htip=document.getElementById('htip');
   det.querySelectorAll('[data-tip]').forEach(el=>{
     el.addEventListener('mouseenter',()=>{htip.style.display='block';htip.innerHTML=el.dataset.tip;});
@@ -361,7 +394,7 @@ async function showNode(id){
   det.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 let graphCenter=null,gFilters={},gExpand={};
-function graphFor(id){graphCenter=id;gExpand={};gFilters={};tab='graph';document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t==='graph'));graph();}
+function graphFor(id){nav('graph/'+id);}
 function famOf(rel){const m={'gc:hasParent':'family','gc:hasChild':'family','gc:hasSibling':'family','gc:hasPartner':'family','org:memberOf':'org','org:hasMember':'org','org:member':'org','org:organization':'org','org:role':'org','prov:wasAssociatedWith':'events','gc:holdsRole':'role','aps:hasSkill':'role','gc:bornAt':'place','gc:diedAt':'place','gc:authoredBy':'events','gc:addressedTo':'events','gc:hasSpeaker':'events','gc:hasAddressee':'events','gc:spokeTo':'events','dul:hasLocation':'place','pplan:isStepOfPlan':'events','pplan:isPrecededBy':'events','pplan:correspondsToStep':'events','dul:defines':'events','gc:prescribes':'events','gc:fulfills':'events'};return m[rel]||'role';}
 const SECT={family:{label:'Family',color:'#e87c3e',a:[0,60],th:10},role:{label:'Role/Skill',color:'#0d9488',a:[60,120],th:8},events:{label:'Events',color:'#0e7490',a:[120,210],th:4},place:{label:'Places',color:'#b45309',a:[210,270],th:99},org:{label:'Organization',color:'#9333ea',a:[270,360],th:6}};
 const FORD=['family','role','events','place','org'];
@@ -384,7 +417,7 @@ async function graph(){
     if(gq.value.trim().length<2){r.innerHTML='';return;}
     const d=await api('/search?q='+encodeURIComponent(gq.value.trim()));
     r.innerHTML='<ul class="list">'+d.results.slice(0,8).map(x=>'<li data-pick="'+x.id+'">'+dot(x.kind)+esc(x.label)+' <span class="muted">'+(x.prov_class||'')+'</span></li>').join('')+'</ul>';
-    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>{graphCenter=li.dataset.pick;gExpand={};gFilters={};r.innerHTML='';gq.value='';drawGraph();});
+    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>nav('graph/'+li.dataset.pick));
   },180);};
   if(!graphCenter){const d=await api('/search?q=Jesus');graphCenter=(((d.results||[]).find(x=>x.label==='Jesus'))||(d.results||[])[0]||{}).id;}
   drawGraph();
@@ -430,22 +463,29 @@ async function drawGraph(){
       const n=byId[id];if(n){tip.style.display='block';tip.innerHTML=(n.img?'<img src="'+esc(n.img)+'" style="width:100%;height:88px;object-fit:cover;border-radius:6px;margin-bottom:5px;filter:'+(imgMode()==='original'?'none':'sepia(.6) saturate(1.25) contrast(1.06)')+'"/>':'')+'<b>'+esc(n.label)+'</b> <span class="muted">'+n.kind+'</span>'+(n.tStart!=null?'<div class="muted">'+ordYr(n.tStart)+(n.tEnd!=null&&n.tEnd!==n.tStart?'–'+ordYr(n.tEnd):'')+'</div>':'')+(relByNode[id]?'<div class="muted">'+esc(relByNode[id])+'</div>':'')+(n.sig?'<div style="color:'+sigCol[n.sig]+'">'+(n.sig==='positive'?'＋ ':n.sig==='negative'?'－ ':'± ')+n.sig+' signal</div>':'');}});
     g.addEventListener('mousemove',ev=>{tip.style.left=Math.min(ev.clientX+14,innerWidth-240)+'px';tip.style.top=(ev.clientY+14)+'px';});
     g.addEventListener('mouseleave',()=>{svg.classList.remove('dim');svg.querySelectorAll('.hot').forEach(x=>x.classList.remove('hot'));tip.style.display='none';});
-    g.addEventListener('click',()=>{if(id===center){showNodeTab(center);}else{graphCenter=id;gExpand={};drawGraph();}});});
+    g.addEventListener('click',()=>{if(id===center){showNodeTab(center);}else{graphFor(id);}});});
   wrap.querySelectorAll('.gcluster').forEach(g=>g.addEventListener('click',()=>{gExpand[g.dataset.fam]=!gExpand[g.dataset.fam];drawGraph();}));
   wrap.querySelectorAll('.gchip').forEach(ch=>ch.addEventListener('click',()=>{gFilters[ch.dataset.fam]=!gFilters[ch.dataset.fam];drawGraph();}));
   const det=wrap.querySelector('[data-details]');if(det)det.addEventListener('click',()=>showNodeTab(center));
 }
-function showNodeTab(id){tab='explore';document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t==='explore'));explore().then(()=>showNode(id));}
 // ── Timeline: people lifespans (bars) + activities (markers) on a BC/AD axis ──
 let tlFrom=-4200,tlTo=120;
-const TL_ERAS=[['Full sweep',-4200,120],['Patriarchs',-2100,-1400],['Exodus & Conquest',-1600,-1150],['Judges & Monarchy',-1250,-560],['Exile & Return',-620,-380],['New Testament',-12,90]];
+const TL_ERAS=[['Full sweep',-4200,120],['Patriarchs',-2100,-1400],['Exodus & Conquest',-1600,-1150],['Judges & Monarchy',-1250,-560],['Exile & Return',-620,-380],['New Testament',-12,90],['Life of Jesus',-7,36]];
+function tlZoom(f){const c=(tlFrom+tlTo)/2,half=Math.max(8,(tlTo-tlFrom)/2*f);tlFrom=Math.max(-4300,Math.round(c-half));tlTo=Math.min(160,Math.round(c+half));drawTimeline();}
+function tlPan(frac){const span=tlTo-tlFrom,d=Math.round(span*frac);if(tlFrom+d<-4300||tlTo+d>160)return;tlFrom+=d;tlTo+=d;drawTimeline();}
 const ordY=(y)=>y==null?'':(Math.abs(y)+(y<0?' BC':' AD'));
 async function timeline(){
   V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Timeline — people &amp; activities</h3>'+
    '<p class="hint" style="margin-top:0">Lifespans of dated people (bars) and biblical activities (markers) across history. Pick an era; hover for detail; click to open. Color = trust signal.</p>'+
-   '<div class="gchips" id="teras"></div><div id="twrap"></div></div><div id="ttip" class="gtip"></div>';
+   '<div class="gchips" id="teras"></div>'+
+   '<div class="gchips" style="margin-top:4px"><span class="gchip" id="tzin">＋ zoom in</span><span class="gchip" id="tzout">－ zoom out</span><span class="gchip" id="tpanl">◀ earlier</span><span class="gchip" id="tpanr">later ▶</span></div>'+
+   '<div id="twrap"></div></div><div id="ttip" class="gtip"></div>';
   document.getElementById('teras').innerHTML=TL_ERAS.map((e,i)=>'<span class="gchip" data-i="'+i+'">'+esc(e[0])+'</span>').join('');
   document.querySelectorAll('#teras [data-i]').forEach(ch=>ch.onclick=()=>{const e=TL_ERAS[ch.dataset.i];tlFrom=e[1];tlTo=e[2];tlMark(ch);drawTimeline();});
+  document.getElementById('tzin').onclick=()=>{tlMark(null);tlZoom(0.5);};
+  document.getElementById('tzout').onclick=()=>{tlMark(null);tlZoom(2);};
+  document.getElementById('tpanl').onclick=()=>{tlMark(null);tlPan(-0.4);};
+  document.getElementById('tpanr').onclick=()=>{tlMark(null);tlPan(0.4);};
   tlMark(document.querySelector('#teras [data-i]'));
   drawTimeline();
 }
@@ -545,7 +585,7 @@ async function oikos(){
     const r=document.getElementById('ores');if(oq.value.trim().length<2){r.innerHTML='';return;}
     const d=await api('/search?q='+encodeURIComponent(oq.value.trim()));
     r.innerHTML='<ul class="list">'+d.results.slice(0,8).map(x=>'<li data-pick="'+x.id+'">'+dot(x.kind)+esc(x.label)+' <span class="muted">'+esc(x.disambig||x.prov_class||'')+'</span></li>').join('')+'</ul>';
-    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>{oikosCenter=li.dataset.pick;r.innerHTML='';oq.value='';drawOikos();});
+    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>nav('oikos/'+li.dataset.pick));
   },180);};
   if(!oikosCenter){const d=await api('/search?q=Paul');oikosCenter=(((d.results||[]).find(x=>x.label==='Paul'))||(d.results||[])[0]||{}).id;}
   drawOikos();
@@ -574,7 +614,7 @@ async function drawOikos(){
     g.addEventListener('mouseenter',()=>{tip.style.display='block';tip.innerHTML='<b>'+esc(n.label)+'</b> <span class="muted">'+n.kind+'</span>'+(relOf[id]?'<div class="muted">'+esc(relOf[id])+'</div>':'');});
     g.addEventListener('mousemove',ev=>{tip.style.left=Math.min(ev.clientX+14,innerWidth-220)+'px';tip.style.top=(ev.clientY+14)+'px';});
     g.addEventListener('mouseleave',()=>tip.style.display='none');
-    g.addEventListener('click',()=>{if(id===center)showNodeTab(center);else{oikosCenter=id;drawOikos();}});});
+    g.addEventListener('click',()=>{if(id===center)showNodeTab(center);else oikosFor(id);});});
   const det=wrap.querySelector('[data-det]');if(det)det.onclick=()=>showNodeTab(center);
 }
 // ── Generational map: descent tree (parent→child by generation) + org derivation ──
@@ -588,7 +628,7 @@ async function generations(){
   q.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=document.getElementById('gnres');if(q.value.trim().length<2){r.innerHTML='';return;}
     const d=await api('/search?q='+encodeURIComponent(q.value.trim()));
     r.innerHTML='<ul class="list">'+d.results.filter(x=>x.kind==='person').slice(0,8).map(x=>'<li data-pick="'+x.id+'">'+dot(x.kind)+esc(x.label)+' <span class="muted">'+esc(x.disambig||'')+'</span></li>').join('')+'</ul>';
-    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>{genRoot=li.dataset.pick;r.innerHTML='';q.value='';drawGen();});
+    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>nav('generations/'+li.dataset.pick));
   },180);};
   if(!genRoot){const d=await api('/search?q=Abraham');genRoot=(((d.results||[]).find(x=>x.label==='Abraham'))||(d.results||[])[0]||{}).id;}
   drawGen();drawOrgs();
@@ -647,5 +687,5 @@ async function valFilter(a){
    d.terms.map(t=>'<tr><td class="mono">'+esc(t.curie)+'</td><td>'+esc(t.label)+'</td><td class="mono muted">'+esc(t.parent||'')+'</td><td class="muted">'+esc((t.comment||'').slice(0,120))+'</td></tr>').join('')+'</table></div>';
   document.getElementById('vterms').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
-render();
+applyHash();
 </script></body></html>`;
