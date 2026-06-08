@@ -65,20 +65,23 @@ SA's `isValidSignature` (an `eth_call`).
 anvil &
 cd packages/contracts && pnpm deploy:anvil
 
-# 2. here: bootstrap the on-chain issuer (writes apps/demo-bible-mcp/.dev.vars)
+# 2. here: compile the Phase-3 registry, then bootstrap
+(cd contracts && forge build)
 pnpm --filter @verifiable-content-demo/bible-mcp exec tsx \
   apps/demo-bible-mcp/scripts/bootstrap-onchain.ts
-#   → creates an issuer Smart Agent (AgentAccount)
-#   → ERC-1271 isValidSignature: OK
+#   → creates an issuer Smart Agent (AgentAccount); ERC-1271 isValidSignature: OK
 #   → registers bsb.agent → resolves to the issuer SA (agent-naming)
-#   → verifies a real ContentDescriptor via the SA's isValidSignature: OK
+#   → deploys ContentCorpusRegistry + ANCHORS each edition's Merkle corpusRoot
+#     (SA-signed); writes apps/demo-bible-mcp/.dev.vars
 
 # 3. restart the MCP — it loads .dev.vars and runs in on-chain mode
-pnpm dev      # GET :8790/health now reports { mode: "onchain", issuer: <SA>, issuerName: "bsb.agent" }
+pnpm dev      # GET :8790/health → { mode: "onchain", issuer: <SA>, issuerName: "bsb.agent", onchainCorpusAnchoring: true }
 ```
 
 The trust strategy is a per-request `TrustContext` (`src/lib/trust-context.ts`):
-dev → EOA sign + recover; on-chain → resolve the issuer SA by name, sign EIP-191,
-verify via ERC-1271. `.dev.vars` + `onchain.json` are gitignored.
+dev → EOA sign + recover, off-chain manifest root; on-chain → resolve the issuer
+SA by name, sign EIP-191, verify via **ERC-1271**, and verify Merkle inclusion
+against the **on-chain corpusRoot** (Phase 3 — `contracts/ContentCorpusRegistry.sol`;
+resolve reports `corpusRootSource: "onchain"`). `.dev.vars` + `onchain.json` are gitignored.
 
 Built on the Verifiable Content Substrate (agenticprimitives specs 266/267).
