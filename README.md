@@ -5,7 +5,10 @@
 > Smart Agent (`bsb.agent` → `0x72D8…6851`, ERC-1271), and descriptors verify by
 > Merkle inclusion against the **`ContentCorpusRegistry`** corpus root anchored on
 > Base Sepolia ([`0xBc04…967E`](https://sepolia.basescan.org/address/0xBc04BCB29E748CB0be07170B66AE542D3D89967E)).
-> The Node-only validator + zk-SNARK run locally (`pnpm validate:e2e`).
+> The independent **third-party validator is hosted on Vercel**
+> ([demo-validator-rpedersen3s-projects.vercel.app](https://demo-validator-rpedersen3s-projects.vercel.app/health))
+> and verifies live on-chain bundles end-to-end — ERC-1271 (Base Sepolia RPC) +
+> the Groth16 zk-SNARK. `VALIDATOR_URL=<vercel> pnpm validate:e2e`.
 
 
 An example that consumes the **published `@agenticprimitives/*` npm packages** to
