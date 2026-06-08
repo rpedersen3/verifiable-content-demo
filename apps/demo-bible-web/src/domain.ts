@@ -23,5 +23,6 @@ export const COPY = {
   citation: 'Citation record',
 };
 
-// The a2a agent base path (Vite dev-proxied to the a2a worker).
-export const A2A_BASE = '/a2a';
+// The a2a agent base. Dev: '/a2a' (Vite-proxied to the a2a worker). Production:
+// the deployed a2a Worker URL via VITE_A2A_BASE (a2a has CORS enabled).
+export const A2A_BASE = import.meta.env.VITE_A2A_BASE ?? '/a2a';

@@ -12,7 +12,8 @@ Users think in this order:
 2. Choose a book, chapter, and verse.
 3. Read the verse if access is allowed.
 4. Inspect provenance if they want to understand why the result is trustworthy.
-5. Review alternate candidates when more than one descriptor exists.
+5. Optionally submit the evidence bundle to an independent validator.
+6. Review alternate candidates when more than one descriptor exists.
 
 ```mermaid
 flowchart TD
@@ -23,6 +24,7 @@ flowchart TD
   Verse["Show verse text"]
   Gate["Show entitlement gate"]
   Provenance["Show provenance card"]
+  Validate["Independent validation\nvalidated / gated / rejected"]
   Candidates["Show candidate list"]
   Citation["Expose citation record"]
 
@@ -31,6 +33,7 @@ flowchart TD
   Access -->|no| Gate
   Verse --> Provenance
   Gate --> Provenance
+  Provenance --> Validate
   Provenance --> Candidates
   Provenance --> Citation
 ```
@@ -47,6 +50,9 @@ flowchart TD
 | Provenance | Provenance | The trust evidence for the selected candidate. |
 | CitationAssertion | Citation record | The AI-safe output record binding the result to the descriptor and commitment. |
 | Entitlement | Demo entitlement | A credential used to unlock non-public text. |
+| Evidence bundle | Validation bundle | Machine-readable proof package checked by the third-party validator. |
+| ZK membership proof | Private membership proof | Proof that the cited commitment belongs to the corpus without revealing the leaf/index. |
+| Validation outcome | Validated / gated / rejected | Independent result returned by the validator. |
 
 ## Content Hierarchy
 
@@ -57,12 +63,16 @@ flowchart TD
   Descriptor["ContentDescriptor\ncanonical id, selector, commitment, pointer"]
   Text["Off-platform verse text\napps/demo-bible-mcp/src/data"]
   Citation["CitationAssertion\nagent output evidence"]
+  Bundle["EvidenceBundle\nintent, content, proof, policy, citation, response"]
+  Validator["ValidationResult\nvalidated, gated, rejected"]
 
   Corpus --> Manifest
   Corpus --> Descriptor
   Descriptor --> Text
   Descriptor --> Citation
   Manifest --> Descriptor
+  Citation --> Bundle
+  Bundle --> Validator
 ```
 
 ## Page Structure
@@ -75,6 +85,7 @@ The web app is organized as:
 - Provenance card: canonical id, issuer, OSIS locus, access policy, commitment, and verification state.
 - Candidate list: admitted and screened descriptor candidates.
 - Citation details: raw `CitationAssertion` JSON.
+- Validator result: optional machine-verifiable outcome from the independent validator.
 
 ## Information Flow
 
@@ -84,6 +95,7 @@ sequenceDiagram
   participant UI as Web UI
   participant Agent as A2A Agent
   participant Tools as MCP Tools
+  participant Validator as Third-Party Validator
 
   User->>UI: Select edition and passage
   UI->>Agent: POST /resolve
@@ -92,6 +104,8 @@ sequenceDiagram
   Agent->>Tools: POST /tools/get_passage_text
   Tools-->>Agent: Text or access denial
   Agent-->>UI: Result + provenance + citation
+  UI->>Validator: Optional evidence bundle validation
+  Validator-->>UI: validated / gated / rejected
   UI-->>User: Verse or gate + trust evidence
 ```
 

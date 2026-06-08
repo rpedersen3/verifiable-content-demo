@@ -17,8 +17,11 @@ The core idea is that content trust is split into separate parts:
 - A stable content reference, such as the canonical identity for `John 3:16`.
 - A signed `ContentDescriptor`, where an issuer claims a specific rendering exists for that reference.
 - A commitment/hash of the actual text, so retrieved text can be checked.
+- A Merkle inclusion proof, so the descriptor can be checked against the issuer corpus.
+- An optional Groth16 zk membership proof, so a validator can confirm corpus membership without learning the leaf or index.
 - A policy and entitlement layer, so licensed/private content is not treated as open content.
 - A signed `CitationAssertion`, where the responding agent records exactly what it used.
+- An independent validator, so trust does not depend on the responding agent grading itself.
 - An audit trail, so the response can be reviewed later.
 
 Scripture is the first vertical, but the pattern works for any content domain where agents need trustworthy references.
@@ -32,6 +35,7 @@ flowchart LR
   Resolver["Resolver / MCP Tools"]
   Issuer["Publisher / Rights Holder Agent"]
   Validator["Third-Party Validator"]
+  ZK["ZK Membership\nGroth16 + Poseidon"]
   Registry["Agent Naming + Corpus Registry"]
 
   User -->|"intent request"| Agent
@@ -41,6 +45,7 @@ flowchart LR
   Agent -->|"evidence bundle"| Validator
   Validator -->|"validated / rejected"| User
   Validator --> Registry
+  Validator --> ZK
 ```
 
 ### Publisher or Rights Holder Agent
@@ -53,7 +58,7 @@ The responding agent handles the user's request. It may resolve references, retr
 
 ### Third-Party Validator
 
-The validator is independent of the responding agent. It does not need to trust the agent's claim. It checks signatures, names, corpus membership, commitments, policies, entitlements, and citation records.
+The validator is independent of the responding agent. It does not need to trust the agent's claim. It checks signatures, names, corpus membership, zk membership, commitments, policies, entitlements, response binding, and citation records.
 
 ### End User or App
 
@@ -68,6 +73,7 @@ sequenceDiagram
   participant MCP as Resolver / MCP
   participant Issuer as Publisher Agent
   participant Validator as Third-Party Validator
+  participant ZK as ZK Membership
   participant Registry as Naming / Corpus Registry
 
   User->>Agent: Intent: quote or use John 3:16
@@ -78,10 +84,12 @@ sequenceDiagram
   MCP->>Issuer: Verify entitlement/signature when required
   MCP-->>Agent: Text + descriptor + policy result
   Agent->>Agent: Verify text commitment
+  Agent->>Agent: Generate zk membership proof when configured
   Agent->>Agent: Build and sign CitationAssertion
   Agent-->>Validator: Intent response + evidence bundle
   Validator->>Registry: Verify issuer identity and corpus root
-  Validator->>Validator: Verify descriptor, commitment, policy, citation
+  Validator->>Validator: Verify descriptor, commitment, policy, citation, response hash
+  Validator->>ZK: Verify Groth16 proof using root + signalHash
   Validator-->>User: Validation result
 ```
 
@@ -97,11 +105,21 @@ The validator checks:
 - The issuer identity resolves through Agent Naming when on-chain trust mode is used.
 - The descriptor belongs to the claimed corpus using a Merkle inclusion proof.
 - The corpus root matches the anchored root when a content corpus registry is available.
+- The optional Groth16 proof proves the cited commitment is in the issuer corpus without revealing leaf/index.
 - The returned text matches the descriptor commitment.
 - The access policy was followed.
 - Any entitlement was signed by the right issuer and applies to the right corpus.
 - The responding agent signed the `CitationAssertion`.
 - The citation's descriptor, commitment, canonical id, agent run id, and output id match the response.
+- The response hash matches the served text or quoted output.
+
+The configured demo validator in `apps/demo-validator` returns one of three outcomes:
+
+| Outcome | Meaning |
+| --- | --- |
+| `validated` | Critical checks passed and policy allowed the content. |
+| `gated` | The content was correctly withheld because no valid entitlement was present. |
+| `rejected` | A critical proof, signature, policy, trust, or binding check failed. |
 
 ## Common Bits Every Agent Should Include
 
@@ -181,6 +199,10 @@ Required fields:
 | `corpusRef` | Stable corpus reference. |
 | `corpusRoot` | Merkle root used for validation. |
 | `anchoredCorpusRoot` | Optional on-chain root read by validator. |
+| `leafIndex` | Included in the current demo bundle so the agent can assemble proofs; not exposed by the ZK public signals. |
+| `zkMembership` | Optional Groth16 proof with public signals `[root, signalHash]`. |
+
+ZK membership is privacy-preserving membership evidence. The validator derives the Poseidon root from the issuer's public commitments, then verifies the proof against that root and the response-bound `signalHash`. The proof does not reveal which leaf was cited.
 
 ### 6. Policy and Entitlement
 
@@ -263,7 +285,12 @@ A compact interoperable response could look like this:
     "commitmentVerified": true,
     "corpusRef": "0x...",
     "corpusRoot": "0x...",
-    "inclusionProof": ["0x..."]
+    "inclusionProof": ["0x..."],
+    "leafIndex": 0,
+    "zkMembership": {
+      "proof": {},
+      "publicSignals": ["123...", "456..."]
+    }
   },
   "policy": {
     "policyProfile": "public-domain-demo",
@@ -299,6 +326,7 @@ flowchart TD
   Reference{"Canonical reference valid?"}
   Descriptor{"Descriptor admitted by trust profile?"}
   Corpus{"Merkle proof / corpus root valid?"}
+  ZK{"ZK membership valid?"}
   Text{"Text commitment matches?"}
   Policy{"Policy and entitlement valid?"}
   Citation{"Citation signature matches response?"}
@@ -315,7 +343,9 @@ flowchart TD
   Descriptor -->|no| Fail
   Descriptor -->|yes| Corpus
   Corpus -->|no| Fail
-  Corpus -->|yes| Text
+  Corpus -->|yes| ZK
+  ZK -->|no| Fail
+  ZK -->|yes| Text
   Text -->|no| Fail
   Text -->|yes| Policy
   Policy -->|no| Fail
@@ -334,9 +364,11 @@ At minimum, a compatible translation agent should:
 2. Use issuer-signed descriptors for the content it references.
 3. Retrieve text through policy-aware paths.
 4. Verify the retrieved text against descriptor commitments.
-5. Respect entitlements for licensed/private content.
-6. Sign a citation assertion for the exact response it produced.
-7. Return a validation envelope that third-party validators can check.
+5. Include Merkle inclusion proof and corpus root evidence.
+6. Generate a ZK membership proof when the validator profile requires query privacy.
+7. Respect entitlements for licensed/private content.
+8. Sign a citation assertion for the exact response it produced.
+9. Return a validation envelope that third-party validators can check.
 
 If the agent produces a new translation, paraphrase, or generated rendering, it should also include:
 
@@ -358,6 +390,7 @@ The validator can answer:
 - Did the issuer's name resolve to the expected agent identity?
 - Was the descriptor part of the claimed corpus?
 - Did the text match the commitment?
+- Did the ZK proof show membership in the issuer corpus without revealing the leaf?
 - Was access allowed under policy?
 - Did the responding agent sign the citation?
 - Does the citation match the actual response?

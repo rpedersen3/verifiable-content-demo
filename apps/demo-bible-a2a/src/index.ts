@@ -12,16 +12,22 @@ import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
 
 interface Env {
   MCP_URL?: string;
+  MCP?: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> };
   A2A_PUBLIC_ORIGIN?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
 app.use('*', cors());
 
+// In production the a2a reaches the mcp via a SERVICE BINDING (env.MCP) — a
+// Worker cannot fetch another Worker on the same account by public URL (CF error
+// 1042). Local dev / in-process smoke fall back to MCP_URL + global fetch.
 const mcpUrl = (env: Env) => (env.MCP_URL ?? 'http://127.0.0.1:8790').replace(/\/$/, '');
-const mcpGet = async (env: Env, path: string) => (await fetch(`${mcpUrl(env)}${path}`)).json() as Promise<any>;
+const mcpFetch = (env: Env, path: string, init?: RequestInit) =>
+  env.MCP ? env.MCP.fetch(`https://mcp${path}`, init) : fetch(`${mcpUrl(env)}${path}`, init);
+const mcpGet = async (env: Env, path: string) => (await mcpFetch(env, path)).json() as Promise<any>;
 async function mcpPost(env: Env, path: string, body: unknown) {
-  const res = await fetch(`${mcpUrl(env)}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await mcpFetch(env, path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   return { status: res.status, body: (await res.json()) as any };
 }
 

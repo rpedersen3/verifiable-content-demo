@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The system demonstrates verifiable scripture lookup using three bounded components: a user interface, an A2A orchestration agent, and an MCP content/tool server. Trust is attached to descriptors, commitments, issuer signatures, and policy decisions rather than to the UI.
+The system demonstrates verifiable scripture lookup using a UI, an A2A orchestration agent, an MCP content/tool server, and an independent validator. Trust is attached to descriptors, commitments, issuer signatures, corpus roots, optional zk membership proofs, policy decisions, signed citations, and validator outcomes rather than to the UI.
 
 ## Component View
 
@@ -25,6 +25,11 @@ flowchart TB
     Policy["Tool + entitlement policy"]
   end
 
+  subgraph Validation["Independent Validation Boundary"]
+    Validator["demo-validator\nthird-party validator"]
+    ZK["zk-membership\nGroth16 membership proof"]
+  end
+
   Web --> A2A
   A2A --> MCP
   MCP --> Registry
@@ -32,6 +37,9 @@ flowchart TB
   MCP --> TextStore
   MCP --> Policy
   MCP --> Audit
+  A2A --> Validator
+  Validator --> MCP
+  Validator --> ZK
 ```
 
 ## Responsibilities
@@ -41,6 +49,8 @@ flowchart TB
 | Web | User interaction, result rendering, provenance display. | Descriptor verification or corpus building. |
 | A2A | Orchestrates resolve, text retrieval, verification, and citation building. | Raw corpus data or trust policy configuration. |
 | MCP | Owns tools, corpora, policy gates, entitlement checks, descriptor verification, and audit. | UI decisions. |
+| Validator | Re-checks evidence bundles independently and returns `validated`, `gated`, or `rejected`. | Content serving or user-facing retrieval. |
+| ZK membership package | Proves a commitment belongs to an issuer corpus without revealing the leaf/index. | Publisher rights, content retrieval, or policy. |
 | Agentic Primitives packages | Canonicalization, descriptor building, commitments, verification, policy, audit primitives. | Demo-specific corpus content. |
 
 ## Main Lookup Flow
@@ -70,7 +80,7 @@ sequenceDiagram
   MCP->>Audit: content.text.access
   MCP-->>A2A: Text or access denial
   A2A->>A2A: Verify text commitment when text is returned
-  A2A->>A2A: Build CitationAssertion
+  A2A->>A2A: Build and sign CitationAssertion
   A2A-->>Web: Result, provenance, citation
   Web-->>User: Verse or gate + evidence
 ```
@@ -84,29 +94,59 @@ flowchart TD
   Descriptor["ContentDescriptor"]
   Signature["Issuer signature"]
   Merkle["Merkle inclusion proof"]
+  ZK["Groth16 zk membership\nleaf hidden"]
   Commitment["Text commitment"]
   Policy["Trust profile + access policy"]
   Citation["CitationAssertion"]
+  Validator["Validator outcome"]
 
   Input --> Canonical
   Canonical --> Descriptor
   Descriptor --> Signature
   Descriptor --> Merkle
+  Descriptor --> ZK
   Descriptor --> Commitment
   Signature --> Policy
   Merkle --> Policy
+  ZK --> Policy
   Commitment --> Citation
   Policy --> Citation
+  Citation --> Validator
 ```
 
-Verification has two layers:
+Verification has four layers:
 
 - Descriptor verification checks issuer signature and Merkle inclusion.
 - Text verification checks that retrieved text matches the descriptor's commitment.
+- ZK membership verification checks that the cited commitment is in the issuer corpus while hiding the leaf and index.
+- Validator verification checks the evidence bundle, signed citation, policy/entitlement, response hash, and trust profile independently of the responding agent.
+
+## Validator Flow
+
+```mermaid
+sequenceDiagram
+  participant Agent as Responding Agent
+  participant Validator as Third-Party Validator
+  participant MCP
+  participant ZK as zk-membership
+
+  Agent->>Validator: POST /validate evidence bundle
+  Validator->>Validator: Check bundle shape and canonical id
+  Validator->>Validator: Verify descriptor signature + keccak Merkle inclusion
+  Validator->>Validator: Check issuer trust profile
+  Validator->>Validator: Verify text commitment and response hash
+  Validator->>Validator: Verify policy / entitlement
+  Validator->>Validator: Verify signed CitationAssertion binding
+  Validator->>MCP: GET /corpus/:edition
+  MCP-->>Validator: Ordered public commitments
+  Validator->>ZK: Verify Groth16 membership proof
+  ZK-->>Validator: valid / invalid
+  Validator-->>Agent: validated / gated / rejected
+```
 
 ## Entitlement Flow
 
-The MCP worker includes `/tools/issue_entitlement` for issuer-signed entitlement credentials. The current web UI builds a local demo entitlement shape, while the stricter MCP text endpoint expects signed entitlements for non-public editions.
+The MCP worker includes `/tools/issue_entitlement` for issuer-signed entitlement credentials. The web app requests a signed entitlement through A2A `/issue-entitlement`, and the stricter MCP text endpoint verifies the entitlement before serving non-public editions.
 
 ```mermaid
 sequenceDiagram
@@ -119,10 +159,12 @@ sequenceDiagram
   A2A->>MCP: get_passage_text without entitlement
   MCP-->>A2A: 403 access denied
   A2A-->>Client: Gate shown
-  Client->>MCP: issue_entitlement(edition, subject)
+  Client->>A2A: issue-entitlement(edition)
+  A2A->>MCP: /tools/issue_entitlement
   MCP->>Issuer: Sign entitlement credential
   Issuer-->>MCP: EIP-712 proof
-  MCP-->>Client: Signed entitlement
+  MCP-->>A2A: Signed entitlement
+  A2A-->>Client: Signed entitlement
   Client->>A2A: Retry resolve with entitlement
   A2A->>MCP: get_passage_text with entitlement
   MCP->>MCP: Verify structural credential + signer
@@ -140,6 +182,8 @@ erDiagram
   DESCRIPTOR ||--|| VERSE_TEXT : points_to
   DESCRIPTOR ||--o{ CITATION_ASSERTION : supports
   ENTITLEMENT }o--|| CORPUS_MANIFEST : grants_access_to
+  VALIDATION_BUNDLE }o--|| CITATION_ASSERTION : validates
+  ZK_MEMBERSHIP_PROOF }o--|| CORPUS_MANIFEST : proves_member_of
 
   EDITION {
     string edition
@@ -174,6 +218,16 @@ erDiagram
     hex corpusRef
     string accessPolicy
   }
+  VALIDATION_BUNDLE {
+    string agentRunId
+    string outputId
+    hex responseHash
+    string outcome
+  }
+  ZK_MEMBERSHIP_PROOF {
+    string proof
+    string publicSignals
+  }
 ```
 
 ## Trust Boundaries
@@ -185,3 +239,5 @@ erDiagram
 | MCP to source text | Text integrity and rights leakage. | Commitments, public-domain scan, synthetic licensed data. |
 | Descriptor to issuer | False provenance. | Signature verification against trusted issuer profile. |
 | Descriptor to corpus | Descriptor not in corpus. | Merkle inclusion proof. |
+| Agent to validator | Agent claims without evidence. | Evidence bundle and independent validator checks. |
+| Validator to corpus privacy | Revealing exact corpus leaf/index. | Groth16 zk membership proof with public root and response signal only. |
