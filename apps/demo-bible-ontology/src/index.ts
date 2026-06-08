@@ -180,11 +180,15 @@ app.get('/api/lineage', async (c) => {
   const maxDepth = Math.min(7, Math.max(1, parseInt(c.req.query('depth') ?? '5', 10)));
   const rootNode = await c.env.DB.prepare('SELECT id,canon_id,label,kind,image_thumb,t_start tStart,t_end tEnd FROM node WHERE id=?').bind(root).first();
   if (!rootNode) return c.json({ ok: false, error: 'not found' }, 404);
+  const relsAllowed = new Set(['gc:hasChild', 'gc:discipled', 'gc:planted']);
+  const rels = (c.req.query('rels') ?? 'gc:hasChild').split(',').map((s) => s.trim()).filter((r) => relsAllowed.has(r));
+  const relList = rels.length ? rels : ['gc:hasChild'];
   const visited = new Set([root]); let frontier = [root]; const levels = [[rootNode]]; const edges: { from: string; to: string }[] = [];
   let total = 1;
   for (let depth = 0; depth < maxDepth && frontier.length && total < 180; depth++) {
     const ph = frontier.map(() => '?').join(',');
-    const kids = await rows<{ parent: string; id: string; label: string; kind: string; canon_id: string; image_thumb: string | null; tStart: number | null; tEnd: number | null }>(c.env.DB, `SELECT e.src parent, n.id, n.canon_id, n.label, n.kind, n.image_thumb, n.t_start tStart, n.t_end tEnd FROM edge e JOIN node n ON n.id=e.dst WHERE e.rel='gc:hasChild' AND e.src IN (${ph}) ORDER BY (SELECT count(*) FROM node_verse WHERE node_id=n.id) DESC`, ...frontier);
+    const rph = relList.map(() => '?').join(',');
+    const kids = await rows<{ parent: string; id: string; label: string; kind: string; canon_id: string; image_thumb: string | null; tStart: number | null; tEnd: number | null }>(c.env.DB, `SELECT e.src parent, n.id, n.canon_id, n.label, n.kind, n.image_thumb, n.t_start tStart, n.t_end tEnd FROM edge e JOIN node n ON n.id=e.dst WHERE e.rel IN (${rph}) AND e.src IN (${ph}) ORDER BY (SELECT count(*) FROM node_verse WHERE node_id=n.id) DESC`, ...relList, ...frontier);
     const levelNodes = []; const next = [];
     for (const k of kids) { edges.push({ from: k.parent, to: k.id }); if (visited.has(k.id) || total >= 180) continue; visited.add(k.id); total++; levelNodes.push(k); next.push(k.id); }
     if (!levelNodes.length) break;

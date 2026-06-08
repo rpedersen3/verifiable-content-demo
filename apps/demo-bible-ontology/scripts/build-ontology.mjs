@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ingestSources, ingestInteractions, ingestMacula, ingestPlans } from './ingest-sources.mjs';
+import { ingestSources, ingestInteractions, ingestMacula, ingestPlans, ingestMovements } from './ingest-sources.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -204,6 +204,9 @@ const PROPS = [
   ['gc:spokeTo', 'spoke to', 'gc', 'prov:Agent', 'prov:Agent', 'gc:spokenToBy'],
   // generational / derivation — what an organization grew out of (founder, antecedent group)
   ['gc:grewOutOf', 'grew out of', 'gc', 'prov:Organization', 'prov:Agent', 'gc:gaveRiseTo'],
+  // spiritual generations — discipleship / mentorship + church planting (movements grow from people)
+  ['gc:discipled', 'discipled', 'gc', 'prov:Agent', 'prov:Agent', 'gc:discipleOf'],
+  ['gc:planted', 'planted', 'gc', 'prov:Agent', 'gc:Place', 'gc:plantedBy'],
   // P-Plan / EP-Plan + DOLCE planning relations (planning · requests · doing)
   ['pplan:isStepOfPlan', 'is step of plan', 'pplan', 'pplan:Step', 'pplan:Plan', 'pplan:isPlanOfStep'],
   ['pplan:isPrecededBy', 'is preceded by', 'pplan', 'pplan:Step', 'pplan:Step', null],
@@ -475,6 +478,10 @@ function main() {
   // curated planning/speech-act showcase (John 21) — PROV-O + P-Plan + EP-Plan + DOLCE
   const plansOut = ingestPlans({ ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, norm });
   console.log('plans ·', plansOut.plans, 'plans ·', plansOut.steps, 'steps ·', plansOut.acts, 'speech acts');
+
+  // spiritual generations — discipleship + church plants (movements) for the generational map
+  const mv = ingestMovements({ ROOT, byId, addEdge, peopleByKey, placeByLabel, norm });
+  console.log('movements · discipled', mv.discipled, '· planted', mv.planted);
 
   // ── emit chunked SQL ──
   mkdirSync(OUT, { recursive: true });

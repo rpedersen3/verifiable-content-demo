@@ -311,6 +311,27 @@ export function ingestPlans(ctx) {
   return { plans, steps, acts };
 }
 
+// Spiritual generations — curated discipleship/mentorship chains + church plants, so the generational
+// map shows movements (Paul disciples Timothy, plants the church at Ephesus, …) alongside biological
+// descent. Built only between endpoints that resolve to canonical nodes.
+export function ingestMovements(ctx) {
+  const { ROOT, byId, addEdge, peopleByKey, placeByLabel, norm } = ctx;
+  let data;
+  try { data = JSON.parse(readFileSync(join(ROOT, 'apps', 'demo-bible-ontology', 'data', 'movements.json'), 'utf8')); }
+  catch { return { discipled: 0, planted: 0 }; }
+  const pick = (idx, name) => { const a = idx.get(norm(name)); if (!a || !a.length) return null; const m = new Map(); for (const c of a) m.set(c.id, Math.max(m.get(c.id) ?? -1, c.v)); return [...m].sort((x, y) => y[1] - x[1])[0][0]; };
+  let discipled = 0, planted = 0;
+  for (const d of data.discipled ?? []) {
+    const mentor = pick(peopleByKey, d.mentor); if (!mentor) continue;
+    for (const name of d.disciples ?? []) { const id = pick(peopleByKey, name); if (id && id !== mentor) { addEdge(mentor, 'gc:discipled', id); discipled++; } }
+  }
+  for (const p of data.planted ?? []) {
+    const planter = pick(peopleByKey, p.planter); if (!planter) continue;
+    for (const ch of p.churches ?? []) { const id = pick(placeByLabel, ch); if (id) { addEdge(planter, 'gc:planted', id); planted++; } }
+  }
+  return { discipled, planted };
+}
+
 // MACULA semantic-role extraction → conversation-level relationships AT SCALE.
 // Identifies speech-act verbs (Louw-Nida domain 33 = Communication), resolves the SPEAKER (subjref)
 // and ADDRESSEE (a dative participant, via the referent chain to a named antecedent), maps both to

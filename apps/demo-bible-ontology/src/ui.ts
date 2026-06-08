@@ -618,12 +618,16 @@ async function drawOikos(){
   const det=wrap.querySelector('[data-det]');if(det)det.onclick=()=>showNodeTab(center);
 }
 // ── Generational map: descent tree (parent→child by generation) + org derivation ──
-let genRoot=null;
+let genRoot=null,genRels='gc:hasChild';
+const GEN_LENS=[['gc:hasChild','Descent (parent→child)'],['gc:discipled,gc:planted','Discipleship & church plants']];
 async function generations(){
-  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Generational map — lineage &amp; what grew out of what</h3>'+
-   '<p class="hint" style="margin-top:0">Descendants by generation (parent→child). Search a root ancestor; click a person to open. Below: how organizations (tribes, nations, houses) grew out of their founders.</p>'+
-   '<input id="gnq" placeholder="Root ancestor… (e.g. Abraham, Jacob, Adam, Judah)"/><div id="gnres"></div><div id="gnwrap"></div></div>'+
+  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Generational map — lineage, discipleship &amp; what grew out of what</h3>'+
+   '<p class="hint" style="margin-top:0">Generations of a root by descent, or by <b>movement</b> — discipleship &amp; church plants (e.g. Jesus → the Twelve → Paul → Timothy; Paul plants Ephesus, Corinth…). Search a root; click to open. Below: how organizations grew out of their founders.</p>'+
+   '<div class="gchips" id="glens"></div>'+
+   '<input id="gnq" placeholder="Root… (descent: Abraham, Jacob · movement: Jesus, Paul, Barnabas)"/><div id="gnres"></div><div id="gnwrap"></div></div>'+
    '<div id="orgwrap"></div><div id="otip" class="gtip"></div>';
+  const drawLens=()=>{document.getElementById('glens').innerHTML=GEN_LENS.map(l=>'<span class="gchip'+(genRels===l[0]?' on':'')+'" data-l="'+l[0]+'"'+(genRels===l[0]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+esc(l[1])+'</span>').join('');document.querySelectorAll('#glens [data-l]').forEach(ch=>ch.onclick=async()=>{genRels=ch.dataset.l;if(genRels!=='gc:hasChild'){const d=await api('/search?q=Jesus');genRoot=(((d.results||[]).find(x=>x.label==='Jesus'))||(d.results||[])[0]||{}).id;}drawLens();drawGen();});};
+  drawLens();
   const q=document.getElementById('gnq');let t;
   q.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=document.getElementById('gnres');if(q.value.trim().length<2){r.innerHTML='';return;}
     const d=await api('/search?q='+encodeURIComponent(q.value.trim()));
@@ -635,7 +639,7 @@ async function generations(){
 }
 async function drawGen(){
   const wrap=document.getElementById('gnwrap');wrap.innerHTML='<div class="ghint">loading…</div>';
-  const d=await api('/lineage?root='+encodeURIComponent(genRoot)+'&depth=5');if(!d.ok){wrap.innerHTML='<div class="ghint">could not load this lineage</div>';return;}
+  const d=await api('/lineage?root='+encodeURIComponent(genRoot)+'&depth=5&rels='+encodeURIComponent(genRels));if(!d.ok){wrap.innerHTML='<div class="ghint">could not load this lineage</div>';return;}
   const W=1040,rowH=94,padT=24,padX=24,pos={},parentOf={};
   d.edges.forEach(e=>{if(parentOf[e.to]==null)parentOf[e.to]=e.from;});
   d.levels.forEach((lvl,depth)=>{

@@ -1,0 +1,19 @@
+{
+  "discipled": [
+    { "mentor": "Jesus", "disciples": ["Peter", "John", "James", "Andrew", "Matthew", "Thomas", "Philip", "Bartholomew", "Judas Iscariot", "Mary Magdalene"] },
+    { "mentor": "Barnabas", "disciples": ["Paul", "Mark"] },
+    { "mentor": "Paul", "disciples": ["Timotheus", "Titus", "Silas", "Onesimus", "Epaphras", "Luke", "Apollos", "Priscilla", "Aquila"] },
+    { "mentor": "Peter", "disciples": ["Mark"] },
+    { "mentor": "Moses", "disciples": ["Joshua"] },
+    { "mentor": "Elijah", "disciples": ["Elisha"] },
+    { "mentor": "Eli", "disciples": ["Samuel"] },
+    { "mentor": "Samuel", "disciples": ["Saul", "David"] },
+    { "mentor": "Naomi", "disciples": ["Ruth"] },
+    { "mentor": "Mordecai", "disciples": ["Esther"] }
+  ],
+  "planted": [
+    { "planter": "Paul", "churches": ["Ephesus", "Corinth", "Galatia", "Philippi", "Colossae", "Thessalonica", "Antioch", "Athens", "Berea"] },
+    { "planter": "Peter", "churches": ["Rome"] },
+    { "planter": "Barnabas", "churches": ["Cyprus", "Antioch"] }
+  ]
+}
