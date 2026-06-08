@@ -353,8 +353,7 @@ function main() {
   // people → prov:Agent (+ role/skill/membership)
   for (const p of people) {
     const f = p.fields;
-    const span = lifespan(f.birthYear, f.deathYear);
-    addNode({ id: p.id, canonId: f.personLookup ?? f.slug, label: f.name ?? 'Person', kind: 'person', disambig: span || (f.gender ?? null), prov: 'prov:Person', dul: 'dul:Person', gc: 'gc:Person', aps: null, authority: f.dictionaryLink ?? null, tStart: yr(f.birthYear), tEnd: yr(f.deathYear), extra: { gender: f.gender, birthYear: f.birthYear, deathYear: f.deathYear } });
+    addNode({ id: p.id, canonId: f.personLookup ?? f.slug, label: f.name ?? 'Person', kind: 'person', disambig: f.gender ?? null, prov: 'prov:Person', dul: 'dul:Person', gc: 'gc:Person', aps: null, authority: f.dictionaryLink ?? null, tStart: yr(f.birthYear), tEnd: yr(f.deathYear), extra: { gender: f.gender, birthYear: f.birthYear, deathYear: f.deathYear } });
     linkVerses(p.id, f.verses);
   }
   // resolve org membership (reified + convenience) + member roles/skills
@@ -411,7 +410,7 @@ function main() {
   // events → prov:Activity (+ participants, verses)
   for (const e of events) {
     const f = e.fields;
-    addNode({ id: e.id, canonId: `${slugify(f.title)}_${e.id.slice(-4)}`, label: f.title ?? 'Event', kind: 'event', disambig: circa(yr(f.startDate)), prov: 'prov:Activity', dul: 'dul:Event', gc: classifyEventGc(f.title), aps: null, tStart: yr(f.startDate), tEnd: null, extra: { startDate: f.startDate, duration: f.duration } });
+    addNode({ id: e.id, canonId: `${slugify(f.title)}_${e.id.slice(-4)}`, label: f.title ?? 'Event', kind: 'event', disambig: null, prov: 'prov:Activity', dul: 'dul:Event', gc: classifyEventGc(f.title), aps: null, tStart: yr(f.startDate), tEnd: null, extra: { startDate: f.startDate, duration: f.duration } });
     linkVerses(e.id, f.verses);
     for (const part of f.participants ?? []) if (known.has(part)) addEdge(e.id, 'prov:wasAssociatedWith', part);
     for (const loc of f.locations ?? []) if (known.has(loc)) addEdge(e.id, 'dul:hasLocation', loc); // event → place (real Theographic data)

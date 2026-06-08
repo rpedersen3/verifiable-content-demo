@@ -442,7 +442,7 @@ async function renderNode(id){
   const grp=(arr,dir)=>{const by={};arr.forEach(e=>{(by[e.rel]=by[e.rel]||[]).push(e)});return Object.entries(by).map(([rel,es])=>'<div class="edge-grp"><div class="rel">'+esc(rel)+(dir==='in'?' (inverse)':'')+'</div>'+es.map(e=>'<span style="margin-right:10px;white-space:nowrap"><a onclick="showNode(\\''+e.id+'\\')">'+dot(e.kind)+esc(e.label)+'</a>'+ectx(e)+'</span>').join('')+'</div>').join('');};
   const geo=n.lat!=null?'<div class="hint">📍 '+n.lat+', '+n.long+' &nbsp;<span class="mono">'+esc(n.wkt||'')+'</span></div>':'';
   const ord=(y)=>y==null?'':('c. '+Math.abs(y)+(y<0?' BC':' AD'));
-  const temporal=n.t_start!=null?'<div class="hint">🕑 '+ord(n.t_start)+(n.t_end!=null&&n.t_end!==n.t_start?' – '+ord(n.t_end):'')+' <span class="muted" title="The Bible states no calendar dates; these are scholarly estimates (Theographic)">· estimated</span></div>':'';
+  const temporal='';
   const sigCss=(p)=>p==='positive'?'background:#e7f6ee;color:#1a8a4f':p==='negative'?'background:#fdeceA;color:#c0392b':'background:#fbf0e6;color:#b45309';
   const sigs=(d.signals&&d.signals.length)?'<div style="margin-top:8px">'+d.signals.map(s=>'<span class="chip" style="'+sigCss(s.polarity)+'">'+(s.polarity==='positive'?'＋':s.polarity==='negative'?'－':'~')+' '+esc(s.basis)+(s.osis?' · <a class="vref" onclick="openPassage(\\''+esc(s.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(s.osis)+'</a>':'')+'</span>').join('')+'</div>':'';
   const det=document.getElementById('detail')||V;
@@ -623,9 +623,9 @@ async function geo(){
   const placeG=L.layerGroup();
   const markerById={},regionG=L.layerGroup();
   d.places.forEach(p=>{const isR=p.region;const m=L.circleMarker([p.lat,p.lon],{radius:isR?7:Math.min(9,3+Math.sqrt(p.v||1)),color:isR?'#b45309':'#7c8696',weight:isR?2:1,fillColor:isR?'#fbe3c6':'#aab4c2',fillOpacity:isR?.35:.5,dashArray:isR?'3 3':null});m.bindPopup(pop(p,(isR?'<br><span class="muted">region · general area (approx.)</span>':'')+(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);(isR?regionG:placeG).addLayer(m);markerById[p.id]={m,lat:p.lat,lon:p.lon,label:p.label};});
-  const evItems=d.events.map(e=>{const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop(e,'<br><span style="color:#6b7785">'+ordY(e.tStart)+' · at '+esc(e.place||'')+'</span>'));m.bindTooltip(e.label);markerById[e.id]={m,lat:e.lat,lon:e.lon,label:e.label};return{m,t:e.tStart};});
+  const evItems=d.events.map(e=>{const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop(e,'<br><span style="color:#6b7785">at '+esc(e.place||'')+'</span>'));m.bindTooltip(e.label);markerById[e.id]={m,lat:e.lat,lon:e.lon,label:e.label};return{m,t:e.tStart};});
   const evG=L.layerGroup();evItems.forEach(i=>evG.addLayer(i.m));
-  const pItems=d.people.map(pe=>{const m=L.circleMarker([pe.lat,pe.lon],{radius:6,color:'#fff',weight:1,fillColor:sigC(pe,'#2563eb'),fillOpacity:.9});m.bindPopup(pop(pe,'<br><span style="color:#6b7785">'+ordY(pe.tStart)+(pe.tEnd!=null?' – '+ordY(pe.tEnd):'')+' · b. '+esc(pe.place||'')+'</span>'));m.bindTooltip(pe.label);markerById[pe.id]={m,lat:pe.lat,lon:pe.lon,label:pe.label};return{m,t0:pe.tStart,t1:pe.tEnd!=null?pe.tEnd:pe.tStart};});
+  const pItems=d.people.map(pe=>{const m=L.circleMarker([pe.lat,pe.lon],{radius:6,color:'#fff',weight:1,fillColor:sigC(pe,'#2563eb'),fillOpacity:.9});m.bindPopup(pop(pe,'<br><span style="color:#6b7785">b. '+esc(pe.place||'')+'</span>'));m.bindTooltip(pe.label);markerById[pe.id]={m,lat:pe.lat,lon:pe.lon,label:pe.label};return{m,t0:pe.tStart,t1:pe.tEnd!=null?pe.tEnd:pe.tStart};});
   const peopleG=L.layerGroup();pItems.forEach(i=>peopleG.addLayer(i.m));
   placeG.addTo(map);evG.addTo(map);
   // map search → zoom to a place/activity/person by name
