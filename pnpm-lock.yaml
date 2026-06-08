@@ -14,12 +14,18 @@ importers:
       '@types/node':
         specifier: ^22.7.0
         version: 22.19.20
+      '@verifiable-content-demo/zk-membership':
+        specifier: workspace:*
+        version: link:packages/zk-membership
       tsx:
         specifier: ^4.19.0
         version: 4.22.4
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
+      viem:
+        specifier: ^2.52.2
+        version: 2.52.2(typescript@5.9.3)
       vitest:
         specifier: ^4.1.8
         version: 4.1.8(@types/node@22.19.20)(vite@8.0.16(@types/node@22.19.20)(esbuild@0.28.0)(tsx@4.22.4))
@@ -137,12 +143,15 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.14(hono@4.12.23)
-      '@verifiable-content-demo/zk-membership':
-        specifier: workspace:*
-        version: link:../../packages/zk-membership
+      circomlibjs:
+        specifier: ^0.1.7
+        version: 0.1.7
       hono:
         specifier: ^4.6.0
         version: 4.12.23
+      snarkjs:
+        specifier: ^0.7.6
+        version: 0.7.6
       viem:
         specifier: ^2.52.2
         version: 2.52.2(typescript@5.9.3)

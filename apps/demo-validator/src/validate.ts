@@ -9,7 +9,7 @@ import {
   type SignatureVerifier,
 } from '@agenticprimitives/content-primitives';
 import { verifyCredentialStructural } from '@agenticprimitives/verifiable-credentials';
-import { buildPoseidonTree, toField, verifyMembership } from '@verifiable-content-demo/zk-membership';
+import { poseidonRoot, toField, verifyMembership } from './zk.js';
 import type { EvidenceBundle, ValidationResult, CheckResult } from './bundle.js';
 
 export interface ValidateOpts {
@@ -147,9 +147,9 @@ export async function validateBundle(bundle: EvidenceBundle, opts: ValidateOpts)
     } else {
       try {
         const commitments = await opts.fetchCorpus(content.edition);
-        const tree = await buildPoseidonTree(commitments.map((c) => toField(c)));
+        const root = await poseidonRoot(commitments.map((c) => toField(c)));
         const signalHash = toField(response.responseHash);
-        const ok = await verifyMembership(proof.zkMembership, { root: tree.root, signalHash });
+        const ok = await verifyMembership(proof.zkMembership, { root, signalHash });
         set('zkMembership', ok, ok ? 'commitment proven in corpus (leaf hidden)' : 'zk proof invalid');
       } catch (e) {
         set('zkMembership', false, `zk verify error: ${(e as Error).message}`);

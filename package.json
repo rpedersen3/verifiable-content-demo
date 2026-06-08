@@ -14,13 +14,15 @@
     "smoke": "pnpm exec tsx apps/demo-bible-a2a/smoke.ts",
     "zk:setup": "pnpm --filter @verifiable-content-demo/zk-membership setup",
     "validator": "pnpm --filter @verifiable-content-demo/validator start",
-    "validate:e2e": "pnpm --filter @verifiable-content-demo/validator e2e",
+    "validate:e2e": "tsx scripts/validator-e2e.ts",
     "check:no-licensed-content": "tsx scripts/check-no-licensed-content.ts"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
+    "@verifiable-content-demo/zk-membership": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0",
+    "viem": "^2.52.2",
     "vitest": "^4.1.8"
   },
   "pnpm": {

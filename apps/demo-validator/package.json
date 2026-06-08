@@ -7,15 +7,15 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "e2e": "tsx src/e2e.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@agenticprimitives/content-primitives": "^1.0.0-alpha.6",
     "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.2",
     "@hono/node-server": "^1.13.0",
-    "@verifiable-content-demo/zk-membership": "workspace:*",
+    "circomlibjs": "^0.1.7",
     "hono": "^4.6.0",
+    "snarkjs": "^0.7.6",
     "viem": "^2.52.2"
   },
   "devDependencies": {

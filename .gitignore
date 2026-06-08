@@ -7,4 +7,7 @@ dist/
 .DS_Store
 apps/*/onchain.json
 packages/*/dist/
-packages/zk-membership/build/
+packages/zk-membership/build/*
+!packages/zk-membership/build/verification_key.json
+!packages/zk-membership/build/merkle.zkey
+!packages/zk-membership/build/merkle.wasm
