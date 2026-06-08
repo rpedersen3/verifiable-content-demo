@@ -1,0 +1,22 @@
+{
+  "name": "@verifiable-content-demo/bible-ontology",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Bible ontology explorer: a PROV-O graph (Agent/Activity/Entity) of the Bible (from Theographic, CC-BY-SA) over DUL + W3C ORG + GeoSPARQL + aps: skills + gc: lower vocab, used to validate the Global Church Ontology against PROV-O and real Bible usage.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev --port 8795 --persist-to ../../.wrangler/state-bible-ontology",
+    "deploy": "wrangler deploy --env production",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.12.23"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260604.1",
+    "@types/node": "^22.7.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.0.0"
+  }
+}
