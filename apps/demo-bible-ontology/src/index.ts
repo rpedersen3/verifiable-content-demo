@@ -62,11 +62,23 @@ app.get('/api/search', async (c) => {
   const q = (c.req.query('q') ?? '').trim();
   const kind = (c.req.query('kind') ?? '').trim();
   const group = KIND_GROUPS[kind];
-  if (!q && !group) return c.json({ ok: true, results: [] });
+  const sort = (c.req.query('sort') ?? '').trim();
+  const trust = (c.req.query('trust') ?? '').trim();
+  if (!q && !group && !trust) return c.json({ ok: true, results: [] });
+  const MORAL = "(SELECT value FROM score WHERE subject_id=node.id AND dimension='moral')";
+  const NSIG = "(SELECT count(*) FROM signal WHERE subject_id=node.id)";
   const where: string[] = []; const args: unknown[] = [];
   if (q) { where.push('(label LIKE ? OR aka LIKE ?)'); args.push(`%${q}%`, `%${q.toLowerCase()}%`); }
   if (group) { where.push(`kind IN (${group.map(() => '?').join(',')})`); args.push(...group); }
-  const r = await rows(c.env.DB, `SELECT id,canon_id,label,kind,disambig,aka,prov_class,gc_class,canon_confidence,image_thumb FROM node WHERE ${where.join(' AND ')} ORDER BY (SELECT count(*) FROM node_verse WHERE node_id=node.id) DESC LIMIT 50`, ...args);
+  if (trust === 'pos') where.push(`${MORAL} > 0.2`);
+  else if (trust === 'neg') where.push(`${MORAL} < -0.2`);
+  else if (trust === 'signals') where.push(`${NSIG} > 0`);
+  const verseOrd = '(SELECT count(*) FROM node_verse WHERE node_id=node.id) DESC';
+  let order = verseOrd;
+  if (sort === 'good') order = `${MORAL} IS NULL, ${MORAL} DESC, ${verseOrd}`;
+  else if (sort === 'evil') order = `${MORAL} IS NULL, ${MORAL} ASC, ${verseOrd}`;
+  else if (sort === 'signals') order = `${NSIG} DESC, ${verseOrd}`;
+  const r = await rows(c.env.DB, `SELECT id,canon_id,label,kind,disambig,aka,prov_class,gc_class,canon_confidence,image_thumb,${MORAL} moral,${NSIG} nsig FROM node WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 50`, ...args);
   return c.json({ ok: true, results: r });
 });
 

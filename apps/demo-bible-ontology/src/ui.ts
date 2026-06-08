@@ -59,6 +59,9 @@ nav button.nav-util.on{background:#eef2fb;color:var(--accent);border-color:var(-
 .combo-item{padding:8px 11px;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:7px}
 .combo-item:hover,.combo-item.kbd{background:#eef2fb}
 .combo-empty{padding:9px 11px;color:var(--muted);font-size:13px}
+.gchip.mini{font-size:11px;padding:3px 9px}
+.tbadge{font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;white-space:nowrap}
+.trow{margin-left:7px;display:inline-flex;gap:6px;align-items:center;vertical-align:middle}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .stat{background:#f8fafd;border:1px solid var(--line);border-radius:10px;padding:12px}
@@ -424,23 +427,34 @@ function tagAlign(a){
   if(a==='unaligned')return '<span class="chip tag-un">unaligned</span>';
   return '<span class="chip">'+esc(a)+'</span>';
 }
-let expKind='';
+let expKind='',expSort='',expTrust='';
+function tind(r){let h='';if(r.moral!=null){const v=+r.moral,c=v>0.15?'#1a8a4f':v<-0.15?'#c0392b':'#b45309';h+='<span class="tbadge" title="good ↔ evil trust signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'＋':v<0?'－':'~')+Math.abs(v).toFixed(2)+'</span>';}if(r.nsig>0)h+='<span class="muted" style="font-size:11px" title="'+r.nsig+' trust signals">◴ '+r.nsig+'</span>';return h?'<span class="trow">'+h+'</span>':'';}
 async function explore(){
   V.innerHTML='<div class="card"><input id="q" placeholder="Search by name or alias… (e.g. Peter, David, Jerusalem, Exodus)"/>'+
-   '<div class="gchips" id="kfil" style="margin-top:10px"></div><div id="res"></div></div><div id="detail"></div>';
+   '<div class="gchips" id="kfil" style="margin-top:10px"></div>'+
+   '<div class="gchips" id="tctl" style="margin-top:6px;align-items:center"></div>'+
+   '<div id="res"></div></div><div id="detail"></div>';
   const q=document.getElementById('q');q.focus();
   const run=async()=>{const term=q.value.trim();const res=document.getElementById('res');
-    if(term.length<2&&!expKind){res.innerHTML='';return;}
-    const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):''));
-    res.innerHTML=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b> '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind?' for this filter':'')+'.</div>';
+    if(term.length<2&&!expKind&&!expTrust){res.innerHTML='';return;}
+    const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):'')+(expSort?'&sort='+expSort:'')+(expTrust?'&trust='+expTrust:''));
+    res.innerHTML=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b>'+tind(r)+' '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind||expTrust?' for this filter':'')+'.</div>';
   };
+  const SORTS=[['','Relevance'],['good','Most good'],['evil','Most evil'],['signals','Most signals']];
+  const TRUSTS=[['','Any'],['pos','Positive'],['neg','Negative'],['signals','Has signals']];
+  const drawCtl=()=>{document.getElementById('tctl').innerHTML=
+    '<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('')+
+    '<span class="muted" style="font-size:11px;margin:0 3px 0 12px">trust</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('');
+    document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;drawCtl();run();});
+    document.querySelectorAll('#tctl [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;drawCtl();run();});};
+  drawCtl();
   const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
   const FKC={'':'#64748b',person:KC.person,organization:KC.organization,activity:KC.event,place:KC.place,deity:KC.deity,concept:KC.concept};
   const kc=document.getElementById('kfil');
   const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0];return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;drawChips();run();});};
   drawChips();
   let timer;q.oninput=()=>{clearTimeout(timer);timer=setTimeout(run,180);};
-  if(expKind)run();
+  if(expKind||expTrust)run();
 }
 function showNode(id){nav('node/'+id);}
 function showNodeTab(id){nav('node/'+id);}
