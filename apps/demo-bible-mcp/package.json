@@ -11,6 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@agenticprimitives/agent-account": "^1.0.0-alpha.6",
+    "@agenticprimitives/agent-naming": "^1.0.0-alpha.6",
     "@agenticprimitives/audit": "^1.0.0-alpha.6",
     "@agenticprimitives/scripture-content-extension": "^1.0.0-alpha.6",
     "@agenticprimitives/tool-policy": "^1.0.0-alpha.6",

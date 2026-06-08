@@ -5,3 +5,4 @@ dist/
 *.tsbuildinfo
 .dev.vars
 .DS_Store
+apps/*/onchain.json

@@ -52,4 +52,32 @@ In-process proof (no servers): `pnpm smoke`.
   store.
 - **Trust = issuer signature + access policy**, not the platform.
 
+## On-chain trust mode (real Smart Agent issuer + agent-naming)
+
+By default the demo verifies issuer signatures via EOA recovery and issues
+signed Entitlement/Citation VCs with dev keys. There's also a **real on-chain
+path** where the issuer is an **ERC-4337 Smart Agent** (ERC-1271 signatures),
+resolved by name via **`@agenticprimitives/agent-naming`**.
+
+`apps/demo-bible-mcp/scripts/bootstrap-onchain.ts` proves it end-to-end against a
+local chain with the agenticprimitives contracts deployed:
+
+```bash
+# 1. in the agenticprimitives repo: run a chain + deploy the contracts
+anvil &                                   # or: pnpm dev (which also deploys)
+cd packages/contracts && pnpm deploy:anvil
+
+# 2. here: bootstrap the on-chain issuer + prove the trust round-trip
+pnpm --filter @verifiable-content-demo/bible-mcp exec tsx scripts/bootstrap-onchain.ts
+#   → creates an issuer Smart Agent (AgentAccount)
+#   → ERC-1271 isValidSignature: OK
+#   → registers bsb.agent → resolves to the issuer SA (agent-naming)
+#   → builds a real ContentDescriptor, signs it via the SA, and verifies it
+#     through content-primitives against the SA's isValidSignature: OK
+```
+
+It writes `apps/demo-bible-mcp/onchain.json` (gitignored). Threading this into the
+live Worker request path (env-injected RPC + per-request ERC-1271 verification)
+is the next increment; the bootstrap demonstrates the primitive today.
+
 Built on the Verifiable Content Substrate (agenticprimitives specs 266/267).

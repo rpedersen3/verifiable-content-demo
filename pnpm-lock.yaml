@@ -57,6 +57,12 @@ importers:
 
   apps/demo-bible-mcp:
     dependencies:
+      '@agenticprimitives/agent-account':
+        specifier: ^1.0.0-alpha.6
+        version: 1.0.0-alpha.6(@agenticprimitives/connect-auth@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))
+      '@agenticprimitives/agent-naming':
+        specifier: ^1.0.0-alpha.6
+        version: 1.0.0-alpha.6(@agenticprimitives/agent-account@1.0.0-alpha.6(@agenticprimitives/connect-auth@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/connect-auth@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))
       '@agenticprimitives/audit':
         specifier: ^1.0.0-alpha.6
         version: 1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)
@@ -125,10 +131,31 @@ packages:
   '@adraffy/ens-normalize@1.11.1':
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
 
+  '@agenticprimitives/agent-account@1.0.0-alpha.6':
+    resolution: {integrity: sha512-9fT29kigCKcrh8WtEquJy1PAUdf/jRcN8yepfdNGSnn4eUWDgSOwY5JnqYCB3Hfz5SEBJJ+AlKoeUDLFaw11ng==}
+    peerDependencies:
+      '@agenticprimitives/connect-auth': 1.0.0-alpha.6
+      '@agenticprimitives/types': 1.0.0-alpha.6
+      viem: ^2.52.2
+
+  '@agenticprimitives/agent-naming@1.0.0-alpha.6':
+    resolution: {integrity: sha512-FBIHva4rI6XldJ0A8pMLPlYQkjn6iH7Sec12kacIvLkWK5CigyrpdY8+WaiXl/p4zp/6ACaB9tnhXWDJmGOm2g==}
+    peerDependencies:
+      '@agenticprimitives/agent-account': 1.0.0-alpha.6
+      '@agenticprimitives/connect-auth': 1.0.0-alpha.6
+      '@agenticprimitives/types': 1.0.0-alpha.6
+      viem: ^2.52.2
+
   '@agenticprimitives/audit@1.0.0-alpha.6':
     resolution: {integrity: sha512-HsL2xOch+JGzgGGjU8XtmxJ6vUdmJ9SYykOMzz2XjzKoaH9zwQ96szJUw6U4z7bT/8k5d2YORRrOFvctWqYcZQ==}
     peerDependencies:
       '@agenticprimitives/types': 1.0.0-alpha.6
+
+  '@agenticprimitives/connect-auth@1.0.0-alpha.6':
+    resolution: {integrity: sha512-JWUVYdrbeeOuQRLi+ZJh26MV/g6OjxKjnMe8kTWuLYbgGvFEONFvP71FcMZiUwiWptgSNcYG8/IGAeFxW99eUw==}
+    peerDependencies:
+      '@agenticprimitives/types': 1.0.0-alpha.6
+      viem: ^2.52.2
 
   '@agenticprimitives/content-primitives@1.0.0-alpha.6':
     resolution: {integrity: sha512-WJzO+0jAqy1Z6mjlSWKe2aV27TwLAP/fXFq1/DhOwN8YkoWHNMUH9arGBd0dPzv97tLFfSOWodObKQnDPGpb1Q==}
@@ -535,6 +562,10 @@ packages:
   '@noble/curves@1.9.1':
     resolution: {integrity: sha512-k11yZxZg+t+gWvBbIswW0yoJlu8cHOC7dhunwOzoWH/mXGBiYyR4YY6hAEK/3EUs4UpB8la1RfdRpeGsFHkWsA==}
     engines: {node: ^14.21.3 || >=16}
+
+  '@noble/curves@2.2.0':
+    resolution: {integrity: sha512-T/BoHgFXirb0ENSPBquzX0rcjXeM6Lo892a2jlYJkqk83LqZx0l1Of7DzlKJ6jkpvMrkHSnAcgb5JegL8SeIkQ==}
+    engines: {node: '>= 20.19.0'}
 
   '@noble/hashes@1.8.0':
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
@@ -1143,9 +1174,29 @@ snapshots:
 
   '@adraffy/ens-normalize@1.11.1': {}
 
+  '@agenticprimitives/agent-account@1.0.0-alpha.6(@agenticprimitives/connect-auth@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))':
+    dependencies:
+      '@agenticprimitives/connect-auth': 1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))
+      '@agenticprimitives/types': 1.0.0-alpha.6
+      viem: 2.52.2(typescript@5.9.3)
+
+  '@agenticprimitives/agent-naming@1.0.0-alpha.6(@agenticprimitives/agent-account@1.0.0-alpha.6(@agenticprimitives/connect-auth@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/connect-auth@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))':
+    dependencies:
+      '@agenticprimitives/agent-account': 1.0.0-alpha.6(@agenticprimitives/connect-auth@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))
+      '@agenticprimitives/connect-auth': 1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))
+      '@agenticprimitives/types': 1.0.0-alpha.6
+      viem: 2.52.2(typescript@5.9.3)
+
   '@agenticprimitives/audit@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)':
     dependencies:
       '@agenticprimitives/types': 1.0.0-alpha.6
+
+  '@agenticprimitives/connect-auth@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3))':
+    dependencies:
+      '@agenticprimitives/types': 1.0.0-alpha.6
+      '@noble/curves': 2.2.0
+      '@noble/hashes': 2.2.0
+      viem: 2.52.2(typescript@5.9.3)
 
   '@agenticprimitives/content-primitives@1.0.0-alpha.6(@agenticprimitives/types@1.0.0-alpha.6)(@agenticprimitives/verifiable-credentials@0.0.0-alpha.2(@agenticprimitives/ontology@1.0.0-alpha.6)(@agenticprimitives/types@1.0.0-alpha.6)(viem@2.52.2(typescript@5.9.3)))(viem@2.52.2(typescript@5.9.3))':
     dependencies:
@@ -1413,6 +1464,10 @@ snapshots:
   '@noble/curves@1.9.1':
     dependencies:
       '@noble/hashes': 1.8.0
+
+  '@noble/curves@2.2.0':
+    dependencies:
+      '@noble/hashes': 2.2.0
 
   '@noble/hashes@1.8.0': {}
 
