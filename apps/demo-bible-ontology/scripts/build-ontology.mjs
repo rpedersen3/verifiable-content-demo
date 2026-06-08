@@ -53,6 +53,17 @@ const HISTORICAL = {
   Jerusalem: [1.0, 'continuously excavated capital'], Babylon: [1.0, 'excavated Neo-Babylonian capital'], Nineveh: [1.0, 'excavated Assyrian capital'], Damascus: [0.95, 'continuously inhabited city'], Rome: [1.0, 'imperial capital'], Jericho: [0.9, 'Tell es-Sultan excavations'], Samaria: [0.9, 'Omride palace + Samaria ostraca'], Hebron: [0.85, 'Bronze/Iron Age tell'], Bethlehem: [0.75, 'Iron Age settlement; bulla'], Nazareth: [0.7, 'Roman-era village remains'], Capernaum: [0.9, 'excavated synagogue + house of Peter'], Babylonia: [1.0, 'Neo-Babylonian records'],
 };
 const POLVAL = { positive: 1, negative: -1, mixed: 0 };
+// Approximate lifespans (scholarly estimates) for key figures Theographic leaves undated — chiefly
+// the New Testament generation, so "people from Jesus' time" appear on the timeline. Applied only
+// where the node has no date; resolved to the most-attested node of that name.
+const FLOR_DATES = {
+  Peter: [1, 64], Paul: [5, 67], John: [6, 100], James: [1, 62], Andrew: [5, 60], Matthew: [5, 74], Thomas: [1, 72],
+  Philip: [5, 80], Bartholomew: [1, 70], Stephen: [1, 34], Barnabas: [1, 61], Timotheus: [17, 97], Titus: [10, 105],
+  'Mary, mother of Jesus': [-18, 48], Mary: [-18, 48], Caiaphas: [-14, 46], 'Judas Iscariot': [1, 33], Judas: [1, 33],
+  Nathanael: [1, 70], Nicodemus: [1, 70], Lazarus: [1, 63], Martha: [1, 60], Mark: [5, 68], Luke: [10, 84],
+  Cornelius: [1, 60], Gamaliel: [-20, 52], Matthias: [1, 80], Jude: [1, 70], Herod: [-20, 39], Pilate: [-10, 39],
+  Philemon: [5, 70], Silas: [1, 70], Apollos: [1, 75], Aquila: [1, 70], Priscilla: [1, 70], Lydia: [1, 70],
+};
 
 // ─── Ontology vocabulary (classes) across the layers ──────────────────────────
 const CLASSES = [
@@ -175,6 +186,8 @@ const PROPS = [
   ['gc:hasAddressee', 'has addressee', 'gc', 'gc:Interaction', 'prov:Agent', null],
   // conversation-level relationship extracted from MACULA (who speaks to whom, aggregated)
   ['gc:spokeTo', 'spoke to', 'gc', 'prov:Agent', 'prov:Agent', 'gc:spokenToBy'],
+  // generational / derivation — what an organization grew out of (founder, antecedent group)
+  ['gc:grewOutOf', 'grew out of', 'gc', 'prov:Organization', 'prov:Agent', 'gc:gaveRiseTo'],
   // P-Plan / EP-Plan + DOLCE planning relations (planning · requests · doing)
   ['pplan:isStepOfPlan', 'is step of plan', 'pplan', 'pplan:Step', 'pplan:Plan', 'pplan:isPlanOfStep'],
   ['pplan:isPrecededBy', 'is preceded by', 'pplan', 'pplan:Step', 'pplan:Step', null],
@@ -408,6 +421,26 @@ function main() {
     if (m.conf < 0.85) lowConf++;
   }
   console.log('enriched', enriched, '/', ENRICH.length, 'with image+authority |', lowConf, 'low-confidence (<0.85) bindings flagged');
+
+  // approximate dates for undated key figures (mostly NT) → they appear on the timeline
+  let dated = 0;
+  for (const [name, [b, d]] of Object.entries(FLOR_DATES)) {
+    const id = pickMax(peopleByKey.get(norm(name)));
+    const nd = id && byId.get(id);
+    if (nd && nd.tStart == null) { nd.tStart = b; nd.tEnd = d; nd.extra = { ...nd.extra, dateApprox: true }; dated++; }
+  }
+  console.log('floruit dates applied to', dated, 'undated figures');
+
+  // org derivation ("what grew out of what"): tribe/nation/house → eponymous founder; tribes ⊂ nation
+  let derived = 0;
+  const nationId = groups.find((g) => /^Nation of Israel$/i.test(g.fields.groupName ?? ''))?.id;
+  for (const g of groups) {
+    const name = g.fields.groupName ?? '';
+    const m = name.match(/^(?:Tribe|Nation|House|Line|Genealogy|Sons|Children|Descendants) of (.+)$/i);
+    if (m) { const founder = pickMax(peopleByKey.get(norm(m[1]))); if (founder && founder !== g.id) { addEdge(g.id, 'gc:grewOutOf', founder); derived++; } }
+    if (nationId && /^Tribe of /i.test(name) && g.id !== nationId) addEdge(g.id, 'org:subOrganizationOf', nationId);
+  }
+  console.log('org derivation edges:', derived);
 
   // ── multi-source A-box ingestion: STEPBible TIPNR + OpenBible (reconcile + new nodes) ──
   const addVerseLinks = (id, osises) => { for (const o of osises ?? []) if (o) nodeVerse.push({ id, osis: o }); };

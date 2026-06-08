@@ -34,6 +34,8 @@ th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertic
 th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.03em}
 .tag-prov{background:#e7f0ff;color:#2f6df0}.tag-dns{background:#fbf0e6;color:#b45309}.tag-un{background:#fdeceA;color:#c0392b}
 svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10px}
+.leaflet-container svg,.leaflet-pane svg{width:auto;height:auto;background:none;border:0;border-radius:0}
+.leaflet-container img{border-radius:0;max-width:none}
 svg#gsvg{height:560px;display:block}
 .gnode{cursor:pointer;transition:opacity .12s}.gnode .gnlabel{pointer-events:none;font-weight:500}
 .gcluster{cursor:pointer;transition:opacity .12s}
@@ -99,6 +101,8 @@ svg#tsvg{display:block;background:#fbfcfe}
  <button data-t="classes">Inheritance</button>
  <button data-t="timeline">Timeline</button>
  <button data-t="geo">Map</button>
+ <button data-t="oikos">Circles</button>
+ <button data-t="generations">Generations</button>
  <button data-t="graph">Trust graph</button>
  <button data-t="validate">Validate GCO</button>
  <button data-t="admin">Admin</button>
@@ -191,6 +195,8 @@ async function render(){
   if(tab==='classes')return classes();
   if(tab==='timeline')return timeline();
   if(tab==='geo')return geo();
+  if(tab==='oikos')return oikos();
+  if(tab==='generations')return generations();
   if(tab==='graph')return graph();
   if(tab==='validate')return validate();
   if(tab==='admin')return admin();
@@ -466,6 +472,100 @@ async function geo(){
     this.textContent='⏸ pause';const step=Math.max(1,Math.round((maxY-minY)/120));if(cur>=maxY)cur=minY;
     geoTimer=setInterval(()=>{cur+=step;if(cur>=maxY){cur=maxY;yr.value=cur;applyYear();clearInterval(geoTimer);geoTimer=null;const b=document.getElementById('gplay');if(b)b.textContent='▶ play';return;}yr.value=cur;applyYear();},120);};
   applyYear();setTimeout(()=>{try{map.invalidateSize();}catch(e){}},120);
+}
+// ── Oikos circles: concentric relationship rings out from a person ──
+let oikosCenter=null;
+const RING=[{label:'Family (oikos)',color:'#e87c3e',r:120},{label:'Household · roles · places',color:'#0d9488',r:212},{label:'Wider network · conversations',color:'#9333ea',r:300}];
+function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|org:member|org:organization|org:role/.test(rel))return 1;return 2;}
+async function oikos(){
+  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Oikos circles — relationships out from a person</h3>'+
+   '<p class="hint" style="margin-top:0">Concentric circles of relationship around a person: inner = <b>family</b> (oikos), middle = <b>household, roles &amp; places</b>, outer = <b>wider network &amp; conversations</b>. Search a person; click a node to recenter.</p>'+
+   '<input id="oq" placeholder="Center on a person… (e.g. Paul, Peter, David, Mary)"/><div id="ores"></div><div id="owrap"></div></div><div id="otip" class="gtip"></div>';
+  const oq=document.getElementById('oq');let timer;
+  oq.oninput=()=>{clearTimeout(timer);timer=setTimeout(async()=>{
+    const r=document.getElementById('ores');if(oq.value.trim().length<2){r.innerHTML='';return;}
+    const d=await api('/search?q='+encodeURIComponent(oq.value.trim()));
+    r.innerHTML='<ul class="list">'+d.results.slice(0,8).map(x=>'<li data-pick="'+x.id+'">'+dot(x.kind)+esc(x.label)+' <span class="muted">'+esc(x.disambig||x.prov_class||'')+'</span></li>').join('')+'</ul>';
+    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>{oikosCenter=li.dataset.pick;r.innerHTML='';oq.value='';drawOikos();});
+  },180);};
+  if(!oikosCenter){const d=await api('/search?q=Paul');oikosCenter=(((d.results||[]).find(x=>x.label==='Paul'))||(d.results||[])[0]||{}).id;}
+  drawOikos();
+}
+async function drawOikos(){
+  const wrap=document.getElementById('owrap');wrap.innerHTML='<div class="ghint">loading…</div>';
+  const d=await api('/graph?center='+encodeURIComponent(oikosCenter));if(!d.ok){wrap.innerHTML='<div class="ghint">could not load this node</div>';return;}
+  const W=920,H=680,cx=460,cy=346,center=d.center,byId={};d.nodes.forEach(n=>byId[n.id]=n);
+  const ring={},relOf={};
+  d.edges.forEach(e=>{const nb=e.from===center?e.to:e.from;if(nb===center)return;const rg=ringOf(e.rel);if(ring[nb]==null||rg<ring[nb]){ring[nb]=rg;relOf[nb]=e.rel;}});
+  const neighbors=d.nodes.filter(n=>n.id!==center&&ring[n.id]!=null);
+  const byRing=[[],[],[]];neighbors.forEach(n=>byRing[ring[n.id]].push(n));
+  const pos={};byRing.forEach((mem,ri)=>{const rr=RING[ri];mem.forEach((nd,i)=>{pos[nd.id]=P(cx,cy,(i+0.5)/mem.length*360,rr.r);});});
+  let s='<svg id="osvg" viewBox="0 0 '+W+' '+H+'" style="height:680px">';
+  RING.forEach(rr=>{s+='<circle cx="'+cx+'" cy="'+cy+'" r="'+rr.r+'" fill="none" stroke="'+rr.color+'" stroke-opacity="0.25" stroke-dasharray="3 4"/>';});
+  neighbors.forEach(n=>{const p=pos[n.id],rr=RING[ring[n.id]];s+='<line x1="'+cx+'" y1="'+cy+'" x2="'+p.x+'" y2="'+p.y+'" stroke="'+rr.color+'" stroke-opacity="0.3"/>';});
+  neighbors.forEach(n=>{const p=pos[n.id];s+='<g class="gnode" data-id="'+esc(n.id)+'">'+shp(n.kind,p.x,p.y,10)+badge(p.x,p.y,10,n.sig)+'<text class="gnlabel" x="'+p.x+'" y="'+(p.y+22)+'" text-anchor="middle" font-size="9" fill="#33404f">'+esc(n.label.length>15?n.label.slice(0,14)+'…':n.label)+'</text></g>';});
+  const cn=byId[center]||{label:'?',kind:'person'};
+  const gfil=imgMode()==='original'?'none':'sepia(0.6) saturate(1.25) contrast(1.06)';
+  const cc=cn.img?'<defs><clipPath id="oclip"><circle cx="'+cx+'" cy="'+cy+'" r="34"/></clipPath></defs><image href="'+esc(cn.img)+'" x="'+(cx-34)+'" y="'+(cy-34)+'" width="68" height="68" clip-path="url(#oclip)" preserveAspectRatio="xMidYMid slice" style="filter:'+gfil+'"/><circle cx="'+cx+'" cy="'+cy+'" r="34" fill="none" stroke="#2f6df0" stroke-width="3"/>':'<circle cx="'+cx+'" cy="'+cy+'" r="34" fill="#2f6df0"/>';
+  s+='<g class="gnode" data-id="'+esc(center)+'">'+cc+'<text x="'+cx+'" y="'+(cn.img?cy+52:cy+4)+'" text-anchor="middle" font-size="12" font-weight="700" fill="'+(cn.img?'#1f2733':'#fff')+'">'+esc(cn.label.length>16?cn.label.slice(0,15)+'…':cn.label)+'</text></g></svg>';
+  const legend='<div class="glegend">'+RING.map((rr,i)=>'<span style="color:'+rr.color+'">● '+rr.label+' ('+byRing[i].length+')</span>').join(' &nbsp; ')+'</div>';
+  wrap.innerHTML='<div class="gbread"><b>'+dot(cn.kind)+esc(cn.label)+'</b> <span class="muted">'+cn.kind+' · '+neighbors.length+' relationships in 3 circles</span> · <a class="link" data-det="1">details ↗</a></div>'+s+legend+'<div class="ghint">Click a node to recenter on them · click the center to open details.</div>';
+  const tip=document.getElementById('otip');
+  wrap.querySelectorAll('.gnode').forEach(g=>{const id=g.dataset.id,n=byId[id];if(!n)return;g.style.cursor='pointer';
+    g.addEventListener('mouseenter',()=>{tip.style.display='block';tip.innerHTML='<b>'+esc(n.label)+'</b> <span class="muted">'+n.kind+'</span>'+(relOf[id]?'<div class="muted">'+esc(relOf[id])+'</div>':'');});
+    g.addEventListener('mousemove',ev=>{tip.style.left=Math.min(ev.clientX+14,innerWidth-220)+'px';tip.style.top=(ev.clientY+14)+'px';});
+    g.addEventListener('mouseleave',()=>tip.style.display='none');
+    g.addEventListener('click',()=>{if(id===center)showNodeTab(center);else{oikosCenter=id;drawOikos();}});});
+  const det=wrap.querySelector('[data-det]');if(det)det.onclick=()=>showNodeTab(center);
+}
+// ── Generational map: descent tree (parent→child by generation) + org derivation ──
+let genRoot=null;
+async function generations(){
+  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Generational map — lineage &amp; what grew out of what</h3>'+
+   '<p class="hint" style="margin-top:0">Descendants by generation (parent→child). Search a root ancestor; click a person to open. Below: how organizations (tribes, nations, houses) grew out of their founders.</p>'+
+   '<input id="gnq" placeholder="Root ancestor… (e.g. Abraham, Jacob, Adam, Judah)"/><div id="gnres"></div><div id="gnwrap"></div></div>'+
+   '<div id="orgwrap"></div><div id="otip" class="gtip"></div>';
+  const q=document.getElementById('gnq');let t;
+  q.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{const r=document.getElementById('gnres');if(q.value.trim().length<2){r.innerHTML='';return;}
+    const d=await api('/search?q='+encodeURIComponent(q.value.trim()));
+    r.innerHTML='<ul class="list">'+d.results.filter(x=>x.kind==='person').slice(0,8).map(x=>'<li data-pick="'+x.id+'">'+dot(x.kind)+esc(x.label)+' <span class="muted">'+esc(x.disambig||'')+'</span></li>').join('')+'</ul>';
+    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>{genRoot=li.dataset.pick;r.innerHTML='';q.value='';drawGen();});
+  },180);};
+  if(!genRoot){const d=await api('/search?q=Abraham');genRoot=(((d.results||[]).find(x=>x.label==='Abraham'))||(d.results||[])[0]||{}).id;}
+  drawGen();drawOrgs();
+}
+async function drawGen(){
+  const wrap=document.getElementById('gnwrap');wrap.innerHTML='<div class="ghint">loading…</div>';
+  const d=await api('/lineage?root='+encodeURIComponent(genRoot)+'&depth=5');if(!d.ok){wrap.innerHTML='<div class="ghint">could not load this lineage</div>';return;}
+  const W=1040,rowH=94,padT=24,padX=24,pos={},parentOf={};
+  d.edges.forEach(e=>{if(parentOf[e.to]==null)parentOf[e.to]=e.from;});
+  d.levels.forEach((lvl,depth)=>{
+    if(depth>0)lvl.sort((a,b)=>((pos[parentOf[a.id]]||{}).x||0)-((pos[parentOf[b.id]]||{}).x||0));
+    const n=lvl.length;lvl.forEach((nd,i)=>{pos[nd.id]={x:padX+(i+0.5)/n*(W-2*padX),y:padT+depth*rowH+18};});
+  });
+  const H=padT+d.levels.length*rowH+24,ord=(y)=>y==null?'':(Math.abs(y)+(y<0?'BC':'AD'));
+  let s='<svg id="gnsvg" viewBox="0 0 '+W+' '+H+'" style="height:'+H+'px">';
+  d.levels.forEach((lvl,depth)=>{s+='<text x="2" y="'+(padT+depth*rowH+14)+'" font-size="10" font-weight="700" fill="#8a96a3">GEN '+depth+'</text>';});
+  d.edges.forEach(e=>{const a=pos[e.from],b=pos[e.to];if(!a||!b)return;const my=(a.y+b.y)/2;s+='<path d="M'+a.x+' '+(a.y+12)+' C'+a.x+' '+my+' '+b.x+' '+my+' '+b.x+' '+(b.y-12)+'" fill="none" stroke="#cbd5e1" stroke-width="1.1"/>';});
+  const all=[];d.levels.forEach(l=>l.forEach(n=>all.push(n)));
+  for(const n of all){const p=pos[n.id],c=KC[n.kind]||'#2563eb';
+    const node=n.image_thumb?'<clipPath id="cl_'+esc(n.id)+'"><circle cx="'+p.x+'" cy="'+p.y+'" r="13"/></clipPath><image href="'+esc(n.image_thumb)+'" x="'+(p.x-13)+'" y="'+(p.y-13)+'" width="26" height="26" clip-path="url(#cl_'+esc(n.id)+')" preserveAspectRatio="xMidYMid slice"/><circle cx="'+p.x+'" cy="'+p.y+'" r="13" fill="none" stroke="'+c+'" stroke-width="2"/>':'<circle cx="'+p.x+'" cy="'+p.y+'" r="11" fill="'+c+'"/>';
+    s+='<g class="gnode" data-id="'+esc(n.id)+'">'+node+'<text class="gnlabel" x="'+p.x+'" y="'+(p.y+25)+'" text-anchor="middle" font-size="9" fill="#33404f">'+esc(n.label.length>16?n.label.slice(0,15)+'…':n.label)+'</text></g>';}
+  s+='</svg>';
+  wrap.innerHTML='<div class="gbread"><b>'+esc(all[0].label)+'</b> <span class="muted">'+d.total+' descendants · '+d.levels.length+' generations</span></div>'+s+'<div class="ghint">Generations run top→bottom (GEN 0 = the root). Click a person to open.</div>';
+  const tip=document.getElementById('otip'),byId={};all.forEach(n=>byId[n.id]=n);
+  wrap.querySelectorAll('.gnode').forEach(g=>{const id=g.dataset.id,n=byId[id];if(!n)return;g.style.cursor='pointer';
+    g.addEventListener('mouseenter',()=>{tip.style.display='block';tip.innerHTML='<b>'+esc(n.label)+'</b>'+(n.tStart!=null?'<div class="muted">'+ord(n.tStart)+(n.tEnd!=null&&n.tEnd!==n.tStart?'–'+ord(n.tEnd):'')+'</div>':'');});
+    g.addEventListener('mousemove',ev=>{tip.style.left=Math.min(ev.clientX+14,innerWidth-200)+'px';tip.style.top=(ev.clientY+14)+'px';});
+    g.addEventListener('mouseleave',()=>tip.style.display='none');
+    g.addEventListener('click',()=>showNodeTab(id));});
+}
+async function drawOrgs(){
+  const w=document.getElementById('orgwrap');const d=await api('/orgs');
+  const rows=(d.orgs||[]).map(o=>'<tr><td onclick="showNodeTab(\\''+o.id+'\\')" style="cursor:pointer">'+dot('organization')+'<b>'+esc(o.label)+'</b> <span class="muted">'+esc((o.gc_class||'').replace('gc:',''))+'</span></td><td>'+(o.founder?'<a class="link" onclick="showNodeTab(\\''+o.founderId+'\\')">'+esc(o.founder)+'</a>':'<span class="muted">—</span>')+'</td><td>'+(o.parentOrg?esc(o.parentOrg):'<span class="muted">—</span>')+'</td><td>'+(o.members||0)+'</td></tr>').join('');
+  w.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Organizations — what grew out of what</h3>'+
+   '<p class="hint" style="margin-top:0">Tribes, nations, houses and assemblies, and the founders / parent organizations they descend from.</p>'+
+   '<table><tr><th>organization</th><th>grew out of</th><th>part of</th><th>members</th></tr>'+rows+'</table></div>';
 }
 async function validate(){
   V.innerHTML='<div class="card">loading…</div>';

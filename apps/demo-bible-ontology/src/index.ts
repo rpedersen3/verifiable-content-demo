@@ -142,6 +142,38 @@ app.get('/api/graph', async (c) => {
   return c.json({ ok: true, center, nodes: [...nodes.values()], edges });
 });
 
+// Generational lineage — descendants of a root person by generation (BFS over gc:hasChild).
+app.get('/api/lineage', async (c) => {
+  const root = c.req.query('root');
+  if (!root) return c.json({ ok: false, error: 'root required' }, 400);
+  const maxDepth = Math.min(7, Math.max(1, parseInt(c.req.query('depth') ?? '5', 10)));
+  const rootNode = await c.env.DB.prepare('SELECT id,canon_id,label,kind,image_thumb,t_start tStart,t_end tEnd FROM node WHERE id=?').bind(root).first();
+  if (!rootNode) return c.json({ ok: false, error: 'not found' }, 404);
+  const visited = new Set([root]); let frontier = [root]; const levels = [[rootNode]]; const edges: { from: string; to: string }[] = [];
+  let total = 1;
+  for (let depth = 0; depth < maxDepth && frontier.length && total < 180; depth++) {
+    const ph = frontier.map(() => '?').join(',');
+    const kids = await rows<{ parent: string; id: string; label: string; kind: string; canon_id: string; image_thumb: string | null; tStart: number | null; tEnd: number | null }>(c.env.DB, `SELECT e.src parent, n.id, n.canon_id, n.label, n.kind, n.image_thumb, n.t_start tStart, n.t_end tEnd FROM edge e JOIN node n ON n.id=e.dst WHERE e.rel='gc:hasChild' AND e.src IN (${ph}) ORDER BY (SELECT count(*) FROM node_verse WHERE node_id=n.id) DESC`, ...frontier);
+    const levelNodes = []; const next = [];
+    for (const k of kids) { edges.push({ from: k.parent, to: k.id }); if (visited.has(k.id) || total >= 180) continue; visited.add(k.id); total++; levelNodes.push(k); next.push(k.id); }
+    if (!levelNodes.length) break;
+    levels.push(levelNodes); frontier = next;
+  }
+  return c.json({ ok: true, root, levels, edges, total });
+});
+
+// Organizations — "what grew out of what": each org's founder + parent org + member count.
+app.get('/api/orgs', async (c) => {
+  const orgs = await rows(c.env.DB, `SELECT o.id,o.canon_id,o.label,o.gc_class,
+    (SELECT e.dst FROM edge e WHERE e.src=o.id AND e.rel='gc:grewOutOf' LIMIT 1) founderId,
+    (SELECT n.label FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=o.id AND e.rel='gc:grewOutOf' LIMIT 1) founder,
+    (SELECT e.dst FROM edge e WHERE e.src=o.id AND e.rel='org:subOrganizationOf' LIMIT 1) parentId,
+    (SELECT n.label FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=o.id AND e.rel='org:subOrganizationOf' LIMIT 1) parentOrg,
+    (SELECT count(*) FROM edge e WHERE e.dst=o.id AND e.rel='org:memberOf') members
+    FROM node o WHERE o.kind='organization' ORDER BY members DESC`);
+  return c.json({ ok: true, orgs });
+});
+
 // Geospatial — places (real coordinates), activities geolocated to their Theographic location,
 // and people at their birthplace (with lifespan for time animation). Only honest, edge-backed
 // locations are returned — no fabricated coordinates.
