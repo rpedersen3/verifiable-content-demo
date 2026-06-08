@@ -70,6 +70,18 @@ const RESOLVER_ABI = [
     inputs: [{ name: 'node', type: 'bytes32' }, { name: 'predicate', type: 'bytes32' }], outputs: [{ type: 'address' }] },
 ] as const satisfies Abi;
 
+const CONTENT_CORPUS_ABI = [
+  { type: 'function', name: 'anchorDigest', stateMutability: 'view',
+    inputs: [{ name: 'corpusRef', type: 'bytes32' }, { name: 'corpusRoot', type: 'bytes32' }, { name: 'manifestHash', type: 'bytes32' }, { name: 'issuer', type: 'address' }],
+    outputs: [{ type: 'bytes32' }] },
+  { type: 'function', name: 'anchor', stateMutability: 'nonpayable',
+    inputs: [{ name: 'corpusRef', type: 'bytes32' }, { name: 'corpusRoot', type: 'bytes32' }, { name: 'manifestHash', type: 'bytes32' }, { name: 'issuer', type: 'address' }, { name: 'signature', type: 'bytes' }],
+    outputs: [] },
+  { type: 'function', name: 'getCorpus', stateMutability: 'view',
+    inputs: [{ name: 'corpusRef', type: 'bytes32' }],
+    outputs: [{ type: 'address' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint64' }] },
+] as const satisfies Abi;
+
 function namehash(name: string): Hex {
   if (name === '') return ZERO_NODE;
   const labels = name.split('.');
@@ -158,19 +170,14 @@ async function main() {
   console.log(`ContentDescriptor verified via SA ERC-1271: ${v.ok ? 'OK ✓' : `FAILED ✗ (${v.reason})`}`);
   if (!v.ok) throw new Error(`on-chain descriptor verification failed: ${v.reason}`);
 
-  // 4c. Phase 3 — deploy the ContentCorpusRegistry and ANCHOR each edition's
-  //     Merkle corpusRoot on chain (issuer SA signs the anchor digest via
-  //     ERC-1271). Verifiers then read the root from chain, not the off-chain
-  //     manifest.
-  const artifact = JSON.parse(
-    readFileSync(join(HERE, '../../../contracts/out/ContentCorpusRegistry.sol/ContentCorpusRegistry.json'), 'utf8'),
-  ) as { abi: Abi; bytecode: { object: Hex } };
-  const deployHash = await wallet.deployContract({ abi: artifact.abi, bytecode: artifact.bytecode.object, account: deployer, chain: null });
-  const deployRcpt = await pub.waitForTransactionReceipt({ hash: deployHash });
-  const contentRegistry = deployRcpt.contractAddress as Address;
-  console.log(`ContentCorpusRegistry deployed: ${contentRegistry}`);
-
-  const reg = getContract({ address: contentRegistry, abi: artifact.abi, client: { public: pub, wallet } });
+  // 4c. Phase 3 — ANCHOR each edition's Merkle corpusRoot on chain via the
+  //     agenticprimitives ContentCorpusRegistry (deployed by the AP deploy; read
+  //     from deployments-anvil.json). The issuer SA signs the anchor digest via
+  //     ERC-1271. Verifiers then read the root from chain, not the off-chain manifest.
+  const contentRegistry = d.contentCorpusRegistry as Address;
+  if (!contentRegistry) throw new Error('contentCorpusRegistry missing from deployments — redeploy AP contracts');
+  const reg = getContract({ address: contentRegistry, abi: CONTENT_CORPUS_ABI, client: { public: pub, wallet } });
+  console.log(`ContentCorpusRegistry (agenticprimitives): ${contentRegistry}`);
   for (const e of EDITIONS) {
     const cRef = makeCorpusRef(issuerSA, e.edition, e.version);
     const osisPaths = Object.keys(e.texts).sort();
