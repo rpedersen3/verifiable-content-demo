@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ingestSources, ingestInteractions } from './ingest-sources.mjs';
+import { ingestSources, ingestInteractions, ingestMacula, ingestPlans } from './ingest-sources.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -101,6 +101,17 @@ const CLASSES = [
   // fine-grained interactions (conversation level) — speech acts, letters, encounters between agents
   ['gc:Interaction', 'Interaction', 'gc', 'gc:BiblicalEvent'], ['gc:Correspondence', 'Correspondence (Letter)', 'gc', 'gc:Interaction'],
   ['gc:SpeechAct', 'Speech Act', 'gc', 'gc:Interaction'], ['gc:Encounter', 'Encounter', 'gc', 'gc:Interaction'],
+  // illocutionary speech-act taxonomy (Searle) — each is a prov:Activity; a Directive prescribes a plan step
+  ['gc:Assertive', 'Assertive', 'gc', 'gc:SpeechAct'], ['gc:Statement', 'Statement', 'gc', 'gc:Assertive'], ['gc:Answer', 'Answer', 'gc', 'gc:Assertive'],
+  ['gc:Directive', 'Directive', 'gc', 'gc:SpeechAct'], ['gc:Request', 'Request', 'gc', 'gc:Directive'], ['gc:Command', 'Command', 'gc', 'gc:Directive'], ['gc:Question', 'Question', 'gc', 'gc:Directive'],
+  ['gc:Commissive', 'Commissive', 'gc', 'gc:SpeechAct'], ['gc:Promise', 'Promise', 'gc', 'gc:Commissive'], ['gc:Oath', 'Oath / Covenant Vow', 'gc', 'gc:Commissive'],
+  ['gc:Expressive', 'Expressive', 'gc', 'gc:SpeechAct'], ['gc:Blessing', 'Blessing', 'gc', 'gc:Expressive'], ['gc:Lament', 'Lament', 'gc', 'gc:Expressive'],
+  // P-Plan (PROV-O plan extension) + DOLCE: a Plan is a Description that defines ordered Steps; an Activity executes a Step
+  ['prov:Plan', 'prov:Plan', 'prov', 'prov:Entity'],
+  ['pplan:Plan', 'Plan', 'pplan', 'dul:Description'], ['pplan:Step', 'Plan Step', 'pplan', 'dul:Concept'], ['pplan:Activity', 'Plan Activity (doing)', 'pplan', 'prov:Activity'],
+  // EP-Plan (executable plan) — executable plans/steps with preconditions & constraints
+  ['epplan:ExecutablePlan', 'Executable Plan', 'epplan', 'pplan:Plan'], ['epplan:ExecutableStep', 'Executable Step', 'epplan', 'pplan:Step'],
+  ['epplan:Precondition', 'Precondition', 'epplan', 'dul:Description'], ['epplan:Constraint', 'Constraint', 'epplan', 'dul:Description'],
   ['gc:Place', 'Biblical Place', 'gc', 'geo:Feature'], ['gc:Responsibility', 'Responsibility', 'gc', 'dul:Concept'],
   // gc roles (Bible usage)
   ...[['Patriarch'], ['Matriarch'], ['Prophet'], ['Prophetess'], ['Priest'], ['HighPriest', 'High Priest'], ['King'], ['Queen'], ['Judge'], ['Apostle'], ['Disciple'], ['Levite'], ['Elder'], ['Deacon'], ['Evangelist'], ['Leader'], ['Governor'], ['Scribe'], ['Shepherd'], ['Messiah']].map(([r, l]) => [`gc:${r}`, l ?? r, 'gc', 'org:Role']),
@@ -162,6 +173,16 @@ const PROPS = [
   ['gc:addressedTo', 'addressed to', 'gc', 'gc:Interaction', 'prov:Agent', null],
   ['gc:hasSpeaker', 'has speaker', 'gc', 'gc:SpeechAct', 'prov:Agent', null],
   ['gc:hasAddressee', 'has addressee', 'gc', 'gc:Interaction', 'prov:Agent', null],
+  // conversation-level relationship extracted from MACULA (who speaks to whom, aggregated)
+  ['gc:spokeTo', 'spoke to', 'gc', 'prov:Agent', 'prov:Agent', 'gc:spokenToBy'],
+  // P-Plan / EP-Plan + DOLCE planning relations (planning · requests · doing)
+  ['pplan:isStepOfPlan', 'is step of plan', 'pplan', 'pplan:Step', 'pplan:Plan', 'pplan:isPlanOfStep'],
+  ['pplan:isPrecededBy', 'is preceded by', 'pplan', 'pplan:Step', 'pplan:Step', null],
+  ['pplan:correspondsToStep', 'corresponds to step', 'pplan', 'pplan:Activity', 'pplan:Step', null],
+  ['epplan:hasPrecondition', 'has precondition', 'epplan', 'epplan:ExecutableStep', 'epplan:Precondition', null],
+  ['gc:prescribes', 'prescribes', 'gc', 'gc:Directive', 'pplan:Step', null],         // a request/command prescribes a planned step
+  ['gc:fulfills', 'fulfills', 'gc', 'pplan:Activity', 'gc:Directive', null],          // a doing fulfils the directive
+  ['dul:defines', 'defines', 'dns', 'dul:Description', 'dul:Concept', null],          // Plan (Description) defines its Steps (Concepts)
   ['gc:attestedBy', 'attested by', 'gc', 'dul:Entity', 'gc:Attestation', null],
   ['gc:assertedBy', 'asserted by', 'gc', 'gc:Attestation', 'prov:Agent', 'dul:isSettingFor'],
   ['gc:assertsAbout', 'asserts about', 'gc', 'gc:Attestation', 'dul:Entity', null],
@@ -398,6 +419,14 @@ function main() {
   const interactions = ingestInteractions({ ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm });
   console.log('interactions ·', interactions.count, 'created ·', interactions.edges, 'recipient edges ·', interactions.skipped, 'skipped');
 
+  // MACULA semantic-role extraction → conversation-level gc:spokeTo edges across the Greek NT
+  const macula = ingestMacula({ ROOT, byId, addEdge, peopleByKey, norm });
+  console.log('macula · speech instances', macula.pairs, '· gc:spokeTo edges', macula.edges);
+
+  // curated planning/speech-act showcase (John 21) — PROV-O + P-Plan + EP-Plan + DOLCE
+  const plansOut = ingestPlans({ ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, norm });
+  console.log('plans ·', plansOut.plans, 'plans ·', plansOut.steps, 'steps ·', plansOut.acts, 'speech acts');
+
   // ── emit chunked SQL ──
   mkdirSync(OUT, { recursive: true });
   const files = [];
@@ -461,7 +490,7 @@ function main() {
   const maxV = Math.max(1, ...verseCount.values());
   const maxD = Math.max(1, ...degree.values());
   const lognorm = (x, max) => (x > 0 ? +(Math.log1p(x) / Math.log1p(max)).toFixed(3) : 0);
-  const SCORE_KINDS = new Set(['person', 'place', 'event', 'organization', 'interaction']);
+  const SCORE_KINDS = new Set(['person', 'place', 'event', 'organization', 'interaction', 'speechact', 'plan']);
   const scoreRows = [];
   // computed: scriptural_trust (verse coverage) + graph_trust (connectivity)
   for (const n of nodes) {

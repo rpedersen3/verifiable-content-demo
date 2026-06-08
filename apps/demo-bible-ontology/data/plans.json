@@ -1,0 +1,27 @@
+[
+  {
+    "id": "commission-peter",
+    "label": "Jesus commissions Peter to feed His sheep",
+    "type": "epplan:ExecutablePlan",
+    "agent": "Jesus",
+    "beneficiary": "Peter",
+    "osis": "John.21.15",
+    "basis": "After breakfast by the Sea of Galilee, Jesus three times asks Peter if he loves Him and, on each affirmation, gives a directive to shepherd His people — restoring and commissioning Peter (John 21:15-17).",
+    "steps": [
+      { "id": "feed-lambs", "label": "Feed My lambs", "osis": "John.21.15" },
+      { "id": "tend-sheep", "label": "Tend My sheep", "osis": "John.21.16" },
+      { "id": "feed-sheep", "label": "Feed My sheep", "osis": "John.21.17" }
+    ],
+    "exchanges": [
+      { "id": "q1", "type": "question", "speaker": "Jesus", "addressee": "Peter", "text": "Simon son of John, do you love Me more than these?", "osis": "John.21.15" },
+      { "id": "a1", "type": "answer", "speaker": "Peter", "addressee": "Jesus", "text": "Yes, Lord; You know that I love You.", "osis": "John.21.15" },
+      { "id": "r1", "type": "request", "speaker": "Jesus", "addressee": "Peter", "text": "Feed My lambs.", "osis": "John.21.15", "step": "feed-lambs" },
+      { "id": "q2", "type": "question", "speaker": "Jesus", "addressee": "Peter", "text": "Simon son of John, do you love Me?", "osis": "John.21.16" },
+      { "id": "a2", "type": "answer", "speaker": "Peter", "addressee": "Jesus", "text": "Yes, Lord; You know that I love You.", "osis": "John.21.16" },
+      { "id": "r2", "type": "request", "speaker": "Jesus", "addressee": "Peter", "text": "Tend My sheep.", "osis": "John.21.16", "step": "tend-sheep" },
+      { "id": "q3", "type": "question", "speaker": "Jesus", "addressee": "Peter", "text": "Simon son of John, do you love Me?", "osis": "John.21.17" },
+      { "id": "a3", "type": "answer", "speaker": "Peter", "addressee": "Jesus", "text": "Lord, You know all things; You know that I love You.", "osis": "John.21.17" },
+      { "id": "r3", "type": "request", "speaker": "Jesus", "addressee": "Peter", "text": "Feed My sheep.", "osis": "John.21.17", "step": "feed-sheep" }
+    ]
+  }
+]

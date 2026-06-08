@@ -10,6 +10,7 @@ const SRC = {
   theographic: ['Theographic Bible Metadata', 'TBM', 'https://github.com/robertrouse/theographic-bible-metadata', 'CC BY-SA 4.0', '© robertrouse'],
   tipnr: ['STEPBible TIPNR — Translators Individualised Proper Names', 'TIPNR', 'https://github.com/STEPBible/STEPBible-Data', 'CC BY 4.0', '© STEPBible.org / Tyndale House Cambridge'],
   openbible: ['OpenBible.info Bible Geocoding', 'OpenBible', 'https://www.openbible.info/geo/', 'CC BY 4.0', '© OpenBible.info — geometry ODbL (OpenStreetMap)'],
+  macula: ['MACULA Greek (Clear Bible) — syntax + semantic roles', 'MACULA', 'https://github.com/Clear-Bible/macula-greek', 'CC BY 4.0', '© Clear Bible / Biblica'],
   wikidata: ['Wikidata', 'WD', 'https://www.wikidata.org/', 'CC0', 'Wikidata contributors'],
   pleiades: ['Pleiades', 'Pleiades', 'https://pleiades.stoa.org/', 'CC BY 3.0', 'Pleiades contributors'],
   geonames: ['GeoNames', 'GeoNames', 'https://www.geonames.org/', 'CC BY 4.0', 'GeoNames'],
@@ -237,6 +238,117 @@ export function ingestInteractions(ctx) {
   }
   if (skipped.length) console.log('interactions skipped (unresolved endpoints):', skipped.join(', '));
   return { count, edges, skipped: skipped.length };
+}
+
+// Curated planning/speech-act showcase (John 21) modeled with PROV-O + P-Plan + EP-Plan + DOLCE:
+// a Plan (Description) that defines ordered Steps; questions / answers / requests as typed speech
+// acts (illocutionary force); each Request prescribes a plan Step. Demonstrates planning · requests · doing.
+const ACT_CLASS = { question: 'gc:Question', answer: 'gc:Answer', request: 'gc:Request', command: 'gc:Command', statement: 'gc:Statement', promise: 'gc:Promise', blessing: 'gc:Blessing' };
+export function ingestPlans(ctx) {
+  const { ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, norm } = ctx;
+  let data;
+  try { data = JSON.parse(readFileSync(join(ROOT, 'apps', 'demo-bible-ontology', 'data', 'plans.json'), 'utf8')); }
+  catch { return { plans: 0, steps: 0, acts: 0 }; }
+  const resolve = (name) => { const a = peopleByKey.get(norm(name)); if (!a || !a.length) return null; const m = new Map(); for (const c of a) m.set(c.id, Math.max(m.get(c.id) ?? -1, c.v)); return [...m].sort((x, y) => y[1] - x[1])[0][0]; };
+  let plans = 0, steps = 0, acts = 0;
+  for (const p of data) {
+    const agent = resolve(p.agent), beneficiary = resolve(p.beneficiary);
+    if (!agent) continue;
+    const planId = `plan:${p.id}`;
+    addNode({ id: planId, canonId: `plan_${p.id}`, label: p.label, kind: 'plan', disambig: (p.type || 'pplan:Plan').split(':')[1], prov: 'prov:Plan', dul: 'dul:Description', gc: p.type || 'epplan:ExecutablePlan', aps: null, canonConf: 0.9, canonMethod: 'curated:scripture', canonBasis: `curated plan from canonical scripture (${p.osis})`, origin: 'plan', extra: { basis: p.basis, osis: p.osis } });
+    if (p.osis) addVerseLinks(planId, [p.osis]);
+    addEdge(planId, 'prov:wasAssociatedWith', agent);
+    if (beneficiary) addEdge(planId, 'gc:addressedTo', beneficiary);
+    plans++;
+    // ordered executable steps
+    const stepId = {}; let prev = null;
+    for (const st of p.steps || []) {
+      const sid = `step:${p.id}:${st.id}`; stepId[st.id] = sid;
+      addNode({ id: sid, canonId: `step_${p.id}_${st.id}`, label: st.label, kind: 'step', disambig: 'ExecutableStep', prov: null, dul: 'dul:Concept', gc: 'epplan:ExecutableStep', aps: null, canonConf: 0.9, canonMethod: 'curated:scripture', canonBasis: `plan step (${st.osis || p.osis})`, origin: 'plan', extra: {} });
+      if (st.osis) addVerseLinks(sid, [st.osis]);
+      addEdge(sid, 'pplan:isStepOfPlan', planId);
+      addEdge(planId, 'dul:defines', sid);            // Plan (Description) defines its Steps (Concepts)
+      if (prev) addEdge(sid, 'pplan:isPrecededBy', prev);
+      prev = sid; steps++;
+    }
+    // typed speech acts (questions / answers / requests), each linked to its speaker + addressee
+    for (const ex of p.exchanges || []) {
+      const sp = resolve(ex.speaker), ad = resolve(ex.addressee);
+      if (!sp || !ad) continue;
+      const gc = ACT_CLASS[ex.type] || 'gc:SpeechAct';
+      const aid = `act:${p.id}:${ex.id}`;
+      addNode({ id: aid, canonId: `act_${p.id}_${ex.id}`, label: ex.text, kind: 'speechact', disambig: gc.split(':')[1], prov: 'prov:Activity', dul: 'dul:Event', gc, aps: null, canonConf: 0.9, canonMethod: 'curated:scripture', canonBasis: `${gc.split(':')[1]} (${ex.osis})`, origin: 'plan', extra: { osis: ex.osis } });
+      if (ex.osis) addVerseLinks(aid, [ex.osis]);
+      addEdge(aid, 'gc:hasSpeaker', sp);
+      addEdge(aid, 'gc:hasAddressee', ad);
+      addEdge(aid, 'prov:wasAssociatedWith', sp);
+      if (ex.step && stepId[ex.step]) addEdge(aid, 'gc:prescribes', stepId[ex.step]); // Request prescribes a plan Step
+      acts++;
+    }
+  }
+  return { plans, steps, acts };
+}
+
+// MACULA semantic-role extraction → conversation-level relationships AT SCALE.
+// Identifies speech-act verbs (Louw-Nida domain 33 = Communication), resolves the SPEAKER (subjref)
+// and ADDRESSEE (a dative participant, via the referent chain to a named antecedent), maps both to
+// canonical person/organization nodes, and aggregates by canonical pair into weighted gc:spokeTo
+// edges (count + sample refs). Places are excluded; only edges where BOTH endpoints resolve are
+// emitted (data integrity). This scales the curated interaction model to the whole Greek NT.
+export function ingestMacula(ctx) {
+  const { ROOT, byId, addEdge, peopleByKey, norm } = ctx;
+  const file = join(ROOT, '.data', 'sources', 'macula-greek.tsv');
+  if (!existsSync(file)) { console.warn('no macula-greek.tsv — speech extraction skipped'); return { pairs: 0, edges: 0 }; }
+  // resolver: name → canonical person (most-attested) or organization node id; never a place
+  const groupByName = new Map();
+  for (const [id, n] of byId) if (n.kind === 'organization') { const k = norm(n.label); (groupByName.get(k) ?? groupByName.set(k, []).get(k)).push(id); }
+  const resolve = (name) => {
+    if (!name) return null; const k = norm(name);
+    const p = peopleByKey.get(k);
+    if (p && p.length) { const m = new Map(); for (const c of p) m.set(c.id, Math.max(m.get(c.id) ?? -1, c.v)); return [...m].sort((a, b) => b[1] - a[1])[0][0]; }
+    const g = groupByName.get(k); return g && g.length ? g[0] : null;
+  };
+  // parse the flat per-word TSV
+  const lines = readFileSync(file, 'utf8').split('\n');
+  const H = lines[0].split('\t'), ci = Object.fromEntries(H.map((h, i) => [h, i]));
+  const W = new Map(), byVerse = new Map();
+  const verseOf = (ref) => (ref || '').split('!')[0];
+  for (let i = 1; i < lines.length; i++) {
+    const c = lines[i].split('\t'); if (c.length < 27) continue;
+    const w = { id: c[ci['xml:id']], ref: c[ci.ref], cls: c[ci.class], type: c[ci.type], cas: c[ci.case], lemma: c[ci.lemma], gloss: c[ci.gloss], ln: c[ci.ln], subjref: c[ci.subjref], referent: c[ci.referent] };
+    if (!w.id) continue;
+    W.set(w.id, w);
+    const v = verseOf(w.ref); (byVerse.get(v) ?? byVerse.set(v, []).get(v)).push(w);
+  }
+  const clean = (g) => (g || '').replace(/^\s*(of|to|the|\[the\]|and|but|for|with|by|in)\s+/i, '').replace(/[^A-Za-z' -]/g, '').trim();
+  const nameOf = (id, depth = 0) => {
+    if (!id || depth > 7) return null;
+    for (const part of id.split(' ')) { const w = W.get(part); if (!w) continue; if (w.type === 'proper') return clean(w.gloss); if (w.referent) { const n = nameOf(w.referent, depth + 1); if (n) return n; } }
+    return null;
+  };
+  // classify illocutionary force from the Greek speech verb (lemma)
+  const classifyAct = (lemma) => {
+    if (/(ἐρωτάω|ἐπερωτάω|πυνθάνομαι)/.test(lemma)) return 'question';
+    if (/(ἐντέλλομαι|κελεύω|παραγγέλλω|ἐπιτάσσω|διαστέλλομαι|προστάσσω|ἐμβριμάομαι)/.test(lemma)) return 'command';
+    if (/(ἀποκρίνομαι)/.test(lemma)) return 'answer';
+    if (/(παρακαλέω|δέομαι|αἰτέω)/.test(lemma)) return 'request';
+    if (/(εὐλογέω|εὐχαριστέω)/.test(lemma)) return 'blessing';
+    return 'statement';
+  };
+  const agg = new Map(); let pairs = 0;
+  for (const [, w] of W) {
+    if (w.cls !== 'verb' || !/^33/.test(w.ln)) continue;       // communication-domain verb
+    const sId = resolve(nameOf(w.subjref)); if (!sId) continue; // speaker → canonical node
+    const verse = byVerse.get(verseOf(w.ref)) || [];
+    let aId = null;
+    for (const x of verse) { if (x.cas !== 'dative') continue; const id = resolve(nameOf(x.referent || x.id)); if (id && id !== sId) { aId = id; break; } }
+    if (!aId) continue;
+    pairs++;
+    const act = classifyAct(w.lemma);
+    const key = `${sId}|${aId}`; const e = agg.get(key) ?? { n: 0, refs: [], acts: {} }; e.n++; e.acts[act] = (e.acts[act] ?? 0) + 1; if (e.refs.length < 5) e.refs.push(verseOf(w.ref)); agg.set(key, e);
+  }
+  for (const [key, e] of agg) { const [s, a] = key.split('|'); addEdge(s, 'gc:spokeTo', a, JSON.stringify({ n: e.n, acts: e.acts, refs: e.refs, source: 'macula' })); }
+  return { pairs, edges: agg.size };
 }
 
 function stripMarkup(s) { return String(s ?? '').replace(/^#/, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 400); }
