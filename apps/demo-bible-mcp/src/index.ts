@@ -28,10 +28,12 @@ import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT, type UnsignedCr
 // returned body. Pre-set the canonical pair.
 const VC_CONTEXTS = [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT];
 import { getCorpora, inclusionProof, EDITIONS, type BuiltCorpus } from './editions/registry.js';
+import { loadD1Corpus, findD1Verse, d1InclusionProof, type D1Like } from './editions/d1.js';
 import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-context.js';
+import type { Hex } from 'viem';
 
-type Env = McpEnv;
+type Env = McpEnv & { DB?: D1Like };
 
 const app = new Hono<{ Bindings: Env }>();
 app.use('*', cors());
@@ -90,8 +92,15 @@ function findRow(corpus: BuiltCorpus, canonicalId: string) {
 // A validator builds the issuer's Poseidon tree from these to verify a zk
 // membership proof (no text is exposed — commitments are already public).
 app.get('/corpus/:edition', async (c) => {
+  const edition = c.req.param('edition');
+  if (c.env.DB && edition === 'bsb') {
+    const d1 = await loadD1Corpus(c.env.DB, 'bsb');
+    // Full corpus: meta only. Per-leaf commitments (for zk) come from a paginated
+    // endpoint (Phase 4 — deferred); 31k inline would be ~2 MB.
+    return c.json({ ok: true, edition, corpusRef: d1.corpusRef, corpusRoot: d1.corpusRoot, leafCount: d1.leafCount, commitments: [] });
+  }
   const trust = await resolveTrust(c.env);
-  const corpus = (await getCorpora(trust)).get(c.req.param('edition'));
+  const corpus = (await getCorpora(trust)).get(edition);
   if (!corpus) return c.json({ ok: false, error: 'unknown edition' }, 404);
   const rows = [...corpus.byCanonicalId.values()].sort((a, b) => a.leafIndex - b.leafIndex);
   return c.json({
@@ -122,15 +131,27 @@ app.post('/tools/resolve', async (c) => {
   }
 
   const trust = await resolveTrust(c.env);
-  const corpora = await getCorpora(trust);
-  // Gather every edition's descriptor for this canonical locus.
+  // Gather candidates for this locus: the FULL BSB from D1 (when bound), plus the
+  // embedded editions (e.g. the gated demo-licensed one). Normalize each so verify
+  // works regardless of source.
+  type Where = { corpusRef: Hex; corpusRoot: Hex; leafIndex: number; inclusion: () => Hex[]; issuerName: string };
   const descriptors: ContentDescriptor[] = [];
-  const rowByDescId = new Map<string, { corpus: BuiltCorpus; leafIndex: number }>();
-  for (const corpus of corpora.values()) {
+  const rowByDescId = new Map<string, Where>();
+
+  const d1 = c.env.DB ? await loadD1Corpus(c.env.DB, 'bsb').catch(() => null) : null;
+  if (d1 && c.env.DB) {
+    const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust).catch(() => null);
+    if (r) {
+      descriptors.push(r.descriptor);
+      rowByDescId.set(r.descriptor.id, { corpusRef: d1.corpusRef, corpusRoot: d1.corpusRoot, leafIndex: r.leafIndex, inclusion: () => d1InclusionProof(d1, r.leafIndex), issuerName: 'bsb.impact' });
+    }
+  }
+  for (const corpus of (await getCorpora(trust)).values()) {
+    if (d1 && corpus.entry.edition === 'bsb') continue; // bsb served from D1
     const row = findRow(corpus, parsed.reference.id);
     if (row) {
       descriptors.push(row.descriptor);
-      rowByDescId.set(row.descriptor.id, { corpus, leafIndex: row.leafIndex });
+      rowByDescId.set(row.descriptor.id, { corpusRef: corpus.manifest.corpusRef, corpusRoot: corpus.manifest.corpusRoot, leafIndex: row.leafIndex, inclusion: () => inclusionProof(corpus, row.leafIndex), issuerName: corpus.entry.issuerName });
     }
   }
 
@@ -141,27 +162,24 @@ app.post('/tools/resolve', async (c) => {
   const candidates = await Promise.all(
     result.candidates.map(async (cand) => {
       const where = rowByDescId.get(cand.descriptor.id)!;
-      let corpusRoot = where.corpus.manifest.corpusRoot;
+      let corpusRoot = where.corpusRoot;
       let corpusRootSource: 'onchain' | 'manifest' = 'manifest';
       if (trust.corpusRootReader) {
-        const anchored = await trust.corpusRootReader(where.corpus.manifest.corpusRef);
+        const anchored = await trust.corpusRootReader(where.corpusRef);
         if (anchored) {
           corpusRoot = anchored;
           corpusRootSource = 'onchain';
         }
       }
+      const incl = where.inclusion();
       const verification = cand.admitted
-        ? await verifyContentDescriptor(cand.descriptor, {
-            verifySignature: trust.verifySignature,
-            corpusRoot,
-            inclusionProof: inclusionProof(where.corpus, where.leafIndex),
-          })
+        ? await verifyContentDescriptor(cand.descriptor, { verifySignature: trust.verifySignature, corpusRoot, inclusionProof: incl })
         : undefined;
       return {
         descriptorId: cand.descriptor.id,
         edition: cand.descriptor.work?.edition,
         issuer: cand.descriptor.issuer,
-        issuerName: where.corpus.entry.issuerName,
+        issuerName: where.issuerName,
         accessPolicy: cand.descriptor.accessPolicy,
         proofPolicy: cand.descriptor.proofPolicy,
         rightsStatus: cand.descriptor.work?.rightsStatus,
@@ -172,11 +190,9 @@ app.post('/tools/resolve', async (c) => {
         reason: cand.reason,
         verification,
         corpusRootSource,
-        // evidence-bundle fields: let an independent validator re-check Merkle
-        // inclusion against the (possibly on-chain) corpus root.
-        corpusRef: where.corpus.manifest.corpusRef,
+        corpusRef: where.corpusRef,
         corpusRoot,
-        inclusionProof: inclusionProof(where.corpus, where.leafIndex),
+        inclusionProof: incl,
         leafIndex: where.leafIndex,
         descriptor: cand.descriptor,
       };
@@ -209,6 +225,15 @@ app.post('/tools/get_passage_text', async (c) => {
     return c.json({ ok: false, error: (e as Error).message }, 400);
   }
   const trust = await resolveTrust(c.env);
+  // Full BSB (public) is served from D1 when bound — text + on-demand descriptor.
+  if (c.env.DB && body.edition === 'bsb') {
+    const d1 = await loadD1Corpus(c.env.DB, 'bsb');
+    const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust);
+    if (!r) return c.json({ ok: false, error: `no verse for ${parsed.reference.alias} in bsb` }, 404);
+    const commitmentOk = !!r.descriptor.commitment && verifyCommitment(r.text, r.descriptor.commitment);
+    audit('content.text.access', 'success', parsed.reference.alias ?? body.reference, { edition: 'bsb', commitmentOk });
+    return c.json({ ok: true, text: r.text, commitment: r.descriptor.commitment, commitmentOk, descriptor: r.descriptor, accessPolicy: 'public' });
+  }
   const corpus = (await getCorpora(trust)).get(body.edition);
   if (!corpus) return c.json({ ok: false, error: `unknown edition: ${body.edition}` }, 404);
   const row = findRow(corpus, parsed.reference.id);

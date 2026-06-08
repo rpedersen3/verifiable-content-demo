@@ -21,3 +21,10 @@ workers_dev = true
 
 [env.production.vars]
 SCHEME_ID = "bible-verse"
+
+# Durable full-BSB corpus (verses + precomputed corpusRoot + leaf commitments).
+# The Worker reads from D1 and rebuilds nothing on cold start.
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "demo-bible-bsb"
+database_id = "25fcf315-c1d8-45ae-aa41-16bf21697d20"
