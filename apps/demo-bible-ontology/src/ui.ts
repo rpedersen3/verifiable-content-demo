@@ -112,7 +112,7 @@ svg#tsvg{display:block;background:#fbfcfe}
 .tnode{cursor:pointer}.tnode:hover rect,.tnode:hover polygon{fill-opacity:1;stroke:#1f2733;stroke-width:1.2}
 .tnode:hover text{font-weight:600}
 </style></head><body><div class="wrap">
-<h1>Bible Ontology</h1>
+<h1 onclick="nav('overview')" style="cursor:pointer" title="Home (overview)">Bible Ontology</h1>
 <div class="sub">A PROV-O graph of the Bible (Agent · Activity · Entity) over DUL · W3C ORG · GeoSPARQL · aps:skills · gc:, used to validate the Global Church Ontology. Data: Theographic Bible Metadata (CC-BY-SA).</div>
 <nav>
  <button data-t="overview" class="on">Overview</button>
@@ -368,6 +368,7 @@ async function explore(){
 function showNode(id){nav('node/'+id);}
 function showNodeTab(id){nav('node/'+id);}
 function oikosFor(id){nav('oikos/'+id);}
+function genMovementFor(id){genRels='gc:discipled,gc:planted';nav('generations/'+id);}
 async function renderNode(id){
   const d=await api('/node/'+encodeURIComponent(id));if(!d.ok)return;
   const n=d.node;const cls=[['prov',n.prov_class],['dul',n.dul_class],['org',n.org_class],['geo',n.geo_class],['aps',n.aps_class],['gc',n.gc_class]].filter(x=>x[1]);
@@ -385,7 +386,7 @@ async function renderNode(id){
    (d.in.length?grp(d.in,'in'):'')+
    '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses <span style="font-weight:400;text-transform:none">· click to read</span></h3><div class="verses">'+d.verses.map(v=>'<span class="vref" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
    provHtml(d.sources,n.origin_source)+
-   '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ trust graph</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="oikosFor(\\''+n.id+'\\')">→ oikos circles</a>':'')+' &nbsp;·&nbsp; <a class="link" onclick="nav(\\'generations/'+n.id+'\\')">→ generations</a></div></div>';
+   '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ trust graph</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="oikosFor(\\''+n.id+'\\')">→ oikos circles</a>':'')+' &nbsp;·&nbsp; <a class="link" onclick="nav(\\'generations/'+n.id+'\\')">→ generations</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="genMovementFor(\\''+n.id+'\\')">→ movement (plants &amp; disciples)</a>':'')+'</div></div>';
   const htip=document.getElementById('htip');
   det.querySelectorAll('[data-tip]').forEach(el=>{
     el.addEventListener('mouseenter',()=>{htip.style.display='block';htip.innerHTML=el.dataset.tip;});
@@ -575,13 +576,16 @@ async function geo(){
   applyYear();setTimeout(()=>{try{map.invalidateSize();}catch(e){}},120);
 }
 // ── Oikos circles: concentric relationship rings out from a person ──
-let oikosCenter=null;
+let oikosCenter=null,oikosOrgs=false;
 const RING=[{label:'Family (oikos)',color:'#e87c3e',r:120},{label:'Household & kin',color:'#0d9488',r:212},{label:'Network & conversations',color:'#9333ea',r:300}];
 function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner|hasRelative/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|org:member|org:organization|org:role|companionOf/.test(rel))return 1;return 2;}
 async function oikos(){
   V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Oikos circles — relationships out from a person</h3>'+
    '<p class="hint" style="margin-top:0">Concentric circles of <b>people</b> around a person: inner = <b>family</b> (oikos), middle = <b>household &amp; kin</b>, outer = <b>network &amp; conversations</b>. Search a person; click anyone to recenter.</p>'+
-   '<input id="oq" placeholder="Center on a person… (e.g. Paul, Peter, David, Mary)"/><div id="ores"></div><div id="owrap"></div></div><div id="otip" class="gtip"></div>';
+   '<input id="oq" placeholder="Center on a person… (e.g. Paul, Peter, David, Mary)"/>'+
+   '<label class="hint" style="display:inline-flex;gap:5px;align-items:center;margin:8px 0 0"><input type="checkbox" id="oorg"'+(oikosOrgs?' checked':'')+'> include organizations (churches, tribes…)</label>'+
+   '<div id="ores"></div><div id="owrap"></div></div><div id="otip" class="gtip"></div>';
+  document.getElementById('oorg').onchange=(e)=>{oikosOrgs=e.target.checked;drawOikos();};
   const oq=document.getElementById('oq');let timer;
   oq.oninput=()=>{clearTimeout(timer);timer=setTimeout(async()=>{
     const r=document.getElementById('ores');if(oq.value.trim().length<2){r.innerHTML='';return;}
@@ -598,7 +602,7 @@ async function drawOikos(){
   const W=920,H=680,cx=460,cy=346,center=d.center,byId={};d.nodes.forEach(n=>byId[n.id]=n);
   const ring={},relOf={};
   d.edges.forEach(e=>{const nb=e.from===center?e.to:e.from;if(nb===center)return;const rg=ringOf(e.rel);if(ring[nb]==null||rg<ring[nb]){ring[nb]=rg;relOf[nb]=e.rel;}});
-  const neighbors=d.nodes.filter(n=>n.id!==center&&ring[n.id]!=null&&n.kind==='person');
+  const neighbors=d.nodes.filter(n=>n.id!==center&&ring[n.id]!=null&&(n.kind==='person'||(oikosOrgs&&n.kind==='organization')));
   const byRing=[[],[],[]];neighbors.forEach(n=>byRing[ring[n.id]].push(n));
   const pos={};byRing.forEach((mem,ri)=>{const rr=RING[ri];mem.forEach((nd,i)=>{pos[nd.id]=P(cx,cy,(i+0.5)/mem.length*360,rr.r);});});
   let s='<svg id="osvg" viewBox="0 0 '+W+' '+H+'" style="height:680px">';
