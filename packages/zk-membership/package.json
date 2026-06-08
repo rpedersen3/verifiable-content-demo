@@ -1,0 +1,26 @@
+{
+  "name": "@verifiable-content-demo/zk-membership",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real Groth16 zk-SNARK proving Merkle membership of a content commitment in an issuer corpus WITHOUT revealing which leaf (Phase 4 — spec 266 §6). Poseidon tree + circom + snarkjs.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "circomlib": "^2.0.5",
+    "viem": "^2.52.2",
+    "vitest": "^4.1.8"
+  }
+}
