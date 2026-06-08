@@ -18,7 +18,7 @@ export const IS_SA = !!SA;
 export const VALIDATOR_ADDRESS = (SA ?? owner.address) as Address;
 export const VALIDATOR_CHAIN_ID = Number(process.env.VALIDATOR_CHAIN_ID ?? 84532);
 export const VALIDATOR_AGENT_ID = `eip155:${VALIDATOR_CHAIN_ID}:${VALIDATOR_ADDRESS}`;
-export const VALIDATOR_NAME = 'demo-validator.agent';
+export const VALIDATOR_NAME = process.env.VALIDATOR_NAME ?? 'demo-validator.agent';
 
 // SA → owner signs EIP-191 (ERC-1271 validates); EOA → sign raw (recover validates).
 const signDigest = SA ? (hash: Hex) => owner.signMessage({ message: { raw: hash } }) : (hash: Hex) => owner.sign({ hash });

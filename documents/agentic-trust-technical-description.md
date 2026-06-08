@@ -22,6 +22,9 @@ The core idea is that content trust is split into separate parts:
 - A policy and entitlement layer, so licensed/private content is not treated as open content.
 - A signed `CitationAssertion`, where the responding agent records exactly what it used.
 - An independent validator, so trust does not depend on the responding agent grading itself.
+- A signed `ValidationAttestation`, where the validator records its outcome over the exact evidence bundle.
+- A trust graph snapshot, so the UI can show who trusted, validated, cited, and issued what.
+- Optional on-chain attestation anchoring, so a compact hash of the validation result can be checked independently.
 - An audit trail, so the response can be reviewed later.
 
 Scripture is the first vertical, but the pattern works for any content domain where agents need trustworthy references.
@@ -37,6 +40,9 @@ flowchart LR
   Validator["Third-Party Validator"]
   ZK["ZK Membership\nGroth16 + Poseidon"]
   Registry["Agent Naming + Corpus Registry"]
+  Attestation["ValidationAttestation"]
+  Graph["Trust Graph"]
+  Anchor["Attestation Anchor"]
 
   User -->|"intent request"| Agent
   Agent -->|"resolve + retrieve"| Resolver
@@ -46,6 +52,9 @@ flowchart LR
   Validator -->|"validated / rejected"| User
   Validator --> Registry
   Validator --> ZK
+  Validator --> Attestation
+  Attestation --> Graph
+  Attestation --> Anchor
 ```
 
 ### Publisher or Rights Holder Agent
@@ -58,7 +67,7 @@ The responding agent handles the user's request. It may resolve references, retr
 
 ### Third-Party Validator
 
-The validator is independent of the responding agent. It does not need to trust the agent's claim. It checks signatures, names, corpus membership, zk membership, commitments, policies, entitlements, response binding, and citation records.
+The validator is independent of the responding agent. It does not need to trust the agent's claim. It checks signatures, names, corpus membership, zk membership, commitments, policies, entitlements, response binding, and citation records. It then signs a `ValidationAttestation`, returns a trust graph, and optionally anchors the attestation hash on-chain.
 
 ### End User or App
 
@@ -75,6 +84,7 @@ sequenceDiagram
   participant Validator as Third-Party Validator
   participant ZK as ZK Membership
   participant Registry as Naming / Corpus Registry
+  participant Attest as ValidationAttestationRegistry
 
   User->>Agent: Intent: quote or use John 3:16
   Agent->>MCP: Resolve reference + requested edition
@@ -90,7 +100,9 @@ sequenceDiagram
   Validator->>Registry: Verify issuer identity and corpus root
   Validator->>Validator: Verify descriptor, commitment, policy, citation, response hash
   Validator->>ZK: Verify Groth16 proof using root + signalHash
-  Validator-->>User: Validation result
+  Validator->>Validator: Sign ValidationAttestation
+  Validator->>Attest: Optional attestation hash anchor
+  Validator-->>User: Outcome + attestation + trust graph
 ```
 
 ## What the Third-Party Validator Checks
@@ -112,6 +124,9 @@ The validator checks:
 - The responding agent signed the `CitationAssertion`.
 - The citation's descriptor, commitment, canonical id, agent run id, and output id match the response.
 - The response hash matches the served text or quoted output.
+- The validator signed the `ValidationAttestation`.
+- The trust graph scopes the result to the validator, profile, output, descriptor, and issuer.
+- The attestation hash is anchored on-chain when the registry is configured.
 
 The configured demo validator in `apps/demo-validator` returns one of three outcomes:
 
@@ -120,6 +135,50 @@ The configured demo validator in `apps/demo-validator` returns one of three outc
 | `validated` | Critical checks passed and policy allowed the content. |
 | `gated` | The content was correctly withheld because no valid entitlement was present. |
 | `rejected` | A critical proof, signature, policy, trust, or binding check failed. |
+
+## Signed Validation Attestation
+
+After validation, the validator signs a credential-like `ValidationAttestation` using the same EIP-712 VC pattern as citations and entitlements. The attestation binds the validator's identity to a specific evidence bundle and output.
+
+Key fields:
+
+| Field | Purpose |
+| --- | --- |
+| `validatorAgentId` | Validator identity, EOA or Smart Agent. |
+| `validatorName` | Human-readable validator name, currently `demo-validator.agent`. |
+| `subjectAgentId` | Responding agent being validated, such as `scripture-resolver.agent`. |
+| `agentRunId` | A2A run being validated. |
+| `outputId` | Specific output being validated. |
+| `evidenceBundleHash` | Hash of the exact bundle checked. |
+| `responseHash` | Hash of the visible response/text. |
+| `validationProfile` | Profile used, such as `public-domain-demo+zk-membership`. |
+| `outcome` | `validated`, `gated`, or `rejected`. |
+| `checksHash` | Hash of the per-check result object. |
+| `proof` | Validator signature. In Smart Agent mode, verifiable by ERC-1271. |
+
+The validator can optionally anchor the attestation hash in `ValidationAttestationRegistry`. The full bundle and checks stay off-chain; the chain stores compact facts and lets consumers verify that a signed validation result was anchored.
+
+## Trust Graph
+
+The validator returns a small graph snapshot for the UI:
+
+```mermaid
+flowchart LR
+  Consumer["You / app"]
+  Validator["demo-validator.agent"]
+  Profile["public-domain-demo"]
+  Agent["scripture-resolver.agent"]
+  Issuer["berean.publishers.agent"]
+  Descriptor["desc_bsb_..."]
+
+  Consumer -->|"TRUSTS_VALIDATOR"| Validator
+  Validator -->|"TRUSTS_PROFILE"| Profile
+  Validator -->|"VALIDATED_OUTPUT"| Agent
+  Agent -->|"CITED_DESCRIPTOR"| Descriptor
+  Issuer -->|"ISSUED_DESCRIPTOR"| Descriptor
+```
+
+This is an ERC-8004-like pattern: trust is not global. It is scoped to a validator, a profile, a subject agent output, a cited descriptor, and an issuer claim.
 
 ## Common Bits Every Agent Should Include
 
@@ -248,6 +307,17 @@ Required fields:
 | `redactions` | Any intentionally withheld or gated content. |
 | `auditEventIds` | Optional links to audit records. |
 
+### 9. Validator Attestation and Graph
+
+Validator responses should include:
+
+| Field | Purpose |
+| --- | --- |
+| `attestation` | Signed `ValidationAttestation` over the bundle and checks. |
+| `graph` | Trust graph snapshot for UI or downstream trust policy. |
+| `anchor` | Optional on-chain attestation anchor. |
+| `validator` | Validator endpoint or agent identity used. |
+
 ## Minimal Validation Envelope
 
 A compact interoperable response could look like this:
@@ -312,6 +382,22 @@ A compact interoperable response could look like this:
         "descriptorId": "desc_bsb_..."
       }
     ]
+  },
+  "validation": {
+    "outcome": "validated",
+    "attestation": {
+      "type": ["VerifiableCredential", "ValidationAttestation"],
+      "credentialSubject": {},
+      "proof": {}
+    },
+    "graph": {
+      "nodes": [],
+      "edges": []
+    },
+    "anchor": {
+      "onchain": true,
+      "attestationHash": "0x..."
+    }
   }
 }
 ```
@@ -330,6 +416,8 @@ flowchart TD
   Text{"Text commitment matches?"}
   Policy{"Policy and entitlement valid?"}
   Citation{"Citation signature matches response?"}
+  Attestation{"ValidationAttestation signed?"}
+  Anchor{"Anchor valid if present?"}
   Pass["Validated response"]
   Fail["Rejected or degraded trust"]
 
@@ -351,7 +439,11 @@ flowchart TD
   Policy -->|no| Fail
   Policy -->|yes| Citation
   Citation -->|no| Fail
-  Citation -->|yes| Pass
+  Citation -->|yes| Attestation
+  Attestation -->|no| Fail
+  Attestation -->|yes| Anchor
+  Anchor -->|no| Fail
+  Anchor -->|yes| Pass
 ```
 
 ## How Other Translation Agents Use This
@@ -369,6 +461,7 @@ At minimum, a compatible translation agent should:
 7. Respect entitlements for licensed/private content.
 8. Sign a citation assertion for the exact response it produced.
 9. Return a validation envelope that third-party validators can check.
+10. Preserve the signed `ValidationAttestation`, trust graph, and optional anchor returned by the validator.
 
 If the agent produces a new translation, paraphrase, or generated rendering, it should also include:
 
@@ -394,5 +487,8 @@ The validator can answer:
 - Was access allowed under policy?
 - Did the responding agent sign the citation?
 - Does the citation match the actual response?
+- Did the validator sign the validation outcome?
+- Does the trust graph show the scope of trust?
+- Was the attestation anchored on-chain when configured?
 
 That is the difference between content access and agentic trust.

@@ -2,7 +2,7 @@
 
 ## Positioning Statement
 
-We are building agent-native named content provenance infrastructure: deterministic content references, issuer-controlled claims, policy-governed access, privacy-preserving membership proofs, independent validation, and auditable citation for the agentic era.
+We are building agent-native named content provenance infrastructure: deterministic content references, issuer-controlled claims, policy-governed access, privacy-preserving membership proofs, independent validation, signed validation attestations, trust graph explainability, and auditable citation for the agentic era.
 
 This is not a Bible verse database, another content-addressable store, or a translation-branded naming layer. Scripture is the first high-value vertical because it has stable references, meaningful rights complexity, and high trust requirements. The underlying primitive generalizes to any content domain where agents must name, verify, retrieve, cite, and audit governed content.
 
@@ -10,7 +10,7 @@ This is not a Bible verse database, another content-addressable store, or a tran
 
 Agents need more than content access. They need trustworthy references.
 
-Named Verifiable Content Primitives give agents a reusable way to resolve a human reference into a stable canonical identity, verify issuer claims, retrieve content only under policy, prove corpus membership, and produce citations with provenance. Rights holders keep control of their text, descriptors, and retrieval paths. Agent platforms gain a shared trust layer and independent validation path for content use.
+Named Verifiable Content Primitives give agents a reusable way to resolve a human reference into a stable canonical identity, verify issuer claims, retrieve content only under policy, prove corpus membership, produce citations with provenance, and receive signed validation attestations from independent validators. Rights holders keep control of their text, descriptors, and retrieval paths. Agent platforms gain a shared trust layer, independent validation path, and graph-shaped explanation of content trust.
 
 Short version:
 
@@ -55,6 +55,8 @@ The value is clean separation:
 | Actual content | Off-chain rendering text or artifacts. | Rights holder or content host. |
 | Agent usage | Citation assertions and audit records. | Agent/runtime. |
 | Independent validation | Evidence-bundle checks and `validated/gated/rejected` outcomes. | Third-party validator. |
+| Validation attestation | Signed validator credential over the bundle, checks, profile, and outcome. | Validator agent. |
+| Trust graph | Scoped edges showing who trusts, validates, cites, and issues what. | Validator and consuming app. |
 | Privacy-preserving membership | Groth16 proof that a commitment is in a corpus without revealing the leaf/index. | Validator and ZK proof system. |
 | Policy | Access and trust profile decisions. | Deploying organization. |
 
@@ -68,9 +70,9 @@ YouVersion is a high-scale consumer Bible reading, discovery, devotional, and en
 | Primary user | Readers, churches, devotional communities. | Agents, platforms, publishers, ministries, institutions. |
 | Content model | App-managed translation access and presentation. | Issuer-controlled descriptors and retrieval paths. |
 | Reference model | Human-friendly Bible references and app metadata. | Deterministic canonical locus IDs from validated envelopes. |
-| Trust model | Platform-mediated content experience. | Verifiable issuer claims, commitments, policy, independent validator checks, and audit. |
+| Trust model | Platform-mediated content experience. | Verifiable issuer claims, commitments, policy, signed validator attestations, trust graph edges, and audit. |
 | Rights posture | Licensed content relationships inside a product. | Rights holders keep text behind their own systems and publish verifiable claims. |
-| Agent readiness | Useful as a source or app, but not a general citation primitive. | Built for resolution, verification, policy, ZK membership, signed citation, independent validation, and audit by agents. |
+| Agent readiness | Useful as a source or app, but not a general citation primitive. | Built for resolution, verification, policy, ZK membership, signed citation, signed validation attestation, trust graph, and audit by agents. |
 | Generalization | Bible-specific consumer ecosystem. | General primitive for scripture, hymns, liturgy, legal, medical, training, and other governed content. |
 
 The message is not "better Bible app." The message is "different layer."
@@ -97,7 +99,7 @@ Scripture is a proving ground, not the boundary of the architecture. The same pr
 
 ### Not Just Hash Matching
 
-The lifecycle includes resolution, trust profile filtering, descriptor verification, entitlement-aware retrieval, commitment verification, optional ZK membership proof, signed citation assertion, independent validation, and audit. The value is the full chain, not a single checksum.
+The lifecycle includes resolution, trust profile filtering, descriptor verification, entitlement-aware retrieval, commitment verification, optional ZK membership proof, signed citation assertion, independent validation, signed validation attestation, trust graph explanation, optional on-chain anchoring, and audit. The value is the full chain, not a single checksum.
 
 ## Five Pillars
 
@@ -125,6 +127,8 @@ mindmap
       Evidence bundles
       ZK membership
       Validated gated rejected
+      Signed attestations
+      Trust graph
     Policy-aware resolution
       Multi-candidate
       Trust profiles
@@ -139,7 +143,7 @@ They can publish signed descriptors and commitments while keeping text behind ex
 
 ### Agent Developers and Platforms
 
-They get reliable resolution, verifiable claims, policy filtering, optional ZK membership, independent validator outcomes, and auditable citations without rebuilding normalization, rights metadata, trust profiles, or provenance systems for every domain.
+They get reliable resolution, verifiable claims, policy filtering, optional ZK membership, independent validator outcomes, signed validation attestations, trust graph edges, and auditable citations without rebuilding normalization, rights metadata, trust profiles, or provenance systems for every domain.
 
 ### Faith and Ministry Organizations
 
@@ -157,11 +161,11 @@ Trustworthy content references for agents.
 
 ### One-Sentence Message
 
-Named Verifiable Content Primitives let agents resolve, verify, retrieve under policy, prove membership, cite with provenance, and validate/audit references to governed content.
+Named Verifiable Content Primitives let agents resolve, verify, retrieve under policy, prove membership, cite with provenance, validate through independent agents, and audit references to governed content.
 
 ### One-Paragraph Message
 
-We provide agent-native named content provenance infrastructure. A human reference resolves to a deterministic canonical identity, issuer-signed descriptors state claims and rights metadata, content remains off-platform under rights-holder control, agents produce signed citation records, and independent validators can verify evidence bundles with optional ZK membership. Scripture is the first serious vertical, but the primitive generalizes to any governed content domain.
+We provide agent-native named content provenance infrastructure. A human reference resolves to a deterministic canonical identity, issuer-signed descriptors state claims and rights metadata, content remains off-platform under rights-holder control, agents produce signed citation records, and independent validators can verify evidence bundles with optional ZK membership, sign validation attestations, and return trust graph edges. Scripture is the first serious vertical, but the primitive generalizes to any governed content domain.
 
 ### Slide-Friendly Message
 
@@ -169,7 +173,8 @@ We provide agent-native named content provenance infrastructure. A human referen
 - Issuer-signed descriptors, not unverifiable metadata.
 - Rights-holder controlled content, not on-chain text.
 - ZK corpus membership, not unnecessary content disclosure.
-- Independent validator outcomes, not agent self-attestation.
+- Signed validator attestations, not agent self-attestation.
+- Trust graph edges, not opaque verified badges.
 - Policy-governed retrieval, not open-ended scraping.
 - Agent-signed citations and audit, not opaque AI outputs.
 
@@ -180,7 +185,7 @@ flowchart TD
   Problem["Problem\nAgents use content without durable, verifiable references"]
   Risk["Risk\nMisquotation, rights leakage, weak provenance, poor auditability"]
   Approach["Approach\nNamed verifiable content primitives"]
-  Proof["Proof\nScripture demo with canonical loci, descriptors, commitments, ZK membership, validator outcomes, policy, citations"]
+  Proof["Proof\nScripture demo with canonical loci, descriptors, commitments, ZK membership, attestations, trust graph, policy, citations"]
   Expansion["Expansion\nReusable for other governed content domains"]
 
   Problem --> Risk --> Approach --> Proof --> Expansion
@@ -190,7 +195,7 @@ Narrative:
 
 1. Agents increasingly assemble answers, recommendations, documents, and actions from referenced content.
 2. Existing systems give them access to content, but not a reusable way to prove what was referenced, who claimed it, whether retrieval was allowed, and how it was cited.
-3. Named Verifiable Content Primitives fill that gap with deterministic identity, issuer-signed descriptors, commitments, ZK membership, policy, citation assertions, independent validation, and audit.
+3. Named Verifiable Content Primitives fill that gap with deterministic identity, issuer-signed descriptors, commitments, ZK membership, policy, citation assertions, signed validation attestations, trust graphs, and audit.
 4. Scripture proves the pattern in a domain where references are stable, rights are complex, and trust matters.
 5. The same pattern extends to other high-trust content domains.
 
@@ -210,7 +215,7 @@ The MVP should avoid over-claiming:
 
 The strongest defensible position:
 
-> Agent-native named content provenance infrastructure: deterministic identity, issuer-controlled claims, policy-governed access, privacy-preserving membership proof, independent validation, and auditable citation, with Scripture as the first serious vertical.
+> Agent-native named content provenance infrastructure: deterministic identity, issuer-controlled claims, policy-governed access, privacy-preserving membership proof, signed validation attestations, trust graph explainability, and auditable citation, with Scripture as the first serious vertical.
 
 The clearest differentiation:
 

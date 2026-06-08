@@ -12,8 +12,9 @@ Users think in this order:
 2. Choose a book, chapter, and verse.
 3. Read the verse if access is allowed.
 4. Inspect provenance if they want to understand why the result is trustworthy.
-5. Optionally submit the evidence bundle to an independent validator.
-6. Review alternate candidates when more than one descriptor exists.
+5. Validate the response through the independent validator.
+6. Review the signed validation attestation and trust graph.
+7. Review alternate candidates when more than one descriptor exists.
 
 ```mermaid
 flowchart TD
@@ -25,6 +26,9 @@ flowchart TD
   Gate["Show entitlement gate"]
   Provenance["Show provenance card"]
   Validate["Independent validation\nvalidated / gated / rejected"]
+  Attestation["Signed attestation"]
+  Graph["Trust graph"]
+  Anchor["Optional on-chain anchor"]
   Candidates["Show candidate list"]
   Citation["Expose citation record"]
 
@@ -34,6 +38,9 @@ flowchart TD
   Verse --> Provenance
   Gate --> Provenance
   Provenance --> Validate
+  Validate --> Attestation
+  Attestation --> Graph
+  Attestation --> Anchor
   Provenance --> Candidates
   Provenance --> Citation
 ```
@@ -53,6 +60,9 @@ flowchart TD
 | Evidence bundle | Validation bundle | Machine-readable proof package checked by the third-party validator. |
 | ZK membership proof | Private membership proof | Proof that the cited commitment belongs to the corpus without revealing the leaf/index. |
 | Validation outcome | Validated / gated / rejected | Independent result returned by the validator. |
+| ValidationAttestation | Validator attestation | Signed validator credential over the evidence bundle, checks, profile, and outcome. |
+| Trust graph | Trust graph | Visual explanation of consumer, validator, A2A agent, issuer, descriptor, and profile relationships. |
+| Anchor | On-chain anchor | Optional compact attestation hash recorded in `ValidationAttestationRegistry`. |
 
 ## Content Hierarchy
 
@@ -65,6 +75,9 @@ flowchart TD
   Citation["CitationAssertion\nagent output evidence"]
   Bundle["EvidenceBundle\nintent, content, proof, policy, citation, response"]
   Validator["ValidationResult\nvalidated, gated, rejected"]
+  Attestation["ValidationAttestation\nvalidator signature"]
+  Graph["TrustGraphSnapshot\nnodes + edges"]
+  Anchor["AnchorResult\nBase Sepolia link"]
 
   Corpus --> Manifest
   Corpus --> Descriptor
@@ -73,6 +86,9 @@ flowchart TD
   Manifest --> Descriptor
   Citation --> Bundle
   Bundle --> Validator
+  Validator --> Attestation
+  Attestation --> Graph
+  Attestation --> Anchor
 ```
 
 ## Page Structure
@@ -86,6 +102,8 @@ The web app is organized as:
 - Candidate list: admitted and screened descriptor candidates.
 - Citation details: raw `CitationAssertion` JSON.
 - Validator result: optional machine-verifiable outcome from the independent validator.
+- Trust graph card: outcome badge, validator name, profile, checks passed, attestation proof, optional Base Sepolia anchor, and graph SVG.
+- Ask panel: topic-style question answer with signed citations and per-citation verification.
 
 ## Information Flow
 
@@ -96,6 +114,7 @@ sequenceDiagram
   participant Agent as A2A Agent
   participant Tools as MCP Tools
   participant Validator as Third-Party Validator
+  participant Chain as Base Sepolia
 
   User->>UI: Select edition and passage
   UI->>Agent: POST /resolve
@@ -104,10 +123,25 @@ sequenceDiagram
   Agent->>Tools: POST /tools/get_passage_text
   Tools-->>Agent: Text or access denial
   Agent-->>UI: Result + provenance + citation
-  UI->>Validator: Optional evidence bundle validation
-  Validator-->>UI: validated / gated / rejected
-  UI-->>User: Verse or gate + trust evidence
+  UI->>Agent: POST /trust/validate
+  Agent->>Validator: EvidenceBundle
+  Validator->>Chain: Optional attestation anchor
+  Validator-->>Agent: Outcome + attestation + graph + anchor
+  Agent-->>UI: TrustValidation response
+  UI-->>User: Verse or gate + trust graph
 ```
+
+## Trust Graph Labels
+
+The SVG trust graph uses fixed relationship labels:
+
+| Label | Meaning |
+| --- | --- |
+| `trusts validator` | The app accepts `demo-validator.agent` for the current profile. |
+| `trusts profile` | The validator evaluated the output under a named profile. |
+| `validated output` | The validator attested to one A2A run/output. |
+| `cited descriptor` | The A2A agent cited a specific descriptor. |
+| `issued descriptor` | The publisher/issuer issued the cited descriptor. |
 
 ## Naming Rules
 

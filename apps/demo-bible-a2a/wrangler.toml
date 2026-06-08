@@ -19,6 +19,7 @@ workers_dev = true
 [env.production.vars]
 MCP_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
 VALIDATOR_URL = "https://demo-validator-rpedersen3s-projects.vercel.app"
+AGENT_NAME = "scripture-resolver.impact"
 
 # Worker-to-Worker via a service binding (avoids CF error 1042).
 [[env.production.services]]

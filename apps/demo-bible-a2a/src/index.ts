@@ -13,6 +13,7 @@ import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
 interface Env {
   MCP_URL?: string;
   VALIDATOR_URL?: string;
+  AGENT_NAME?: string;
   MCP?: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> };
   A2A_PUBLIC_ORIGIN?: string;
 }
@@ -244,7 +245,7 @@ app.post('/trust/validate', async (c) => {
   const responseHash = keccak256(toBytes(text ?? ''));
   const bundle = {
     intent: { intentType: 'quote', requestedReference: pl.display?.reference ?? body.reference, requestedEdition: cand.edition, agentRunId: runId, outputId },
-    agent: { agentId: AGENT_DID, agentName: 'scripture-resolver.agent' },
+    agent: { agentId: AGENT_DID, agentName: c.env.AGENT_NAME ?? 'scripture-resolver.impact' },
     content: {
       canonicalId: pl.canonicalReference.id,
       canonicalEnvelope: pl.canonicalReference.envelope,

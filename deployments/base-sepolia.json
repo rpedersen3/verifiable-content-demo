@@ -1,0 +1,32 @@
+{
+  "network": "base-sepolia",
+  "chainId": 84532,
+  "note": "Contract addresses leveraged from the agenticprimitives Base Sepolia deployment + the demo Smart Agents registered under the .impact TLD.",
+  "contracts": {
+    "agentAccountFactory": "0x51849aF1842AF43f84a2f0D647AE2481D333FA80",
+    "entryPoint": "0xf84dd2Ba056898fB58419c567D858dFea9629050",
+    "agentNameRegistry": "0x572ae1D05f5eaf2C4f445Ae5FE9aFA07F348b864",
+    "agentNameResolver": "0xd3C6cBc1A661D676C1388cA366bB3Cc313Bc1737",
+    "agentNameUniversalResolver": "0x4ECCFC029E0bbaDeaf6af15811d757084671385E",
+    "permissionlessSubregistry": "0x0991324184C2108CD95405C6Cbc29327cD0aCc2B",
+    "contentCorpusRegistry": "0xBc04BCB29E748CB0be07170B66AE542D3D89967E",
+    "validationAttestationRegistry": "0xEee609Af590bA133f00cd86b0D56725E1Fee76A7"
+  },
+  "agents": {
+    "issuer": {
+      "sa": "0x72D8679435cF288689e157b1AA1F8648A7746851",
+      "name": "bsb.impact",
+      "tld": "impact"
+    },
+    "validator": {
+      "sa": "0x570f7E636bd9128dC25C7a0982ACFBC680ff3C75",
+      "name": "demo-validator.impact",
+      "tld": "impact"
+    },
+    "agent": {
+      "address": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "name": "scripture-resolver.impact",
+      "tld": "impact"
+    }
+  }
+}
