@@ -447,11 +447,17 @@ async function geo(){
   if(!window.L){mapEl.innerHTML='<div class="ghint" style="padding:24px">Map library could not load (offline?). The same data is in Explore / Timeline.</div>';return;}
   const d=await api('/geo');
   const map=L.map('map',{scrollWheelZoom:true}).setView([31.8,35.2],6);geoMap=map;
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:14,subdomains:'abcd',attribution:'&copy; OpenStreetMap &copy; CARTO'}).addTo(map);
+  // English-labelled basemaps (Esri renders English/Latin city + water-body names); switchable
+  const esriTopo=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:17,attribution:'Tiles &copy; Esri'});
+  const esriStreet=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:17,attribution:'Tiles &copy; Esri'});
+  const esriImagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:17,attribution:'Tiles &copy; Esri'});
+  const cartoClean=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:18,subdomains:'abcd',attribution:'&copy; OpenStreetMap &copy; CARTO'});
+  esriTopo.addTo(map);
+  L.control.layers({'Topographic (English)':esriTopo,'Streets (English)':esriStreet,'Satellite':esriImagery,'Clean':cartoClean},null,{position:'topright'}).addTo(map);
   const sigC=(n,def)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':def;
   const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
   const placeG=L.layerGroup();
-  d.places.forEach(p=>{const m=L.circleMarker([p.lat,p.lon],{radius:Math.min(9,3+Math.sqrt(p.v||1)),color:'#7c8696',weight:1,fillColor:'#aab4c2',fillOpacity:.5});m.bindPopup(pop(p,(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label,(p.v||0)>=20?{permanent:true,direction:'top',className:'maplabel',offset:[0,-1]}:{});placeG.addLayer(m);});
+  d.places.forEach(p=>{const m=L.circleMarker([p.lat,p.lon],{radius:Math.min(9,3+Math.sqrt(p.v||1)),color:'#7c8696',weight:1,fillColor:'#aab4c2',fillOpacity:.5});m.bindPopup(pop(p,(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);placeG.addLayer(m);});
   const evItems=d.events.map(e=>{const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop(e,'<br><span style="color:#6b7785">'+ordY(e.tStart)+' · at '+esc(e.place||'')+'</span>'));m.bindTooltip(e.label);return{m,t:e.tStart};});
   const evG=L.layerGroup();evItems.forEach(i=>evG.addLayer(i.m));
   const pItems=d.people.map(pe=>{const m=L.circleMarker([pe.lat,pe.lon],{radius:6,color:'#fff',weight:1,fillColor:sigC(pe,'#2563eb'),fillOpacity:.9});m.bindPopup(pop(pe,'<br><span style="color:#6b7785">'+ordY(pe.tStart)+(pe.tEnd!=null?' – '+ordY(pe.tEnd):'')+' · b. '+esc(pe.place||'')+'</span>'));m.bindTooltip(pe.label);return{m,t0:pe.tStart,t1:pe.tEnd!=null?pe.tEnd:pe.tStart};});
@@ -477,11 +483,11 @@ async function geo(){
 }
 // ── Oikos circles: concentric relationship rings out from a person ──
 let oikosCenter=null;
-const RING=[{label:'Family (oikos)',color:'#e87c3e',r:120},{label:'Household · roles · places',color:'#0d9488',r:212},{label:'Wider network · conversations',color:'#9333ea',r:300}];
+const RING=[{label:'Family (oikos)',color:'#e87c3e',r:120},{label:'Household & kin',color:'#0d9488',r:212},{label:'Network & conversations',color:'#9333ea',r:300}];
 function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|org:member|org:organization|org:role/.test(rel))return 1;return 2;}
 async function oikos(){
   V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Oikos circles — relationships out from a person</h3>'+
-   '<p class="hint" style="margin-top:0">Concentric circles of relationship around a person: inner = <b>family</b> (oikos), middle = <b>household, roles &amp; places</b>, outer = <b>wider network &amp; conversations</b>. Search a person; click a node to recenter.</p>'+
+   '<p class="hint" style="margin-top:0">Concentric circles of <b>people</b> around a person: inner = <b>family</b> (oikos), middle = <b>household &amp; kin</b>, outer = <b>network &amp; conversations</b>. Search a person; click anyone to recenter.</p>'+
    '<input id="oq" placeholder="Center on a person… (e.g. Paul, Peter, David, Mary)"/><div id="ores"></div><div id="owrap"></div></div><div id="otip" class="gtip"></div>';
   const oq=document.getElementById('oq');let timer;
   oq.oninput=()=>{clearTimeout(timer);timer=setTimeout(async()=>{
@@ -499,7 +505,7 @@ async function drawOikos(){
   const W=920,H=680,cx=460,cy=346,center=d.center,byId={};d.nodes.forEach(n=>byId[n.id]=n);
   const ring={},relOf={};
   d.edges.forEach(e=>{const nb=e.from===center?e.to:e.from;if(nb===center)return;const rg=ringOf(e.rel);if(ring[nb]==null||rg<ring[nb]){ring[nb]=rg;relOf[nb]=e.rel;}});
-  const neighbors=d.nodes.filter(n=>n.id!==center&&ring[n.id]!=null);
+  const neighbors=d.nodes.filter(n=>n.id!==center&&ring[n.id]!=null&&n.kind==='person');
   const byRing=[[],[],[]];neighbors.forEach(n=>byRing[ring[n.id]].push(n));
   const pos={};byRing.forEach((mem,ri)=>{const rr=RING[ri];mem.forEach((nd,i)=>{pos[nd.id]=P(cx,cy,(i+0.5)/mem.length*360,rr.r);});});
   let s='<svg id="osvg" viewBox="0 0 '+W+' '+H+'" style="height:680px">';
