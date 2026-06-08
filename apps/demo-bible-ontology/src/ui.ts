@@ -31,9 +31,19 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.03em}
 .tag-prov{background:#e7f0ff;color:#2f6df0}.tag-dns{background:#fbf0e6;color:#b45309}.tag-un{background:#fdeceA;color:#c0392b}
-svg{width:100%;height:520px;background:#fbfcfe;border:1px solid var(--line);border-radius:10px}
-.gnode{cursor:pointer}.gnode text{font-size:11px;font-weight:600;fill:#1f2733}
-.gedge{stroke:#c4cdda;stroke-width:1.3}.gedge-l{font-size:8.5px;fill:#94a0b3}
+svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10px}
+svg#gsvg{height:560px;display:block}
+.gnode{cursor:pointer;transition:opacity .12s}.gnode .gnlabel{pointer-events:none;font-weight:500}
+.gcluster{cursor:pointer;transition:opacity .12s}
+.gedge{transition:opacity .12s}
+svg.dim .gedge{opacity:.07}svg.dim .gnode{opacity:.22}svg.dim .gcluster{opacity:.22}
+.gedge.hot{opacity:1!important;stroke-width:2.6}.gnode.hot{opacity:1!important}
+.gbread{margin:6px 0 2px;font-size:14px}
+.gchips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.gchip{font-size:11px;font-weight:600;padding:4px 11px;border-radius:999px;border:1px solid var(--line);color:var(--muted);cursor:pointer;background:#fff;user-select:none}
+.gtip{position:fixed;display:none;z-index:30;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:12px;line-height:1.45;box-shadow:0 6px 20px rgba(20,30,50,.16);max-width:230px;pointer-events:none}
+.glegend{font-size:11px;color:var(--muted);margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ghint{font-size:12px;color:var(--muted);margin-top:6px}
 .hint{font-size:12px;color:var(--muted);margin:10px 0 0}
 a.link{color:var(--accent);cursor:pointer;text-decoration:none}
 </style></head><body><div class="wrap">
@@ -114,32 +124,75 @@ async function showNode(id){
    '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ view in trust graph</a></div></div>';
   det.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
-let graphCenter=null;
-function graphFor(id){graphCenter=id;tab='graph';document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t==='graph'));graph();}
+let graphCenter=null,gFilters={},gExpand={};
+function graphFor(id){graphCenter=id;gExpand={};gFilters={};tab='graph';document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t==='graph'));graph();}
+function famOf(rel){const m={'gc:hasParent':'family','gc:hasChild':'family','gc:hasSibling':'family','gc:hasPartner':'family','org:memberOf':'org','org:hasMember':'org','org:member':'org','org:organization':'org','org:role':'org','prov:wasAssociatedWith':'events','gc:holdsRole':'role','aps:hasSkill':'role','gc:bornAt':'place','gc:diedAt':'place'};return m[rel]||'role';}
+const SECT={family:{label:'Family',color:'#e87c3e',a:[0,60],th:10},role:{label:'Role/Skill',color:'#0d9488',a:[60,120],th:8},events:{label:'Events',color:'#0e7490',a:[120,210],th:4},place:{label:'Places',color:'#b45309',a:[210,270],th:99},org:{label:'Organization',color:'#9333ea',a:[270,360],th:6}};
+const FORD=['family','role','events','place','org'];
+const sigCol={positive:'#1a8a4f',negative:'#c0392b',mixed:'#b45309'};
+const ordYr=(y)=>y==null?'':(Math.abs(y)+(y<0?' BC':' AD'));
+function P(cx,cy,deg,r){const a=deg*Math.PI/180;return{x:cx+r*Math.sin(a),y:cy-r*Math.cos(a)};}
+function shp(kind,x,y,r){const f=KC[kind]||'#888';
+ if(kind==='organization')return '<rect x="'+(x-r)+'" y="'+(y-r)+'" width="'+(2*r)+'" height="'+(2*r)+'" rx="5" fill="'+f+'"/>';
+ if(kind==='event')return '<polygon points="'+x+','+(y-r)+' '+(x+r)+','+y+' '+x+','+(y+r)+' '+(x-r)+','+y+'" fill="'+f+'"/>';
+ if(kind==='place')return '<polygon points="'+(x-r)+','+(y-r*0.7)+' '+(x+r)+','+(y-r*0.7)+' '+x+','+(y+r)+'" fill="'+f+'"/>';
+ if(kind==='role'||kind==='skill'){let p='';for(let i=0;i<6;i++){const a=Math.PI/180*(60*i-30);p+=(x+r*Math.cos(a))+','+(y+r*Math.sin(a))+' ';}return '<polygon points="'+p+'" fill="'+f+'"/>';}
+ if(kind==='membership'||kind==='responsibility')return '<circle cx="'+x+'" cy="'+y+'" r="'+(r*0.8)+'" fill="#fff" stroke="'+f+'" stroke-dasharray="2 2"/>';
+ return '<circle cx="'+x+'" cy="'+y+'" r="'+r+'" fill="'+f+'"/>';}
+function badge(x,y,r,sig){if(!sig)return '';const bx=x+r*0.72,by=y-r*0.72;if(sig==='mixed')return '<circle cx="'+bx+'" cy="'+by+'" r="5" fill="#1a8a4f" stroke="#fff"/><path d="M'+bx+' '+(by-5)+' A5 5 0 0 1 '+bx+' '+(by+5)+' Z" fill="#c0392b"/>';return '<circle cx="'+bx+'" cy="'+by+'" r="5" fill="'+sigCol[sig]+'" stroke="#fff" stroke-width="1"/>';}
 async function graph(){
-  V.innerHTML='<div class="card"><input id="gq" placeholder="Center the graph on a person/org/event… (e.g. Paul, Nation of Israel)"/><div id="gres"></div><div id="gsvg"></div><div class="hint">person ↔ organization (membership) ↔ activity (participation) ↔ entity. Click any node to recenter.</div></div>';
+  V.innerHTML='<div class="card"><input id="gq" placeholder="Center on a person/org/event… (e.g. Jesus, Paul, Nation of Israel)"/><div id="gres"></div><div id="gwrap"></div></div><div id="gtip" class="gtip"></div>';
   const gq=document.getElementById('gq');
   let timer;gq.oninput=()=>{clearTimeout(timer);timer=setTimeout(async()=>{
-    if(gq.value.trim().length<2)return;
+    const r=document.getElementById('gres');
+    if(gq.value.trim().length<2){r.innerHTML='';return;}
     const d=await api('/search?q='+encodeURIComponent(gq.value.trim()));
-    document.getElementById('gres').innerHTML='<ul class="list">'+d.results.slice(0,8).map(r=>'<li onclick="graphCenter=\\''+r.id+'\\';drawGraph()">'+dot(r.kind)+esc(r.label)+' <span class="muted">'+(r.prov_class||'')+'</span></li>').join('')+'</ul>';
+    r.innerHTML='<ul class="list">'+d.results.slice(0,8).map(x=>'<li data-pick="'+x.id+'">'+dot(x.kind)+esc(x.label)+' <span class="muted">'+(x.prov_class||'')+'</span></li>').join('')+'</ul>';
+    r.querySelectorAll('[data-pick]').forEach(li=>li.onclick=()=>{graphCenter=li.dataset.pick;gExpand={};gFilters={};r.innerHTML='';gq.value='';drawGraph();});
   },180);};
-  if(!graphCenter){const d=await api('/search?q=Paul');graphCenter=(d.results[0]||{}).id;}
+  if(!graphCenter){const d=await api('/search?q=Jesus');graphCenter=(((d.results||[]).find(x=>x.label==='Jesus'))||(d.results||[])[0]||{}).id;}
   drawGraph();
 }
 async function drawGraph(){
-  document.getElementById('gres').innerHTML='';
-  const d=await api('/graph?center='+encodeURIComponent(graphCenter));if(!d.ok)return;
-  const W=1040,H=520,cx=W/2,cy=H/2;
-  const others=d.nodes.filter(n=>n.id!==d.center);
-  const pos={};pos[d.center]={x:cx,y:cy};
-  others.forEach((n,i)=>{const a=2*Math.PI*i/others.length;pos[n.id]={x:cx+Math.cos(a)*Math.min(360,140+others.length*4),y:cy+Math.sin(a)*Math.min(220,90+others.length*3)};});
-  const lab=Object.fromEntries(d.nodes.map(n=>[n.id,n]));
-  let s='<svg viewBox="0 0 '+W+' '+H+'">';
-  d.edges.forEach(e=>{const a=pos[e.from],b=pos[e.to];if(!a||!b)return;s+='<line class="gedge" x1='+a.x+' y1='+a.y+' x2='+b.x+' y2='+b.y+'/>';s+='<text class="gedge-l" x='+((a.x+b.x)/2)+' y='+((a.y+b.y)/2-2)+' text-anchor="middle">'+esc(e.rel.split(':').pop())+'</text>';});
-  d.nodes.forEach(n=>{const p=pos[n.id];const r=n.id===d.center?9:6;s+='<g class="gnode" onclick="graphCenter=\\''+n.id+'\\';drawGraph()"><circle cx='+p.x+' cy='+p.y+' r='+r+' fill="'+(KC[n.kind]||'#888')+'"/><text x='+(p.x+9)+' y='+(p.y+4)+'>'+esc(n.label.length>22?n.label.slice(0,21)+'…':n.label)+'</text></g>';});
-  s+='</svg>';
-  document.getElementById('gsvg').innerHTML='<div style="margin:8px 0"><b>'+dot(lab[d.center].kind)+esc(lab[d.center].label)+'</b> <span class="muted">'+d.edges.length+' relationships</span> · <a class="link" onclick="showNodeTab(\\''+d.center+'\\')">details</a></div>'+s;
+  const wrap=document.getElementById('gwrap');wrap.innerHTML='<div class="ghint">loading…</div>';
+  const d=await api('/graph?center='+encodeURIComponent(graphCenter));if(!d.ok){wrap.innerHTML='<div class="ghint">could not load this node</div>';return;}
+  const W=1040,H=560,cx=500,cy=280,center=d.center,byId={};d.nodes.forEach(n=>byId[n.id]=n);
+  const famByNode={},relByNode={};
+  d.edges.forEach(e=>{const nb=e.from===center?e.to:e.from;if(nb===center)return;famByNode[nb]=famByNode[nb]||famOf(e.rel);relByNode[nb]=relByNode[nb]||e.rel;});
+  let neighbors=d.nodes.filter(n=>n.id!==center).filter(n=>!gFilters[famByNode[n.id]]);
+  const pos={};pos[center]={x:cx,y:cy};const clusters=[];const drawn=new Set([center]);
+  if(neighbors.length<=3){
+    neighbors.forEach((n,i)=>{pos[n.id]=P(cx,cy,(i*120)%360,180);drawn.add(n.id);});
+  }else{
+    FORD.forEach(fam=>{const sec=SECT[fam];const mem=neighbors.filter(n=>famByNode[n.id]===fam);if(!mem.length)return;
+      if(mem.length>sec.th && !gExpand[fam]){const p=P(cx,cy,(sec.a[0]+sec.a[1])/2,175);clusters.push({fam,x:p.x,y:p.y,n:mem.length,color:sec.color});}
+      else{const span=sec.a[1]-sec.a[0],r=mem.length>8?248:175;mem.forEach((n,i)=>{pos[n.id]=P(cx,cy,sec.a[0]+(i+1)*span/(mem.length+1),r);drawn.add(n.id);});}
+    });
+  }
+  let s='<svg id="gsvg" viewBox="0 0 '+W+' '+H+'"><circle cx="'+cx+'" cy="'+cy+'" r="37" fill="none" stroke="#2f6df0" stroke-opacity="0.16" stroke-width="2"/>';
+  d.edges.forEach(e=>{const nb=e.from===center?e.to:e.from;if(nb===center||!drawn.has(nb))return;const fam=famByNode[nb];const a=pos[center],b=pos[nb];
+    s+='<line class="gedge" data-a="'+center+'" data-b="'+nb+'" x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="'+SECT[fam].color+'" stroke-width="1.4" stroke-opacity="0.5"/>';});
+  clusters.forEach(c=>{s+='<line class="gedge" x1="'+cx+'" y1="'+cy+'" x2="'+c.x+'" y2="'+c.y+'" stroke="'+c.color+'" stroke-width="3" stroke-dasharray="4 3" stroke-opacity="0.55"/>';
+    s+='<g class="gcluster" data-fam="'+c.fam+'"><rect x="'+(c.x-44)+'" y="'+(c.y-16)+'" width="88" height="32" rx="15" fill="#fff" stroke="'+c.color+'" stroke-width="1.6"/><text x="'+c.x+'" y="'+(c.y+4)+'" text-anchor="middle" font-size="12" font-weight="600" fill="'+c.color+'">'+c.n+' '+SECT[c.fam].label.toLowerCase().split('/')[0]+' ＋</text></g>';});
+  neighbors.forEach(n=>{const p=pos[n.id];if(!p)return;
+    s+='<g class="gnode" data-id="'+n.id+'">'+shp(n.kind,p.x,p.y,11)+badge(p.x,p.y,11,n.sig)+'<text class="gnlabel" x="'+p.x+'" y="'+(p.y+24)+'" text-anchor="middle" font-size="10" fill="#33404f">'+esc(n.label.length>16?n.label.slice(0,15)+'…':n.label)+'</text></g>';});
+  const cn=byId[center]||{label:'?',kind:'person'};
+  s+='<g class="gnode gcenter" data-id="'+center+'"><circle cx="'+cx+'" cy="'+cy+'" r="28" fill="#2f6df0"/>'+badge(cx,cy,28,cn.sig)+'<text x="'+cx+'" y="'+(cy+4)+'" text-anchor="middle" font-size="'+(cn.label.length>8?9:12)+'" font-weight="700" fill="#fff">'+esc(cn.label.length>14?cn.label.slice(0,13)+'…':cn.label)+'</text></g></svg>';
+  const tline=cn.tStart!=null?' · '+ordYr(cn.tStart)+(cn.tEnd!=null&&cn.tEnd!==cn.tStart?'–'+ordYr(cn.tEnd):''):'';
+  let chips='';FORD.forEach(f=>{const on=!gFilters[f];chips+='<span class="gchip'+(on?' on':'')+'" data-fam="'+f+'"'+(on?' style="background:'+SECT[f].color+';color:#fff;border-color:'+SECT[f].color+'"':'')+'>'+SECT[f].label+'</span>';});
+  const legend='<div class="glegend">'+[['person','person'],['organization','org'],['event','event'],['place','place'],['role','role']].map(k=>dot(k[0])+k[1]).join(' ')+' &nbsp;·&nbsp; ◇ event ▽ place ⬡ role ☐ org &nbsp;·&nbsp; <span style="color:#1a8a4f">＋</span>/<span style="color:#c0392b">－</span> trust signal</div>';
+  wrap.innerHTML='<div class="gbread"><b>'+dot(cn.kind)+esc(cn.label)+'</b> <span class="muted">'+cn.kind+tline+' · '+d.edges.length+' relationships</span> · <a class="link" data-details="1">details ↗</a></div><div class="gchips">'+chips+'</div>'+s+legend+'<div class="ghint">Hover a node to isolate its relationship · click a node to recenter · click a cluster pill to expand · toggle a family above to filter.</div>';
+  const svg=document.getElementById('gsvg'),tip=document.getElementById('gtip');
+  wrap.querySelectorAll('.gnode').forEach(g=>{const id=g.dataset.id;
+    g.addEventListener('mouseenter',()=>{svg.classList.add('dim');g.classList.add('hot');
+      svg.querySelectorAll('.gedge').forEach(e=>{if(e.dataset.a===id||e.dataset.b===id){e.classList.add('hot');const o=e.dataset.a===id?e.dataset.b:e.dataset.a;const og=svg.querySelector('.gnode[data-id=\\''+o+'\\']');if(og)og.classList.add('hot');}});
+      const n=byId[id];if(n){tip.style.display='block';tip.innerHTML='<b>'+esc(n.label)+'</b> <span class="muted">'+n.kind+'</span>'+(n.tStart!=null?'<div class="muted">'+ordYr(n.tStart)+(n.tEnd!=null&&n.tEnd!==n.tStart?'–'+ordYr(n.tEnd):'')+'</div>':'')+(relByNode[id]?'<div class="muted">'+esc(relByNode[id])+'</div>':'')+(n.sig?'<div style="color:'+sigCol[n.sig]+'">'+(n.sig==='positive'?'＋ ':n.sig==='negative'?'－ ':'± ')+n.sig+' signal</div>':'');}});
+    g.addEventListener('mousemove',ev=>{tip.style.left=Math.min(ev.clientX+14,innerWidth-240)+'px';tip.style.top=(ev.clientY+14)+'px';});
+    g.addEventListener('mouseleave',()=>{svg.classList.remove('dim');svg.querySelectorAll('.hot').forEach(x=>x.classList.remove('hot'));tip.style.display='none';});
+    g.addEventListener('click',()=>{if(id===center){showNodeTab(center);}else{graphCenter=id;gExpand={};drawGraph();}});});
+  wrap.querySelectorAll('.gcluster').forEach(g=>g.addEventListener('click',()=>{gExpand[g.dataset.fam]=!gExpand[g.dataset.fam];drawGraph();}));
+  wrap.querySelectorAll('.gchip').forEach(ch=>ch.addEventListener('click',()=>{gFilters[ch.dataset.fam]=!gFilters[ch.dataset.fam];drawGraph();}));
+  const det=wrap.querySelector('[data-details]');if(det)det.addEventListener('click',()=>showNodeTab(center));
 }
 function showNodeTab(id){tab='explore';document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t==='explore'));explore().then(()=>showNode(id));}
 async function validate(){

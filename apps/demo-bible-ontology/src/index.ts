@@ -61,20 +61,28 @@ app.get('/api/node/:id', async (c) => {
 app.get('/api/graph', async (c) => {
   const center = c.req.query('center');
   if (!center) return c.json({ ok: false, error: 'center required' }, 400);
-  const out = await rows<{ rel: string; id: string; label: string; kind: string }>(c.env.DB, 'SELECT e.rel, e.dst id, n.label, n.kind FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=? LIMIT 60', center);
-  const inc = await rows<{ rel: string; id: string; label: string; kind: string }>(c.env.DB, 'SELECT e.rel, e.src id, n.label, n.kind FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? LIMIT 60', center);
-  const self = await c.env.DB.prepare('SELECT id,label,kind FROM node WHERE id=?').bind(center).first<{ id: string; label: string; kind: string }>();
-  const nodes = new Map<string, { id: string; label: string; kind: string }>();
-  if (self) nodes.set(self.id, self);
+  type NRow = { rel: string; id: string; label: string; kind: string; tStart: number | null; tEnd: number | null };
+  const out = await rows<NRow>(c.env.DB, 'SELECT e.rel, e.dst id, n.label, n.kind, n.t_start tStart, n.t_end tEnd FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=? LIMIT 250', center);
+  const inc = await rows<NRow>(c.env.DB, 'SELECT e.rel, e.src id, n.label, n.kind, n.t_start tStart, n.t_end tEnd FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? LIMIT 250', center);
+  const self = await c.env.DB.prepare('SELECT id,label,kind,t_start tStart,t_end tEnd FROM node WHERE id=?').bind(center).first<{ id: string; label: string; kind: string; tStart: number | null; tEnd: number | null }>();
+  // trust-signal polarity per node (the signal table is tiny — load it all + map)
+  const sigRows = await rows<{ subject_id: string; polarity: string }>(c.env.DB, 'SELECT subject_id,polarity FROM signal');
+  const sigMap = new Map<string, Set<string>>();
+  for (const s of sigRows) (sigMap.get(s.subject_id) ?? sigMap.set(s.subject_id, new Set()).get(s.subject_id)!).add(s.polarity);
+  const sigOf = (id: string): string | null => {
+    const p = sigMap.get(id);
+    if (!p) return null;
+    const pos = p.has('positive') || p.has('mixed'), neg = p.has('negative') || p.has('mixed');
+    return pos && neg ? 'mixed' : pos ? 'positive' : neg ? 'negative' : null;
+  };
+  const nodes = new Map<string, Record<string, unknown>>();
+  const put = (n: { id: string; label: string; kind: string; tStart: number | null; tEnd: number | null }) => {
+    if (!nodes.has(n.id)) nodes.set(n.id, { id: n.id, label: n.label, kind: n.kind, tStart: n.tStart, tEnd: n.tEnd, sig: sigOf(n.id) });
+  };
+  if (self) put(self);
   const edges: { from: string; rel: string; to: string }[] = [];
-  for (const e of out) {
-    nodes.set(e.id, { id: e.id, label: e.label, kind: e.kind });
-    edges.push({ from: center, rel: e.rel, to: e.id });
-  }
-  for (const e of inc) {
-    nodes.set(e.id, { id: e.id, label: e.label, kind: e.kind });
-    edges.push({ from: e.id, rel: e.rel, to: center });
-  }
+  for (const e of out) { put(e); edges.push({ from: center, rel: e.rel, to: e.id }); }
+  for (const e of inc) { put(e); edges.push({ from: e.id, rel: e.rel, to: center }); }
   return c.json({ ok: true, center, nodes: [...nodes.values()], edges });
 });
 
