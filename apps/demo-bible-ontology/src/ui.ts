@@ -46,6 +46,11 @@ nav button.nav-util.on{background:#eef2fb;color:var(--accent);border-color:var(-
 .map-basectl{position:absolute;top:10px;right:10px;z-index:1000;display:flex;gap:2px;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:8px;padding:3px;box-shadow:0 2px 8px rgba(20,30,50,.12)}
 .map-basbtn{background:transparent;border:0;border-radius:6px;padding:5px 11px;font:12px/1 system-ui,sans-serif;font-weight:600;color:var(--muted);cursor:pointer}
 .map-basbtn:hover{background:#eef2fb;color:var(--accent)}.map-basbtn.on{background:var(--accent);color:#fff}
+.map-search{position:absolute;top:10px;left:52px;z-index:1000;width:240px}
+.map-search input{width:100%;padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.96);box-shadow:0 2px 8px rgba(20,30,50,.12);font:13px system-ui;outline:none}
+.map-search input:focus{border-color:var(--accent)}
+.map-search #mapres{background:#fff;border:1px solid var(--line);border-radius:8px;margin-top:4px;box-shadow:0 4px 14px rgba(20,30,50,.14);max-height:240px;overflow:auto}
+.map-search ul.list{margin:0}.map-search ul.list li{padding:6px 10px;font-size:13px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .stat{background:#f8fafd;border:1px solid var(--line);border-radius:10px;padding:12px}
@@ -436,8 +441,8 @@ async function renderNode(id){
   const ectx=(e)=>{let x='';try{const c=JSON.parse(e.ctx||'null');if(c){if(c.rel)x+=' <span class="muted">('+esc(c.rel)+')</span>';if(c.n)x+=' <span class="muted">×'+c.n+'</span>';if(c.osis)x+=' <a class="vref" onclick="openPassage(\\''+esc(c.osis)+'\\')" style="text-decoration:underline">'+esc(c.osis)+'</a>';else if(c.refs)x+=' '+c.refs.slice(0,3).map(o=>'<a class="vref" onclick="openPassage(\\''+esc(o)+'\\')" style="text-decoration:underline;font-size:11px">'+esc(o)+'</a>').join(' ');}}catch(z){}return x;};
   const grp=(arr,dir)=>{const by={};arr.forEach(e=>{(by[e.rel]=by[e.rel]||[]).push(e)});return Object.entries(by).map(([rel,es])=>'<div class="edge-grp"><div class="rel">'+esc(rel)+(dir==='in'?' (inverse)':'')+'</div>'+es.map(e=>'<span style="margin-right:10px;white-space:nowrap"><a onclick="showNode(\\''+e.id+'\\')">'+dot(e.kind)+esc(e.label)+'</a>'+ectx(e)+'</span>').join('')+'</div>').join('');};
   const geo=n.lat!=null?'<div class="hint">📍 '+n.lat+', '+n.long+' &nbsp;<span class="mono">'+esc(n.wkt||'')+'</span></div>':'';
-  const ord=(y)=>y==null?'':(Math.abs(y)+(y<0?' BC':' AD'));
-  const temporal=n.t_start!=null?'<div class="hint">🕑 '+ord(n.t_start)+(n.t_end!=null&&n.t_end!==n.t_start?' – '+ord(n.t_end):'')+'</div>':'';
+  const ord=(y)=>y==null?'':('c. '+Math.abs(y)+(y<0?' BC':' AD'));
+  const temporal=n.t_start!=null?'<div class="hint">🕑 '+ord(n.t_start)+(n.t_end!=null&&n.t_end!==n.t_start?' – '+ord(n.t_end):'')+' <span class="muted" title="The Bible states no calendar dates; these are scholarly estimates (Theographic)">· estimated</span></div>':'';
   const sigCss=(p)=>p==='positive'?'background:#e7f6ee;color:#1a8a4f':p==='negative'?'background:#fdeceA;color:#c0392b':'background:#fbf0e6;color:#b45309';
   const sigs=(d.signals&&d.signals.length)?'<div style="margin-top:8px">'+d.signals.map(s=>'<span class="chip" style="'+sigCss(s.polarity)+'">'+(s.polarity==='positive'?'＋':s.polarity==='negative'?'－':'~')+' '+esc(s.basis)+(s.osis?' · <a class="vref" onclick="openPassage(\\''+esc(s.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(s.osis)+'</a>':'')+'</span>').join('')+'</div>':'';
   const det=document.getElementById('detail')||V;
@@ -462,7 +467,7 @@ function famOf(rel){const m={'gc:hasParent':'family','gc:hasChild':'family','gc:
 const SECT={family:{label:'Family',color:'#e87c3e',a:[0,60],th:10},role:{label:'Role/Skill',color:'#0d9488',a:[60,120],th:8},events:{label:'Events',color:'#0e7490',a:[120,210],th:4},place:{label:'Places',color:'#b45309',a:[210,270],th:99},org:{label:'Organization',color:'#9333ea',a:[270,360],th:6}};
 const FORD=['family','role','events','place','org'];
 const sigCol={positive:'#1a8a4f',negative:'#c0392b',mixed:'#b45309'};
-const ordYr=(y)=>y==null?'':(Math.abs(y)+(y<0?' BC':' AD'));
+const ordYr=(y)=>y==null?'':('c. '+Math.abs(y)+(y<0?' BC':' AD'));
 function P(cx,cy,deg,r){const a=deg*Math.PI/180;return{x:cx+r*Math.sin(a),y:cy-r*Math.cos(a)};}
 function shp(kind,x,y,r){const f=KC[kind]||'#888';
  if(kind==='organization')return '<rect x="'+(x-r)+'" y="'+(y-r)+'" width="'+(2*r)+'" height="'+(2*r)+'" rx="5" fill="'+f+'"/>';
@@ -536,9 +541,10 @@ let tlFrom=-4200,tlTo=120;
 const TL_ERAS=[['Full sweep',-4200,120],['Patriarchs',-2100,-1400],['Exodus & Conquest',-1600,-1150],['Judges & Monarchy',-1250,-560],['Exile & Return',-620,-380],['New Testament',-12,90],['Life of Jesus',-7,36]];
 function tlZoom(f){const c=(tlFrom+tlTo)/2,half=Math.max(8,(tlTo-tlFrom)/2*f);tlFrom=Math.max(-4300,Math.round(c-half));tlTo=Math.min(160,Math.round(c+half));drawTimeline();}
 function tlPan(frac){const span=tlTo-tlFrom,d=Math.round(span*frac);if(tlFrom+d<-4300||tlTo+d>160)return;tlFrom+=d;tlTo+=d;drawTimeline();}
-const ordY=(y)=>y==null?'':(Math.abs(y)+(y<0?' BC':' AD'));
+const ordY=(y)=>y==null?'':('c. '+Math.abs(y)+(y<0?' BC':' AD'));
 async function timeline(){
   V.innerHTML='<div class="card"><div class="sec-head">Timeline · people &amp; activities</div>'+
+   '<div class="hint" style="margin:0 0 8px">Dates are scholarly estimates (Theographic) — the Bible states no calendar dates.</div>'+
    '<div class="gchips" id="teras"></div>'+
    '<div class="gchips" style="margin-top:4px"><span class="gchip" id="tzin">＋ zoom in</span><span class="gchip" id="tzout">－ zoom out</span><span class="gchip" id="tpanl">◀ earlier</span><span class="gchip" id="tpanr">later ▶</span></div>'+
    '<div id="twrap"></div></div><div id="ttip" class="gtip"></div>';
@@ -615,12 +621,26 @@ async function geo(){
   const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);return r.length?'<div style="margin-top:5px">'+r.map(o=>'<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:#eef2fb;color:#3a4a63;border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none">'+esc(o)+'</a>').join('')+'</div>':'';};
   const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
   const placeG=L.layerGroup();
-  d.places.forEach(p=>{const m=L.circleMarker([p.lat,p.lon],{radius:Math.min(9,3+Math.sqrt(p.v||1)),color:'#7c8696',weight:1,fillColor:'#aab4c2',fillOpacity:.5});m.bindPopup(pop(p,(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);placeG.addLayer(m);});
-  const evItems=d.events.map(e=>{const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop(e,'<br><span style="color:#6b7785">'+ordY(e.tStart)+' · at '+esc(e.place||'')+'</span>'));m.bindTooltip(e.label);return{m,t:e.tStart};});
+  const markerById={};
+  d.places.forEach(p=>{const m=L.circleMarker([p.lat,p.lon],{radius:Math.min(9,3+Math.sqrt(p.v||1)),color:'#7c8696',weight:1,fillColor:'#aab4c2',fillOpacity:.5});m.bindPopup(pop(p,(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);placeG.addLayer(m);markerById[p.id]={m,lat:p.lat,lon:p.lon,label:p.label};});
+  const evItems=d.events.map(e=>{const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop(e,'<br><span style="color:#6b7785">'+ordY(e.tStart)+' · at '+esc(e.place||'')+'</span>'));m.bindTooltip(e.label);markerById[e.id]={m,lat:e.lat,lon:e.lon,label:e.label};return{m,t:e.tStart};});
   const evG=L.layerGroup();evItems.forEach(i=>evG.addLayer(i.m));
-  const pItems=d.people.map(pe=>{const m=L.circleMarker([pe.lat,pe.lon],{radius:6,color:'#fff',weight:1,fillColor:sigC(pe,'#2563eb'),fillOpacity:.9});m.bindPopup(pop(pe,'<br><span style="color:#6b7785">'+ordY(pe.tStart)+(pe.tEnd!=null?' – '+ordY(pe.tEnd):'')+' · b. '+esc(pe.place||'')+'</span>'));m.bindTooltip(pe.label);return{m,t0:pe.tStart,t1:pe.tEnd!=null?pe.tEnd:pe.tStart};});
+  const pItems=d.people.map(pe=>{const m=L.circleMarker([pe.lat,pe.lon],{radius:6,color:'#fff',weight:1,fillColor:sigC(pe,'#2563eb'),fillOpacity:.9});m.bindPopup(pop(pe,'<br><span style="color:#6b7785">'+ordY(pe.tStart)+(pe.tEnd!=null?' – '+ordY(pe.tEnd):'')+' · b. '+esc(pe.place||'')+'</span>'));m.bindTooltip(pe.label);markerById[pe.id]={m,lat:pe.lat,lon:pe.lon,label:pe.label};return{m,t0:pe.tStart,t1:pe.tEnd!=null?pe.tEnd:pe.tStart};});
   const peopleG=L.layerGroup();pItems.forEach(i=>peopleG.addLayer(i.m));
   placeG.addTo(map);evG.addTo(map);
+  // map search → zoom to a place/activity/person by name
+  const allGeo=[...d.places,...d.events,...d.people];
+  const sbox=document.createElement('div');sbox.className='map-search';
+  sbox.innerHTML='<input id="mapq" placeholder="Find on map… (e.g. Jeruel, Bethel)"/><div id="mapres"></div>';
+  document.getElementById('map').appendChild(sbox);
+  const mapq=sbox.querySelector('#mapq'),mapres=sbox.querySelector('#mapres');
+  const goTo=(id)=>{const mk=markerById[id];if(!mk||!isFinite(mk.lat))return;map.flyTo([mk.lat,mk.lon],11);mk.m.openPopup();mapres.innerHTML='';mapq.value=mk.label;};
+  const runMap=()=>{const t=mapq.value.trim().toLowerCase();if(t.length<2){mapres.innerHTML='';return;}
+    const hits=allGeo.filter(n=>(n.label||'').toLowerCase().includes(t)&&markerById[n.id]).slice(0,8);
+    mapres.innerHTML=hits.length?'<ul class="list">'+hits.map(h=>'<li data-id="'+esc(h.id)+'">'+dot(h.kind||'place')+esc(h.label)+(h.place?' <span class="muted">'+esc(h.place)+'</span>':'')+'</li>').join('')+'</ul>':'<div class="ghint" style="padding:6px 10px">No mapped match for “'+esc(mapq.value)+'”.</div>';
+    mapres.querySelectorAll('[data-id]').forEach(li=>li.onclick=()=>goTo(li.dataset.id));};
+  let mt;mapq.oninput=()=>{clearTimeout(mt);mt=setTimeout(runMap,150);};
+  mapq.onkeydown=(e)=>{if(e.key==='Enter'){const f=mapres.querySelector('[data-id]');if(f)goTo(f.dataset.id);}};
   const layers={Places:placeG,Activities:evG,People:peopleG},on={Places:true,Activities:true,People:false};
   const lchip=(k)=>'<span class="gchip'+(on[k]?' on':'')+'" data-l="'+k+'"'+(on[k]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+k+' ('+(k==='Places'?d.places.length:k==='Activities'?d.events.length:d.people.length)+')</span>';
   document.getElementById('glayers').innerHTML=Object.keys(layers).map(lchip).join('');

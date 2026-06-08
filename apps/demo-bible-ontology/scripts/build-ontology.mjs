@@ -27,6 +27,9 @@ const yr = (v) => {
   return m ? parseInt(m[0], 10) : null;
 };
 const ord = (y) => (y == null ? null : `${Math.abs(y)} ${y < 0 ? 'BC' : 'AD'}`);
+// All dates are scholarly estimates (the Bible states no calendar dates) — mark them "c." (circa).
+const circa = (y) => (y == null ? null : `c. ${Math.abs(y)} ${y < 0 ? 'BC' : 'AD'}`);
+const lifespan = (b, d) => { b = yr(b); d = yr(d); if (b == null && d == null) return null; const era = (d ?? b) < 0 ? ' BC' : ' AD'; return 'c. ' + [b != null ? Math.abs(b) : null, d != null ? Math.abs(d) : null].filter((x) => x != null).join('–') + era; };
 const slugify = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
 // "also known as": distinct name forms (label + canonical-slug name so "Peter" finds the node
 // labelled "Simon" + curated alternate names). Stored pipe-separated so it's both LIKE-searchable
@@ -350,7 +353,7 @@ function main() {
   // people → prov:Agent (+ role/skill/membership)
   for (const p of people) {
     const f = p.fields;
-    const span = [ord(yr(f.birthYear)), ord(yr(f.deathYear))].filter(Boolean).join(' – ');
+    const span = lifespan(f.birthYear, f.deathYear);
     addNode({ id: p.id, canonId: f.personLookup ?? f.slug, label: f.name ?? 'Person', kind: 'person', disambig: span || (f.gender ?? null), prov: 'prov:Person', dul: 'dul:Person', gc: 'gc:Person', aps: null, authority: f.dictionaryLink ?? null, tStart: yr(f.birthYear), tEnd: yr(f.deathYear), extra: { gender: f.gender, birthYear: f.birthYear, deathYear: f.deathYear } });
     linkVerses(p.id, f.verses);
   }
@@ -408,7 +411,7 @@ function main() {
   // events → prov:Activity (+ participants, verses)
   for (const e of events) {
     const f = e.fields;
-    addNode({ id: e.id, canonId: `${slugify(f.title)}_${e.id.slice(-4)}`, label: f.title ?? 'Event', kind: 'event', disambig: ord(yr(f.startDate)), prov: 'prov:Activity', dul: 'dul:Event', gc: classifyEventGc(f.title), aps: null, tStart: yr(f.startDate), tEnd: null, extra: { startDate: f.startDate, duration: f.duration } });
+    addNode({ id: e.id, canonId: `${slugify(f.title)}_${e.id.slice(-4)}`, label: f.title ?? 'Event', kind: 'event', disambig: circa(yr(f.startDate)), prov: 'prov:Activity', dul: 'dul:Event', gc: classifyEventGc(f.title), aps: null, tStart: yr(f.startDate), tEnd: null, extra: { startDate: f.startDate, duration: f.duration } });
     linkVerses(e.id, f.verses);
     for (const part of f.participants ?? []) if (known.has(part)) addEdge(e.id, 'prov:wasAssociatedWith', part);
     for (const loc of f.locations ?? []) if (known.has(loc)) addEdge(e.id, 'dul:hasLocation', loc); // event → place (real Theographic data)
@@ -471,14 +474,8 @@ function main() {
   }
   console.log('enriched', enriched, '/', ENRICH.length, 'with image+authority |', lowConf, 'low-confidence (<0.85) bindings flagged');
 
-  // approximate dates for undated key figures (mostly NT) → they appear on the timeline
-  let dated = 0;
-  for (const [name, [b, d]] of Object.entries(FLOR_DATES)) {
-    const id = pickMax(peopleByKey.get(norm(name)));
-    const nd = id && byId.get(id);
-    if (nd && nd.tStart == null) { nd.tStart = b; nd.tEnd = d; nd.extra = { ...nd.extra, dateApprox: true }; dated++; }
-  }
-  console.log('floruit dates applied to', dated, 'undated figures');
+  // (No fabricated floruit dates — only dates derived from the Theographic dataset are kept, and all
+  //  are labelled as scholarly estimates. The Bible states no calendar dates.)
 
   // org derivation ("what grew out of what"): tribe/nation/house → eponymous founder; tribes ⊂ nation
   let derived = 0;
