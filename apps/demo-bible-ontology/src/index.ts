@@ -111,8 +111,8 @@ app.get('/api/node/:id', async (c) => {
   const node = await c.env.DB.prepare('SELECT * FROM node WHERE id=?').bind(id).first();
   if (!node) return c.json({ ok: false, error: 'not found' }, 404);
   const [out, inc, verses, signals, scores, formsR, xrefsR, sourcesR] = await Promise.all([
-    rows(c.env.DB, 'SELECT e.rel, e.dst id, n.label, n.kind FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=? LIMIT 200', id),
-    rows(c.env.DB, 'SELECT e.rel, e.src id, n.label, n.kind FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? LIMIT 200', id),
+    rows(c.env.DB, 'SELECT e.rel, e.dst id, n.label, n.kind, e.ctx FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=? LIMIT 250', id),
+    rows(c.env.DB, 'SELECT e.rel, e.src id, n.label, n.kind, e.ctx FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? LIMIT 250', id),
     rows<{ osis: string }>(c.env.DB, 'SELECT osis FROM node_verse WHERE node_id=? LIMIT 80', id),
     rows(c.env.DB, 'SELECT polarity, basis, osis FROM signal WHERE subject_id=?', id),
     rows(c.env.DB, 'SELECT dimension, value, basis, method FROM score WHERE subject_id=? ORDER BY dimension', id),

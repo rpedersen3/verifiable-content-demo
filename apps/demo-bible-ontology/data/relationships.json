@@ -1,0 +1,25 @@
+{
+  "kinship": [
+    { "a": "Mark", "b": "Barnabas", "rel": "cousin", "osis": "Col.4.10" },
+    { "a": "Esther", "b": "Mordecai", "rel": "cousin / guardian", "osis": "Esth.2.7" },
+    { "a": "Mary, mother of Jesus", "b": "Elizabeth", "rel": "relative", "osis": "Luke.1.36" },
+    { "a": "Lois", "b": "Timotheus", "rel": "grandmother", "osis": "2Tim.1.5" },
+    { "a": "Abraham", "b": "Lot", "rel": "uncle / nephew", "osis": "Gen.12.5" }
+  ],
+  "companion": [
+    { "a": "Paul", "b": "Aristarchus", "rel": "fellow prisoner", "osis": "Col.4.10" },
+    { "a": "Paul", "b": "Barnabas", "rel": "missionary companion", "osis": "Acts.13.2" },
+    { "a": "Paul", "b": "Silas", "rel": "missionary companion", "osis": "Acts.15.40" },
+    { "a": "Paul", "b": "Luke", "rel": "fellow worker", "osis": "Col.4.14" },
+    { "a": "Paul", "b": "Titus", "rel": "partner", "osis": "2Cor.8.23" },
+    { "a": "Paul", "b": "Mark", "rel": "fellow worker", "osis": "Phlm.1.24" },
+    { "a": "Paul", "b": "Priscilla", "rel": "fellow worker", "osis": "Rom.16.3" },
+    { "a": "Paul", "b": "Aquila", "rel": "fellow worker", "osis": "Rom.16.3" },
+    { "a": "Paul", "b": "Epaphras", "rel": "fellow servant", "osis": "Col.1.7" },
+    { "a": "Paul", "b": "Onesimus", "rel": "fellow worker", "osis": "Phlm.1.10" },
+    { "a": "Barnabas", "b": "Mark", "rel": "ministry companion", "osis": "Acts.15.39" },
+    { "a": "Peter", "b": "Mark", "rel": "mentor (like a son)", "osis": "1Pet.5.13" },
+    { "a": "David", "b": "Jonathan", "rel": "covenant friend", "osis": "1Sam.18.1" },
+    { "a": "Aquila", "b": "Priscilla", "rel": "spouse / co-worker", "osis": "Acts.18.2" }
+  ]
+}

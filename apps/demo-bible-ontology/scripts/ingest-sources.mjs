@@ -312,6 +312,24 @@ export function ingestPlans(ctx) {
   return { plans, steps, acts };
 }
 
+// Curated interpersonal relationships beyond Theographic's parent/sibling/spouse — kinship
+// (gc:hasRelative: Mark cousin of Barnabas, Col 4:10) and companionship (gc:companionOf: Paul's
+// fellow workers / prisoners / travellers), each with its scripture reference. One symmetric edge
+// per pair (the graph shows it on both people), so they appear in each other's oikos circles.
+export function ingestRelationships(ctx) {
+  const { byId, addEdge, peopleByKey, norm, ROOT } = ctx;
+  let data;
+  try { data = JSON.parse(readFileSync(join(ROOT, 'apps', 'demo-bible-ontology', 'data', 'relationships.json'), 'utf8')); }
+  catch { return { kinship: 0, companion: 0 }; }
+  const pick = (name) => { const a = peopleByKey.get(norm(name)); if (!a || !a.length) return null; const m = new Map(); for (const c of a) m.set(c.id, Math.max(m.get(c.id) ?? -1, c.v)); return [...m].sort((x, y) => y[1] - x[1])[0][0]; };
+  const skipped = [];
+  const run = (list, rel) => { let n = 0; for (const r of list ?? []) { const a = pick(r.a), b = pick(r.b); if (!a || !b || a === b) { skipped.push(`${r.a}↔${r.b}`); continue; } addEdge(a, rel, b, JSON.stringify({ osis: r.osis, rel: r.rel })); n++; } return n; };
+  const kinship = run(data.kinship, 'gc:hasRelative');
+  const companion = run(data.companion, 'gc:companionOf');
+  if (skipped.length) console.log('relationships skipped (unresolved):', skipped.join(', '));
+  return { kinship, companion };
+}
+
 // New Testament churches as agentive assemblies (gc:AgentiveEkklesia) — the groups Paul & others
 // planted and wrote to (the Philippians, Ephesians, …), located at their city, founded by their
 // planter. These are the "church" organizations Theographic lacks. Returns a name→church-id map.

@@ -371,7 +371,8 @@ function oikosFor(id){nav('oikos/'+id);}
 async function renderNode(id){
   const d=await api('/node/'+encodeURIComponent(id));if(!d.ok)return;
   const n=d.node;const cls=[['prov',n.prov_class],['dul',n.dul_class],['org',n.org_class],['geo',n.geo_class],['aps',n.aps_class],['gc',n.gc_class]].filter(x=>x[1]);
-  const grp=(arr,dir)=>{const by={};arr.forEach(e=>{(by[e.rel]=by[e.rel]||[]).push(e)});return Object.entries(by).map(([rel,es])=>'<div class="edge-grp"><div class="rel">'+esc(rel)+(dir==='in'?' (inverse)':'')+'</div>'+es.map(e=>'<a onclick="showNode(\\''+e.id+'\\')">'+dot(e.kind)+esc(e.label)+'</a>').join('')+'</div>').join('');};
+  const ectx=(e)=>{let x='';try{const c=JSON.parse(e.ctx||'null');if(c){if(c.rel)x+=' <span class="muted">('+esc(c.rel)+')</span>';if(c.n)x+=' <span class="muted">×'+c.n+'</span>';if(c.osis)x+=' <a class="vref" onclick="openPassage(\\''+esc(c.osis)+'\\')" style="text-decoration:underline">'+esc(c.osis)+'</a>';else if(c.refs)x+=' '+c.refs.slice(0,3).map(o=>'<a class="vref" onclick="openPassage(\\''+esc(o)+'\\')" style="text-decoration:underline;font-size:11px">'+esc(o)+'</a>').join(' ');}}catch(z){}return x;};
+  const grp=(arr,dir)=>{const by={};arr.forEach(e=>{(by[e.rel]=by[e.rel]||[]).push(e)});return Object.entries(by).map(([rel,es])=>'<div class="edge-grp"><div class="rel">'+esc(rel)+(dir==='in'?' (inverse)':'')+'</div>'+es.map(e=>'<span style="margin-right:10px;white-space:nowrap"><a onclick="showNode(\\''+e.id+'\\')">'+dot(e.kind)+esc(e.label)+'</a>'+ectx(e)+'</span>').join('')+'</div>').join('');};
   const geo=n.lat!=null?'<div class="hint">📍 '+n.lat+', '+n.long+' &nbsp;<span class="mono">'+esc(n.wkt||'')+'</span></div>':'';
   const ord=(y)=>y==null?'':(Math.abs(y)+(y<0?' BC':' AD'));
   const temporal=n.t_start!=null?'<div class="hint">🕑 '+ord(n.t_start)+(n.t_end!=null&&n.t_end!==n.t_start?' – '+ord(n.t_end):'')+'</div>':'';
@@ -395,7 +396,7 @@ async function renderNode(id){
 }
 let graphCenter=null,gFilters={},gExpand={};
 function graphFor(id){nav('graph/'+id);}
-function famOf(rel){const m={'gc:hasParent':'family','gc:hasChild':'family','gc:hasSibling':'family','gc:hasPartner':'family','org:memberOf':'org','org:hasMember':'org','org:member':'org','org:organization':'org','org:role':'org','prov:wasAssociatedWith':'events','gc:holdsRole':'role','aps:hasSkill':'role','gc:bornAt':'place','gc:diedAt':'place','gc:authoredBy':'events','gc:addressedTo':'events','gc:hasSpeaker':'events','gc:hasAddressee':'events','gc:spokeTo':'events','dul:hasLocation':'place','pplan:isStepOfPlan':'events','pplan:isPrecededBy':'events','pplan:correspondsToStep':'events','dul:defines':'events','gc:prescribes':'events','gc:fulfills':'events'};return m[rel]||'role';}
+function famOf(rel){const m={'gc:hasParent':'family','gc:hasChild':'family','gc:hasSibling':'family','gc:hasPartner':'family','gc:hasRelative':'family','gc:companionOf':'role','org:memberOf':'org','org:hasMember':'org','org:member':'org','org:organization':'org','org:role':'org','prov:wasAssociatedWith':'events','gc:holdsRole':'role','aps:hasSkill':'role','gc:bornAt':'place','gc:diedAt':'place','gc:authoredBy':'events','gc:addressedTo':'events','gc:hasSpeaker':'events','gc:hasAddressee':'events','gc:spokeTo':'events','dul:hasLocation':'place','pplan:isStepOfPlan':'events','pplan:isPrecededBy':'events','pplan:correspondsToStep':'events','dul:defines':'events','gc:prescribes':'events','gc:fulfills':'events'};return m[rel]||'role';}
 const SECT={family:{label:'Family',color:'#e87c3e',a:[0,60],th:10},role:{label:'Role/Skill',color:'#0d9488',a:[60,120],th:8},events:{label:'Events',color:'#0e7490',a:[120,210],th:4},place:{label:'Places',color:'#b45309',a:[210,270],th:99},org:{label:'Organization',color:'#9333ea',a:[270,360],th:6}};
 const FORD=['family','role','events','place','org'];
 const sigCol={positive:'#1a8a4f',negative:'#c0392b',mixed:'#b45309'};
@@ -576,7 +577,7 @@ async function geo(){
 // ── Oikos circles: concentric relationship rings out from a person ──
 let oikosCenter=null;
 const RING=[{label:'Family (oikos)',color:'#e87c3e',r:120},{label:'Household & kin',color:'#0d9488',r:212},{label:'Network & conversations',color:'#9333ea',r:300}];
-function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|org:member|org:organization|org:role/.test(rel))return 1;return 2;}
+function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner|hasRelative/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|org:member|org:organization|org:role|companionOf/.test(rel))return 1;return 2;}
 async function oikos(){
   V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Oikos circles — relationships out from a person</h3>'+
    '<p class="hint" style="margin-top:0">Concentric circles of <b>people</b> around a person: inner = <b>family</b> (oikos), middle = <b>household &amp; kin</b>, outer = <b>network &amp; conversations</b>. Search a person; click anyone to recenter.</p>'+

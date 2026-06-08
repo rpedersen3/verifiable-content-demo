@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ingestSources, ingestInteractions, ingestMacula, ingestPlans, ingestMovements, ingestChurches } from './ingest-sources.mjs';
+import { ingestSources, ingestInteractions, ingestMacula, ingestPlans, ingestMovements, ingestChurches, ingestRelationships } from './ingest-sources.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -167,6 +167,8 @@ const PROPS = [
   ['gc:hasChild', 'has child', 'gc', 'gc:Person', 'gc:Person', 'gc:hasParent'],
   ['gc:hasSibling', 'has sibling', 'gc', 'gc:Person', 'gc:Person', 'gc:hasSibling'],
   ['gc:hasPartner', 'has partner', 'gc', 'gc:Person', 'gc:Person', 'gc:hasPartner'],
+  ['gc:hasRelative', 'has relative', 'gc', 'gc:Person', 'gc:Person', 'gc:hasRelative'],   // kinship (cousin, nephew, …)
+  ['gc:companionOf', 'companion of', 'gc', 'prov:Agent', 'prov:Agent', 'gc:companionOf'], // fellow worker / traveller / prisoner
   ['gc:bornAt', 'born at', 'gc', 'gc:Person', 'gc:Place', null],
   ['gc:diedAt', 'died at', 'gc', 'gc:Person', 'gc:Place', null],
   ['gc:participatedIn', 'participated in', 'gc', 'prov:Agent', 'prov:Activity', 'prov:wasAssociatedWith'],
@@ -489,6 +491,10 @@ function main() {
   // spiritual generations — discipleship + church plants (movements) for the generational map
   const mv = ingestMovements({ ROOT, byId, addEdge, peopleByKey, placeByLabel, norm });
   console.log('movements · discipled', mv.discipled, '· planted', mv.planted);
+
+  // interpersonal relationships beyond family — kinship + companionship (with scripture)
+  const rel = ingestRelationships({ ROOT, byId, addEdge, peopleByKey, norm });
+  console.log('relationships · kinship', rel.kinship, '· companion', rel.companion);
 
   // ── emit chunked SQL ──
   mkdirSync(OUT, { recursive: true });
