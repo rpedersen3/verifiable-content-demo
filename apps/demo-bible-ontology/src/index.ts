@@ -217,7 +217,7 @@ app.get('/api/orgs', async (c) => {
 app.get('/api/geo', async (c) => {
   const refs = (col: string) => `(SELECT group_concat(osis,'|') FROM (SELECT osis FROM node_verse WHERE node_id=${col} LIMIT 6)) refs`;
   const [places, events, people] = await Promise.all([
-    rows(c.env.DB, `SELECT id,canon_id,label,lat,long lon,disambig,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v,${refs('node.id')} FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL`),
+    rows(c.env.DB, `SELECT id,canon_id,label,lat,long lon,disambig,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v,${refs('node.id')},CASE WHEN json_extract(meta,'$.featureType')='Region' OR json_extract(meta,'$.obTypes') LIKE '%region%' THEN 1 ELSE 0 END region FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL`),
     rows(c.env.DB, `SELECT e.id,e.canon_id,e.label,e.t_start tStart,p.lat,p.long lon,p.label place,(SELECT polarity FROM signal WHERE subject_id=e.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=e.id) v,${refs('e.id')} FROM node e JOIN edge ed ON ed.src=e.id AND ed.rel='dul:hasLocation' JOIN node p ON p.id=ed.dst WHERE e.kind='event' AND p.lat IS NOT NULL`),
     rows(c.env.DB, `SELECT pe.id,pe.canon_id,pe.label,pe.t_start tStart,pe.t_end tEnd,pl.lat,pl.long lon,pl.label place,(SELECT polarity FROM signal WHERE subject_id=pe.id LIMIT 1) sig,${refs('pe.id')} FROM node pe JOIN edge ed ON ed.src=pe.id AND ed.rel='gc:bornAt' JOIN node pl ON pl.id=ed.dst WHERE pe.kind='person' AND pl.lat IS NOT NULL`),
   ]);

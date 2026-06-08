@@ -621,8 +621,8 @@ async function geo(){
   const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);return r.length?'<div style="margin-top:5px">'+r.map(o=>'<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:#eef2fb;color:#3a4a63;border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none">'+esc(o)+'</a>').join('')+'</div>':'';};
   const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
   const placeG=L.layerGroup();
-  const markerById={};
-  d.places.forEach(p=>{const m=L.circleMarker([p.lat,p.lon],{radius:Math.min(9,3+Math.sqrt(p.v||1)),color:'#7c8696',weight:1,fillColor:'#aab4c2',fillOpacity:.5});m.bindPopup(pop(p,(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);placeG.addLayer(m);markerById[p.id]={m,lat:p.lat,lon:p.lon,label:p.label};});
+  const markerById={},regionG=L.layerGroup();
+  d.places.forEach(p=>{const isR=p.region;const m=L.circleMarker([p.lat,p.lon],{radius:isR?7:Math.min(9,3+Math.sqrt(p.v||1)),color:isR?'#b45309':'#7c8696',weight:isR?2:1,fillColor:isR?'#fbe3c6':'#aab4c2',fillOpacity:isR?.35:.5,dashArray:isR?'3 3':null});m.bindPopup(pop(p,(isR?'<br><span class="muted">region · general area (approx.)</span>':'')+(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);(isR?regionG:placeG).addLayer(m);markerById[p.id]={m,lat:p.lat,lon:p.lon,label:p.label};});
   const evItems=d.events.map(e=>{const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop(e,'<br><span style="color:#6b7785">'+ordY(e.tStart)+' · at '+esc(e.place||'')+'</span>'));m.bindTooltip(e.label);markerById[e.id]={m,lat:e.lat,lon:e.lon,label:e.label};return{m,t:e.tStart};});
   const evG=L.layerGroup();evItems.forEach(i=>evG.addLayer(i.m));
   const pItems=d.people.map(pe=>{const m=L.circleMarker([pe.lat,pe.lon],{radius:6,color:'#fff',weight:1,fillColor:sigC(pe,'#2563eb'),fillOpacity:.9});m.bindPopup(pop(pe,'<br><span style="color:#6b7785">'+ordY(pe.tStart)+(pe.tEnd!=null?' – '+ordY(pe.tEnd):'')+' · b. '+esc(pe.place||'')+'</span>'));m.bindTooltip(pe.label);markerById[pe.id]={m,lat:pe.lat,lon:pe.lon,label:pe.label};return{m,t0:pe.tStart,t1:pe.tEnd!=null?pe.tEnd:pe.tStart};});
@@ -634,15 +634,16 @@ async function geo(){
   sbox.innerHTML='<input id="mapq" placeholder="Find on map… (e.g. Jeruel, Bethel)"/><div id="mapres"></div>';
   document.getElementById('map').appendChild(sbox);
   const mapq=sbox.querySelector('#mapq'),mapres=sbox.querySelector('#mapres');
-  const goTo=(id)=>{const mk=markerById[id];if(!mk||!isFinite(mk.lat))return;map.flyTo([mk.lat,mk.lon],11);mk.m.openPopup();mapres.innerHTML='';mapq.value=mk.label;};
+  const goTo=(id)=>{const mk=markerById[id];if(!mk||!isFinite(mk.lat))return;if(!map.hasLayer(mk.m))mk.m.addTo(map);map.flyTo([mk.lat,mk.lon],11);mk.m.openPopup();mapres.innerHTML='';mapq.value=mk.label;};
   const runMap=()=>{const t=mapq.value.trim().toLowerCase();if(t.length<2){mapres.innerHTML='';return;}
     const hits=allGeo.filter(n=>(n.label||'').toLowerCase().includes(t)&&markerById[n.id]).slice(0,8);
     mapres.innerHTML=hits.length?'<ul class="list">'+hits.map(h=>'<li data-id="'+esc(h.id)+'">'+dot(h.kind||'place')+esc(h.label)+(h.place?' <span class="muted">'+esc(h.place)+'</span>':'')+'</li>').join('')+'</ul>':'<div class="ghint" style="padding:6px 10px">No mapped match for “'+esc(mapq.value)+'”.</div>';
     mapres.querySelectorAll('[data-id]').forEach(li=>li.onclick=()=>goTo(li.dataset.id));};
   let mt;mapq.oninput=()=>{clearTimeout(mt);mt=setTimeout(runMap,150);};
   mapq.onkeydown=(e)=>{if(e.key==='Enter'){const f=mapres.querySelector('[data-id]');if(f)goTo(f.dataset.id);}};
-  const layers={Places:placeG,Activities:evG,People:peopleG},on={Places:true,Activities:true,People:false};
-  const lchip=(k)=>'<span class="gchip'+(on[k]?' on':'')+'" data-l="'+k+'"'+(on[k]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+k+' ('+(k==='Places'?d.places.length:k==='Activities'?d.events.length:d.people.length)+')</span>';
+  const layers={Places:placeG,Activities:evG,People:peopleG,Regions:regionG},on={Places:true,Activities:true,People:false,Regions:false};
+  const nReg=d.places.filter(p=>p.region).length,cnt={Places:d.places.length-nReg,Activities:d.events.length,People:d.people.length,Regions:nReg};
+  const lchip=(k)=>'<span class="gchip'+(on[k]?' on':'')+'" data-l="'+k+'"'+(on[k]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+k+' ('+cnt[k]+')</span>';
   document.getElementById('glayers').innerHTML=Object.keys(layers).map(lchip).join('');
   document.querySelectorAll('#glayers [data-l]').forEach(ch=>ch.onclick=()=>{const k=ch.dataset.l;on[k]=!on[k];if(on[k]){layers[k].addTo(map);ch.style.cssText='background:var(--accent);color:#fff;border-color:var(--accent)';}else{map.removeLayer(layers[k]);ch.style.cssText='';}ch.classList.toggle('on',on[k]);applyYear();});
   const yrs=[...evItems.map(i=>i.t),...pItems.map(i=>i.t0)].filter(y=>y!=null);
