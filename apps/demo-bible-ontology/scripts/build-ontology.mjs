@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ingestSources } from './ingest-sources.mjs';
+import { ingestSources, ingestInteractions } from './ingest-sources.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -98,6 +98,9 @@ const CLASSES = [
   ['gc:Community', 'Community', 'gc', 'org:Organization'], ['gc:Tribe', 'Tribe', 'gc', 'org:OrganizationalUnit'], ['gc:Nation', 'Nation', 'gc', 'org:FormalOrganization'],
   ['gc:House', 'House / Lineage', 'gc', 'org:OrganizationalUnit'], ['gc:ApostolicBody', 'Apostolic Body', 'gc', 'gc:AgentiveEkklesia'],
   ['gc:BiblicalEvent', 'Biblical Event', 'gc', 'prov:Activity'], ['gc:Covenant', 'Covenant', 'gc', 'dul:Description'],
+  // fine-grained interactions (conversation level) — speech acts, letters, encounters between agents
+  ['gc:Interaction', 'Interaction', 'gc', 'gc:BiblicalEvent'], ['gc:Correspondence', 'Correspondence (Letter)', 'gc', 'gc:Interaction'],
+  ['gc:SpeechAct', 'Speech Act', 'gc', 'gc:Interaction'], ['gc:Encounter', 'Encounter', 'gc', 'gc:Interaction'],
   ['gc:Place', 'Biblical Place', 'gc', 'geo:Feature'], ['gc:Responsibility', 'Responsibility', 'gc', 'dul:Concept'],
   // gc roles (Bible usage)
   ...[['Patriarch'], ['Matriarch'], ['Prophet'], ['Prophetess'], ['Priest'], ['HighPriest', 'High Priest'], ['King'], ['Queen'], ['Judge'], ['Apostle'], ['Disciple'], ['Levite'], ['Elder'], ['Deacon'], ['Evangelist'], ['Leader'], ['Governor'], ['Scribe'], ['Shepherd'], ['Messiah']].map(([r, l]) => [`gc:${r}`, l ?? r, 'gc', 'org:Role']),
@@ -154,6 +157,11 @@ const PROPS = [
   ['gc:assessedBy', 'assessed by', 'gc', 'gc:Signal', 'prov:Entity', null],
   // DnS attestation/corroboration relations: an entity is the setting for source Assertions;
   // each Assertion is asserted by a source Agent about the entity, and may corroborate others.
+  // interaction roles — who authored/spoke and who was addressed (⊂ prov:wasAssociatedWith)
+  ['gc:authoredBy', 'authored by', 'gc', 'gc:Correspondence', 'prov:Agent', 'gc:authorOf'],
+  ['gc:addressedTo', 'addressed to', 'gc', 'gc:Interaction', 'prov:Agent', null],
+  ['gc:hasSpeaker', 'has speaker', 'gc', 'gc:SpeechAct', 'prov:Agent', null],
+  ['gc:hasAddressee', 'has addressee', 'gc', 'gc:Interaction', 'prov:Agent', null],
   ['gc:attestedBy', 'attested by', 'gc', 'dul:Entity', 'gc:Attestation', null],
   ['gc:assertedBy', 'asserted by', 'gc', 'gc:Attestation', 'prov:Agent', 'dul:isSettingFor'],
   ['gc:assertsAbout', 'asserts about', 'gc', 'gc:Attestation', 'dul:Entity', null],
@@ -320,6 +328,7 @@ function main() {
     addNode({ id: e.id, canonId: `${slugify(f.title)}_${e.id.slice(-4)}`, label: f.title ?? 'Event', kind: 'event', disambig: ord(yr(f.startDate)), prov: 'prov:Activity', dul: 'dul:Event', gc: 'gc:BiblicalEvent', aps: null, tStart: yr(f.startDate), tEnd: null, extra: { startDate: f.startDate, duration: f.duration } });
     linkVerses(e.id, f.verses);
     for (const part of f.participants ?? []) if (known.has(part)) addEdge(e.id, 'prov:wasAssociatedWith', part);
+    for (const loc of f.locations ?? []) if (known.has(loc)) addEdge(e.id, 'dul:hasLocation', loc); // event → place (real Theographic data)
   }
 
   // ── external enrichment: attach Wikidata authority + licensed image to matching nodes ──
@@ -385,6 +394,10 @@ function main() {
   console.log('ingest · tipnr', JSON.stringify(ingest.stats.tipnr), '· openbible', JSON.stringify(ingest.stats.openbible));
   console.log('ingest · sources', ingest.sources.length, '· xrefs', ingest.xrefs.length, '· node_source', ingest.nodeSources.length, '· forms', ingest.forms.length);
 
+  // curated fine-grained interactions (letters / speech acts) — conversation-level trust-graph edges
+  const interactions = ingestInteractions({ ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm });
+  console.log('interactions ·', interactions.count, 'created ·', interactions.edges, 'recipient edges ·', interactions.skipped, 'skipped');
+
   // ── emit chunked SQL ──
   mkdirSync(OUT, { recursive: true });
   const files = [];
@@ -448,7 +461,7 @@ function main() {
   const maxV = Math.max(1, ...verseCount.values());
   const maxD = Math.max(1, ...degree.values());
   const lognorm = (x, max) => (x > 0 ? +(Math.log1p(x) / Math.log1p(max)).toFixed(3) : 0);
-  const SCORE_KINDS = new Set(['person', 'place', 'event', 'organization']);
+  const SCORE_KINDS = new Set(['person', 'place', 'event', 'organization', 'interaction']);
   const scoreRows = [];
   // computed: scriptural_trust (verse coverage) + graph_trust (connectivity)
   for (const n of nodes) {

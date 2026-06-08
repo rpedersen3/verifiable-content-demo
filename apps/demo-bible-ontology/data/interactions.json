@@ -1,0 +1,20 @@
+[
+  { "id": "epistle-romans", "kind": "correspondence", "label": "Paul's letter to the Romans", "author": "Paul", "recipients": ["Rome"], "osis": "Rom.1.7", "basis": "Epistle to the church at Rome" },
+  { "id": "epistle-1corinthians", "kind": "correspondence", "label": "Paul's first letter to the Corinthians", "author": "Paul", "recipients": ["Corinth"], "osis": "1Cor.1.2", "basis": "First epistle to the church at Corinth" },
+  { "id": "epistle-2corinthians", "kind": "correspondence", "label": "Paul's second letter to the Corinthians", "author": "Paul", "recipients": ["Corinth"], "osis": "2Cor.1.1", "basis": "Second epistle to the church at Corinth" },
+  { "id": "epistle-galatians", "kind": "correspondence", "label": "Paul's letter to the Galatians", "author": "Paul", "recipients": ["Galatia"], "osis": "Gal.1.2", "basis": "Epistle to the churches of Galatia" },
+  { "id": "epistle-ephesians", "kind": "correspondence", "label": "Paul's letter to the Ephesians", "author": "Paul", "recipients": ["Ephesus"], "osis": "Eph.1.1", "basis": "Epistle to the church at Ephesus" },
+  { "id": "epistle-philippians", "kind": "correspondence", "label": "Paul's letter to the Philippians", "author": "Paul", "recipients": ["Philippi"], "osis": "Phil.1.1", "basis": "Epistle to the church at Philippi" },
+  { "id": "epistle-colossians", "kind": "correspondence", "label": "Paul's letter to the Colossians", "author": "Paul", "recipients": ["Colossae"], "osis": "Col.1.2", "basis": "Epistle to the church at Colossae" },
+  { "id": "epistle-1thessalonians", "kind": "correspondence", "label": "Paul's first letter to the Thessalonians", "author": "Paul", "recipients": ["Thessalonica"], "osis": "1Thess.1.1", "basis": "First epistle to the church at Thessalonica" },
+  { "id": "epistle-2thessalonians", "kind": "correspondence", "label": "Paul's second letter to the Thessalonians", "author": "Paul", "recipients": ["Thessalonica"], "osis": "2Thess.1.1", "basis": "Second epistle to the church at Thessalonica" },
+  { "id": "epistle-1timothy", "kind": "correspondence", "label": "Paul's first letter to Timothy", "author": "Paul", "recipients": ["Timotheus"], "osis": "1Tim.1.2", "basis": "Pastoral epistle to Timothy" },
+  { "id": "epistle-2timothy", "kind": "correspondence", "label": "Paul's second letter to Timothy", "author": "Paul", "recipients": ["Timotheus"], "osis": "2Tim.1.2", "basis": "Pastoral epistle to Timothy" },
+  { "id": "epistle-titus", "kind": "correspondence", "label": "Paul's letter to Titus", "author": "Paul", "recipients": ["Titus"], "osis": "Titus.1.4", "basis": "Pastoral epistle to Titus" },
+  { "id": "epistle-philemon", "kind": "correspondence", "label": "Paul's letter to Philemon", "author": "Paul", "recipients": ["Philemon"], "osis": "Phlm.1.1", "basis": "Personal epistle to Philemon" },
+  { "id": "epistle-3john", "kind": "correspondence", "label": "John's third letter, to Gaius", "author": "John", "recipients": ["Gaius"], "osis": "3John.1.1", "basis": "Third epistle of John, to Gaius" },
+  { "id": "revelation-seven-churches", "kind": "correspondence", "label": "Revelation to the seven churches", "author": "John", "recipients": ["Ephesus", "Smyrna", "Pergamum", "Thyatira", "Sardis", "Philadelphia", "Laodicea"], "osis": "Rev.1.11", "basis": "John writes to the seven churches of Asia" },
+  { "id": "annunciation", "kind": "speech", "label": "Gabriel's annunciation to Mary", "author": "Gabriel", "recipients": ["Mary"], "osis": "Luke.1.28", "basis": "The angel Gabriel announces the birth of Jesus to Mary" },
+  { "id": "nathan-confronts-david", "kind": "speech", "label": "Nathan confronts David", "author": "Nathan", "recipients": ["David"], "osis": "2Sam.12.7", "basis": "The prophet Nathan rebukes David: 'You are the man'" },
+  { "id": "jesus-restores-peter", "kind": "speech", "label": "Jesus restores Peter", "author": "Jesus", "recipients": ["Peter"], "osis": "John.21.15", "basis": "Jesus three times asks Peter 'Do you love me?'" }
+]

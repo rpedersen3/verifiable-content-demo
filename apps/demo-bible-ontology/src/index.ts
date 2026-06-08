@@ -142,6 +142,35 @@ app.get('/api/graph', async (c) => {
   return c.json({ ok: true, center, nodes: [...nodes.values()], edges });
 });
 
+// Geospatial — places (real coordinates), activities geolocated to their Theographic location,
+// and people at their birthplace (with lifespan for time animation). Only honest, edge-backed
+// locations are returned — no fabricated coordinates.
+app.get('/api/geo', async (c) => {
+  const [places, events, people] = await Promise.all([
+    rows(c.env.DB, "SELECT id,canon_id,label,lat,long lon,disambig,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL"),
+    rows(c.env.DB, "SELECT e.id,e.canon_id,e.label,e.t_start tStart,p.lat,p.long lon,p.label place,(SELECT polarity FROM signal WHERE subject_id=e.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=e.id) v FROM node e JOIN edge ed ON ed.src=e.id AND ed.rel='dul:hasLocation' JOIN node p ON p.id=ed.dst WHERE e.kind='event' AND p.lat IS NOT NULL"),
+    rows(c.env.DB, "SELECT pe.id,pe.canon_id,pe.label,pe.t_start tStart,pe.t_end tEnd,pl.lat,pl.long lon,pl.label place,(SELECT polarity FROM signal WHERE subject_id=pe.id LIMIT 1) sig FROM node pe JOIN edge ed ON ed.src=pe.id AND ed.rel='gc:bornAt' JOIN node pl ON pl.id=ed.dst WHERE pe.kind='person' AND pl.lat IS NOT NULL"),
+  ]);
+  return c.json({ ok: true, places, events, people });
+});
+
+// Timeline — dated people (lifespan bars) + events (points) within a year range. People overlap
+// the window if their [birth,death] intersects it; events if their start year is inside it. Both are
+// ranked by verse attestation and capped, with totals reported (no silent truncation).
+app.get('/api/timeline', async (c) => {
+  const from = parseInt(c.req.query('from') ?? '-4200', 10);
+  const to = parseInt(c.req.query('to') ?? '120', 10);
+  const evCap = Math.min(300, Math.max(20, parseInt(c.req.query('events') ?? '150', 10)));
+  const sel = "id,canon_id,label,kind,disambig,t_start tStart,t_end tEnd,image_thumb,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v";
+  const [people, events, evTot, pplTot] = await Promise.all([
+    rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='person' AND t_start IS NOT NULL AND t_start<=? AND COALESCE(t_end,t_start)>=? ORDER BY v DESC LIMIT 130`, to, from),
+    rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='event' AND t_start IS NOT NULL AND t_start<=? AND t_start>=? ORDER BY v DESC LIMIT ?`, to, from, evCap),
+    c.env.DB.prepare("SELECT count(*) n FROM node WHERE kind='event' AND t_start IS NOT NULL AND t_start<=? AND t_start>=?").bind(to, from).first<{ n: number }>(),
+    c.env.DB.prepare("SELECT count(*) n FROM node WHERE kind='person' AND t_start IS NOT NULL AND t_start<=? AND COALESCE(t_end,t_start)>=?").bind(to, from).first<{ n: number }>(),
+  ]);
+  return c.json({ ok: true, from, to, people, events, eventTotal: evTot?.n ?? 0, peopleTotal: pplTot?.n ?? 0 });
+});
+
 // GCO validation — every GCO class by its PROV-O alignment + Bible-usage coverage.
 app.get('/api/validate', async (c) => {
   const align = c.req.query('align');

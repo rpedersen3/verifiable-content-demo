@@ -2,6 +2,8 @@
 export const UI = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Bible Ontology — PROV-O graph + GCO validation</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root{--bg:#f6f8fb;--card:#fff;--ink:#1f2733;--muted:#6b7785;--line:#e4e9f0;--accent:#2f6df0;--ok:#1a8a4f;--no:#c0392b;--warn:#b45309;--mono:ui-monospace,Menlo,monospace}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
@@ -84,6 +86,10 @@ a.xref:hover{background:#f8fafd}
 .prov{font-size:12px;margin-top:10px}
 .prov .src{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin:2px 5px 2px 0}
 .origin{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-radius:5px;padding:2px 7px;background:#eef2fb;color:#3a4a63}
+/* timeline */
+svg#tsvg{display:block;background:#fbfcfe}
+.tnode{cursor:pointer}.tnode:hover rect,.tnode:hover polygon{fill-opacity:1;stroke:#1f2733;stroke-width:1.2}
+.tnode:hover text{font-weight:600}
 </style></head><body><div class="wrap">
 <h1>Bible Ontology</h1>
 <div class="sub">A PROV-O graph of the Bible (Agent · Activity · Entity) over DUL · W3C ORG · GeoSPARQL · aps:skills · gc:, used to validate the Global Church Ontology. Data: Theographic Bible Metadata (CC-BY-SA).</div>
@@ -91,6 +97,8 @@ a.xref:hover{background:#f8fafd}
  <button data-t="overview" class="on">Overview</button>
  <button data-t="explore">Explore</button>
  <button data-t="classes">Inheritance</button>
+ <button data-t="timeline">Timeline</button>
+ <button data-t="geo">Map</button>
  <button data-t="graph">Trust graph</button>
  <button data-t="validate">Validate GCO</button>
  <button data-t="admin">Admin</button>
@@ -98,7 +106,7 @@ a.xref:hover{background:#f8fafd}
 <div id="view"></div>
 </div>
 <script>
-const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b'};
+const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b',interaction:'#db2777'};
 const V=document.getElementById('view');
 const api=(p)=>fetch('/api'+p).then(r=>r.json());
 const esc=(s)=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -176,9 +184,13 @@ function scoreBars(scores){
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));render();});
 
 async function render(){
+  if(geoTimer){clearInterval(geoTimer);geoTimer=null;}
+  if(geoMap&&tab!=='geo'){try{geoMap.remove();}catch(e){}geoMap=null;}
   if(tab==='overview')return overview();
   if(tab==='explore')return explore();
   if(tab==='classes')return classes();
+  if(tab==='timeline')return timeline();
+  if(tab==='geo')return geo();
   if(tab==='graph')return graph();
   if(tab==='validate')return validate();
   if(tab==='admin')return admin();
@@ -292,7 +304,7 @@ async function showNode(id){
 }
 let graphCenter=null,gFilters={},gExpand={};
 function graphFor(id){graphCenter=id;gExpand={};gFilters={};tab='graph';document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t==='graph'));graph();}
-function famOf(rel){const m={'gc:hasParent':'family','gc:hasChild':'family','gc:hasSibling':'family','gc:hasPartner':'family','org:memberOf':'org','org:hasMember':'org','org:member':'org','org:organization':'org','org:role':'org','prov:wasAssociatedWith':'events','gc:holdsRole':'role','aps:hasSkill':'role','gc:bornAt':'place','gc:diedAt':'place'};return m[rel]||'role';}
+function famOf(rel){const m={'gc:hasParent':'family','gc:hasChild':'family','gc:hasSibling':'family','gc:hasPartner':'family','org:memberOf':'org','org:hasMember':'org','org:member':'org','org:organization':'org','org:role':'org','prov:wasAssociatedWith':'events','gc:holdsRole':'role','aps:hasSkill':'role','gc:bornAt':'place','gc:diedAt':'place','gc:authoredBy':'events','gc:addressedTo':'events','gc:hasSpeaker':'events','gc:hasAddressee':'events','dul:hasLocation':'place'};return m[rel]||'role';}
 const SECT={family:{label:'Family',color:'#e87c3e',a:[0,60],th:10},role:{label:'Role/Skill',color:'#0d9488',a:[60,120],th:8},events:{label:'Events',color:'#0e7490',a:[120,210],th:4},place:{label:'Places',color:'#b45309',a:[210,270],th:99},org:{label:'Organization',color:'#9333ea',a:[270,360],th:6}};
 const FORD=['family','role','events','place','org'];
 const sigCol={positive:'#1a8a4f',negative:'#c0392b',mixed:'#b45309'};
@@ -366,6 +378,95 @@ async function drawGraph(){
   const det=wrap.querySelector('[data-details]');if(det)det.addEventListener('click',()=>showNodeTab(center));
 }
 function showNodeTab(id){tab='explore';document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t==='explore'));explore().then(()=>showNode(id));}
+// ── Timeline: people lifespans (bars) + activities (markers) on a BC/AD axis ──
+let tlFrom=-4200,tlTo=120;
+const TL_ERAS=[['Full sweep',-4200,120],['Patriarchs',-2100,-1400],['Exodus & Conquest',-1600,-1150],['Judges & Monarchy',-1250,-560],['Exile & Return',-620,-380],['New Testament',-12,90]];
+const ordY=(y)=>y==null?'':(Math.abs(y)+(y<0?' BC':' AD'));
+async function timeline(){
+  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Timeline — people &amp; activities</h3>'+
+   '<p class="hint" style="margin-top:0">Lifespans of dated people (bars) and biblical activities (markers) across history. Pick an era; hover for detail; click to open. Color = trust signal.</p>'+
+   '<div class="gchips" id="teras"></div><div id="twrap"></div></div><div id="ttip" class="gtip"></div>';
+  document.getElementById('teras').innerHTML=TL_ERAS.map((e,i)=>'<span class="gchip" data-i="'+i+'">'+esc(e[0])+'</span>').join('');
+  document.querySelectorAll('#teras [data-i]').forEach(ch=>ch.onclick=()=>{const e=TL_ERAS[ch.dataset.i];tlFrom=e[1];tlTo=e[2];tlMark(ch);drawTimeline();});
+  tlMark(document.querySelector('#teras [data-i]'));
+  drawTimeline();
+}
+function tlMark(ch){document.querySelectorAll('#teras [data-i]').forEach(x=>{const on=x===ch;x.classList.toggle('on',on);x.style.cssText=on?'background:var(--accent);color:#fff;border-color:var(--accent)':'';});}
+async function drawTimeline(){
+  const wrap=document.getElementById('twrap');wrap.innerHTML='<div class="ghint">loading…</div>';
+  const d=await api('/timeline?from='+tlFrom+'&to='+tlTo);
+  const W=1060,mL=10,mR=12,axisY=30,laneH=20,barH=13,span=(d.to-d.from)||1;
+  const X=(y)=>mL+(y-d.from)/span*(W-mL-mR);
+  const col=(n)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':(n.kind==='event'?'#0e7490':'#2563eb');
+  // people: greedy lane packing reserving room for the trailing label
+  const ppl=d.people.slice().sort((a,b)=>a.tStart-b.tStart),laneEnd=[];
+  const place=(x0,x1)=>{for(let i=0;i<laneEnd.length;i++){if(laneEnd[i]<=x0-6){laneEnd[i]=x1;return i;}}laneEnd.push(x1);return laneEnd.length-1;};
+  ppl.forEach(p=>{const x0=X(p.tStart),xe=X(p.tEnd!=null?p.tEnd:p.tStart),lw=Math.min(p.label.length,22)*6+12;p._x0=x0;p._xe=xe;p._lane=place(x0,Math.max(xe,x0+lw));});
+  const pL=laneEnd.length||1,pTop=axisY+18,pBot=pTop+pL*laneH;
+  // activities: diamonds, packed by x proximity
+  const evs=d.events.slice().sort((a,b)=>a.tStart-b.tStart),evEnd=[];
+  const ePlace=(x)=>{for(let i=0;i<evEnd.length;i++){if(evEnd[i]<=x-7){evEnd[i]=x+7;return i;}}evEnd.push(x+7);return evEnd.length-1;};
+  evs.forEach(e=>{e._x=X(e.tStart);e._lane=ePlace(e._x);});
+  const eL=evEnd.length||1,eTop=pBot+34,eBot=eTop+eL*15,H=eBot+20;
+  const step=span>3000?500:span>1500?250:span>700?100:span>250?50:20;
+  let ticks='';for(let y=Math.ceil(d.from/step)*step;y<=d.to;y+=step){const x=X(y);ticks+='<line x1="'+x+'" y1="'+axisY+'" x2="'+x+'" y2="'+H+'" stroke="#eef2f7"/><text x="'+x+'" y="'+(axisY-6)+'" text-anchor="middle" font-size="10" fill="#8a96a3">'+ordY(y)+'</text>';}
+  let s='<svg id="tsvg" viewBox="0 0 '+W+' '+H+'">'+ticks+'<line x1="'+mL+'" y1="'+axisY+'" x2="'+(W-mR)+'" y2="'+axisY+'" stroke="#cbd5e1"/>'+
+    '<text x="'+mL+'" y="'+(pTop-4)+'" font-size="10" font-weight="700" fill="#8a96a3">PEOPLE</text>';
+  ppl.forEach(p=>{const y=pTop+p._lane*laneH,x0=p._x0,xe=Math.max(p._xe,x0+3),c=col(p);
+    s+='<g class="tnode" data-id="'+esc(p.id)+'"><rect x="'+x0+'" y="'+y+'" width="'+(xe-x0)+'" height="'+barH+'" rx="3" fill="'+c+'" fill-opacity="0.85"/><text x="'+(xe+4)+'" y="'+(y+barH-3)+'" font-size="10" fill="#33404f">'+esc(p.label.length>22?p.label.slice(0,21)+'…':p.label)+'</text></g>';});
+  s+='<text x="'+mL+'" y="'+(eTop-6)+'" font-size="10" font-weight="700" fill="#8a96a3">ACTIVITIES</text>';
+  evs.forEach(e=>{const y=eTop+e._lane*15+5,x=e._x,c=col(e),r=4;s+='<g class="tnode" data-id="'+esc(e.id)+'"><polygon points="'+x+','+(y-r)+' '+(x+r)+','+y+' '+x+','+(y+r)+' '+(x-r)+','+y+'" fill="'+c+'"/></g>';});
+  s+='</svg>';
+  const tr=d.eventTotal>d.events.length?' <span class="muted">(top '+d.events.length+' of '+d.eventTotal+' by attestation)</span>':'';
+  wrap.innerHTML='<div class="ghint" style="margin:4px 0 6px">'+d.people.length+' people · '+d.events.length+' activities'+tr+' · '+ordY(d.from)+' – '+ordY(d.to)+'</div>'+s+
+    '<div class="glegend">▬ person lifespan &nbsp; ◆ activity &nbsp;·&nbsp; signal <span style="color:#1a8a4f">＋ good</span> / <span style="color:#c0392b">－ evil</span> / <span style="color:#b45309">~ mixed</span> &nbsp;·&nbsp; hover for detail, click to open</div>';
+  const tip=document.getElementById('ttip'),byId={};[...d.people,...d.events].forEach(n=>byId[n.id]=n);
+  wrap.querySelectorAll('.tnode').forEach(g=>{const n=byId[g.dataset.id];if(!n)return;
+    g.addEventListener('mouseenter',()=>{tip.style.display='block';tip.innerHTML=(n.image_thumb?'<img src="'+esc(n.image_thumb)+'" style="width:100%;height:70px;object-fit:cover;border-radius:6px;margin-bottom:4px"/>':'')+'<b>'+esc(n.label)+'</b> <span class="muted">'+n.kind+'</span><div class="muted">'+ordY(n.tStart)+(n.tEnd!=null&&n.tEnd!==n.tStart?' – '+ordY(n.tEnd):'')+'</div>'+(n.disambig?'<div class="muted">'+esc(n.disambig)+'</div>':'');});
+    g.addEventListener('mousemove',ev=>{tip.style.left=Math.min(ev.clientX+14,innerWidth-230)+'px';tip.style.top=(ev.clientY+14)+'px';});
+    g.addEventListener('mouseleave',()=>tip.style.display='none');
+    g.addEventListener('click',()=>showNodeTab(g.dataset.id));});
+}
+// ── Geospatial map (Leaflet) with time animation ──
+let geoMap=null,geoTimer=null;
+async function geo(){
+  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Geospatial — places · activities · people</h3>'+
+   '<p class="hint" style="margin-top:0">Real coordinates (OpenBible / Theographic). Activities sit at their recorded location and people at their birthplace — only edge-backed locations, no fabricated points. Toggle layers; drag the year or press play to animate history.</p>'+
+   '<div class="gchips" id="glayers"></div>'+
+   '<div id="map" style="height:520px;border:1px solid var(--line);border-radius:10px;z-index:0"></div>'+
+   '<div id="gtime" style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div></div>';
+  const mapEl=document.getElementById('map');
+  if(!window.L){mapEl.innerHTML='<div class="ghint" style="padding:24px">Map library could not load (offline?). The same data is in Explore / Timeline.</div>';return;}
+  const d=await api('/geo');
+  const map=L.map('map',{scrollWheelZoom:true}).setView([31.8,35.2],6);geoMap=map;
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:13,attribution:'&copy; OpenStreetMap'}).addTo(map);
+  const sigC=(n,def)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':def;
+  const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
+  const placeG=L.layerGroup();
+  d.places.forEach(p=>{const m=L.circleMarker([p.lat,p.lon],{radius:Math.min(9,3+Math.sqrt(p.v||1)),color:'#7c8696',weight:1,fillColor:'#aab4c2',fillOpacity:.5});m.bindPopup(pop(p,(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);placeG.addLayer(m);});
+  const evItems=d.events.map(e=>{const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop(e,'<br><span style="color:#6b7785">'+ordY(e.tStart)+' · at '+esc(e.place||'')+'</span>'));m.bindTooltip(e.label);return{m,t:e.tStart};});
+  const evG=L.layerGroup();evItems.forEach(i=>evG.addLayer(i.m));
+  const pItems=d.people.map(pe=>{const m=L.circleMarker([pe.lat,pe.lon],{radius:6,color:'#fff',weight:1,fillColor:sigC(pe,'#2563eb'),fillOpacity:.9});m.bindPopup(pop(pe,'<br><span style="color:#6b7785">'+ordY(pe.tStart)+(pe.tEnd!=null?' – '+ordY(pe.tEnd):'')+' · b. '+esc(pe.place||'')+'</span>'));m.bindTooltip(pe.label);return{m,t0:pe.tStart,t1:pe.tEnd!=null?pe.tEnd:pe.tStart};});
+  const peopleG=L.layerGroup();pItems.forEach(i=>peopleG.addLayer(i.m));
+  placeG.addTo(map);evG.addTo(map);
+  const layers={Places:placeG,Activities:evG,People:peopleG},on={Places:true,Activities:true,People:false};
+  const lchip=(k)=>'<span class="gchip'+(on[k]?' on':'')+'" data-l="'+k+'"'+(on[k]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+k+' ('+(k==='Places'?d.places.length:k==='Activities'?d.events.length:d.people.length)+')</span>';
+  document.getElementById('glayers').innerHTML=Object.keys(layers).map(lchip).join('');
+  document.querySelectorAll('#glayers [data-l]').forEach(ch=>ch.onclick=()=>{const k=ch.dataset.l;on[k]=!on[k];if(on[k]){layers[k].addTo(map);ch.style.cssText='background:var(--accent);color:#fff;border-color:var(--accent)';}else{map.removeLayer(layers[k]);ch.style.cssText='';}ch.classList.toggle('on',on[k]);applyYear();});
+  const yrs=[...evItems.map(i=>i.t),...pItems.map(i=>i.t0)].filter(y=>y!=null);
+  const minY=Math.min(...yrs),maxY=Math.max(...yrs);let cur=maxY;
+  document.getElementById('gtime').innerHTML='<button id="gplay" class="gchip">▶ play</button><input type="range" id="gyr" min="'+minY+'" max="'+maxY+'" value="'+maxY+'" style="flex:1;min-width:200px"><span id="gyl" class="mono" style="min-width:74px;font-weight:700"></span><label class="hint" style="display:flex;gap:5px;align-items:center;margin:0"><input type="checkbox" id="gcum" checked> cumulative</label>';
+  const yr=document.getElementById('gyr'),yl=document.getElementById('gyl'),cum=document.getElementById('gcum');
+  function applyYear(){cur=+yr.value;yl.textContent=ordY(cur);const c=cum.checked;
+    evItems.forEach(i=>{const vis=c?i.t<=cur:Math.abs(i.t-cur)<=40;i.m.setStyle({opacity:vis?1:0,fillOpacity:vis?.9:0});});
+    pItems.forEach(i=>{const vis=c?i.t0<=cur:(cur>=i.t0&&cur<=i.t1);i.m.setStyle({opacity:vis?1:0,fillOpacity:vis?.9:0});});}
+  yr.oninput=applyYear;cum.onchange=applyYear;
+  document.getElementById('gplay').onclick=function(){
+    if(geoTimer){clearInterval(geoTimer);geoTimer=null;this.textContent='▶ play';return;}
+    this.textContent='⏸ pause';const step=Math.max(1,Math.round((maxY-minY)/120));if(cur>=maxY)cur=minY;
+    geoTimer=setInterval(()=>{cur+=step;if(cur>=maxY){cur=maxY;yr.value=cur;applyYear();clearInterval(geoTimer);geoTimer=null;const b=document.getElementById('gplay');if(b)b.textContent='▶ play';return;}yr.value=cur;applyYear();},120);};
+  applyYear();setTimeout(()=>{try{map.invalidateSize();}catch(e){}},120);
+}
 async function validate(){
   V.innerHTML='<div class="card">loading…</div>';
   const d=await api('/validate');

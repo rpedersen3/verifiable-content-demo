@@ -201,6 +201,44 @@ export function ingestSources(ctx) {
   return { sources, xrefs, nodeSources, forms, stats };
 }
 
+// Curated fine-grained interactions (conversation level) — letters & speech acts with typed roles,
+// each a prov:Activity with a canonical id + scripture ref. Built ONLY between endpoints that resolve
+// to canonical nodes (data integrity); unresolved ones are logged, never silently dropped. This is the
+// hand-curated, high-confidence seed of the model that MACULA semantic-role extraction will scale.
+export function ingestInteractions(ctx) {
+  const { ROOT, byId, addNode, addEdge, addVerseLinks, peopleByKey, placeByLabel, slugify, norm } = ctx;
+  let data;
+  try { data = JSON.parse(readFileSync(join(ROOT, 'apps', 'demo-bible-ontology', 'data', 'interactions.json'), 'utf8')); }
+  catch { return { count: 0, edges: 0, skipped: 0 }; }
+  const pickId = (name, index) => {
+    const a = index.get(norm(name)); if (!a || !a.length) return null;
+    const m = new Map(); for (const c of a) m.set(c.id, Math.max(m.get(c.id) ?? -1, c.v));
+    return [...m].sort((x, y) => y[1] - x[1])[0][0];
+  };
+  const resolve = (name) => pickId(name, peopleByKey) || pickId(name, placeByLabel);
+  const CLS = { correspondence: 'gc:Correspondence', speech: 'gc:SpeechAct', encounter: 'gc:Encounter' };
+  let count = 0, edges = 0; const skipped = [];
+  for (const it of data) {
+    const author = resolve(it.author);
+    if (!author) { skipped.push(`${it.id}(author:${it.author})`); continue; }
+    const recs = (it.recipients ?? []).map((r) => ({ name: r, id: resolve(r) })).filter((r) => r.id);
+    if (!recs.length) { skipped.push(`${it.id}(recipients)`); continue; }
+    const gc = CLS[it.kind] ?? 'gc:Interaction';
+    const id = `interaction:${it.id}`;
+    addNode({ id, canonId: `interaction_${it.id}`, label: it.label, kind: 'interaction', disambig: gc.split(':')[1],
+      prov: 'prov:Activity', dul: 'dul:Event', gc, aps: null,
+      canonConf: 0.9, canonMethod: 'curated:scripture', canonBasis: `curated interaction from canonical scripture${it.osis ? ` (${it.osis})` : ''}`, origin: 'interaction', extra: { osis: it.osis, basis: it.basis } });
+    if (it.osis) addVerseLinks(id, [it.osis]);
+    const authorRel = it.kind === 'correspondence' ? 'gc:authoredBy' : 'gc:hasSpeaker';
+    addEdge(id, authorRel, author);
+    addEdge(id, 'prov:wasAssociatedWith', author);
+    for (const r of recs) { addEdge(id, it.kind === 'correspondence' ? 'gc:addressedTo' : 'gc:hasAddressee', r.id); edges++; }
+    count++;
+  }
+  if (skipped.length) console.log('interactions skipped (unresolved endpoints):', skipped.join(', '));
+  return { count, edges, skipped: skipped.length };
+}
+
 function stripMarkup(s) { return String(s ?? '').replace(/^#/, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 400); }
 function mapOtherKind(type) {
   if (/Supernatural|God|demon|Sheol/i.test(type)) return 'deity';
