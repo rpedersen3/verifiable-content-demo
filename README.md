@@ -1,5 +1,13 @@
 # verifiable-content-demo
 
+> **Live:** **https://demo-bible-web.pages.dev** — web + a2a + mcp on Cloudflare,
+> with the MCP in **on-chain trust mode against Base Sepolia**: the issuer is a
+> Smart Agent (`bsb.agent` → `0x72D8…6851`, ERC-1271), and descriptors verify by
+> Merkle inclusion against the **`ContentCorpusRegistry`** corpus root anchored on
+> Base Sepolia ([`0xBc04…967E`](https://sepolia.basescan.org/address/0xBc04BCB29E748CB0be07170B66AE542D3D89967E)).
+> The Node-only validator + zk-SNARK run locally (`pnpm validate:e2e`).
+
+
 An example that consumes the **published `@agenticprimitives/*` npm packages** to
 build a BibleGateway/YouVersion-style scripture lookup with verifiable
 provenance. It is a *consumer* — it contains no agenticprimitives source, only
