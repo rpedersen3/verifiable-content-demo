@@ -64,6 +64,23 @@ const EVENT_ALIAS = { Creation: 'Creation of all things', Flood: 'The Great Floo
 // ─── Trust-score curation (the computed dimensions are derived later from the graph) ──
 // moral (good↔evil, −1..+1): fine overrides on top of the +/−/~ signal seed.
 const MORAL_FINE = { Jesus: 1.0, 'Judas Iscariot': -0.95, Herod: -0.85, Cain: -0.85, Jezebel: -0.85, Pharaoh: -0.8, Ahab: -0.75, Jeroboam: -0.7, Saul: -0.45, Solomon: 0.35, David: 0.45, Abraham: 0.85, Moses: 0.85, Noah: 0.85, Paul: 0.85, Mary: 0.9, Stephen: 0.85, Ruth: 0.85, Daniel: 0.85, Joseph: 0.8, Esther: 0.8 };
+// WISDOM / discernment signal (wise ↔ foolish) — a trust dimension distinct from moral alignment:
+// someone can be wise but wicked, or righteous but rash. [value -1..1, basis, verse].
+const WISDOM = {
+  Jesus: [1.0, 'in whom are hidden all the treasures of wisdom and knowledge', 'Col.2.3'],
+  Solomon: [0.95, 'asked God for a discerning heart; wisdom surpassing all', '1Kgs.3.12'],
+  Daniel: [0.9, 'ten times wiser; interpreted dreams and counselled kings', 'Dan.1.20'],
+  Joseph: [0.88, 'no one so discerning and wise; set over Egypt', 'Gen.41.39'],
+  Abigail: [0.82, 'a woman of good understanding; averted bloodshed', '1Sam.25.3'],
+  Job: [0.72, '"the fear of the Lord, that is wisdom"', 'Job.28.28'],
+  Jethro: [0.7, 'wise counsel to delegate judging', 'Exod.18.19'],
+  Paul: [0.78, 'wrote "according to the wisdom given him"', '2Pet.3.15'],
+  Stephen: [0.72, 'they could not resist his wisdom and the Spirit', 'Acts.6.10'],
+  Ahithophel: [0.55, 'counsel esteemed as an oracle of God — yet turned traitor', '2Sam.16.23'],
+  Samson: [-0.35, 'gifted in strength but rash and undiscerning', 'Judg.16.17'],
+  Rehoboam: [-0.6, 'forsook the elders’ counsel for the young men’s folly', '1Kgs.12.8'],
+  Nabal: [-0.75, 'a fool; "folly is with him" (his name means fool)', '1Sam.25.25'],
+};
 // historical_trust (extra-biblical corroboration, 0..1) — by entity name, attached only where a node exists.
 const HISTORICAL = {
   // people with epigraphic / archaeological attestation
@@ -139,7 +156,7 @@ const CLASSES = [
   // Global Church + Bible-lower (gc:)
   ['gc:Person', 'Bible Person', 'gc', 'prov:Person'], ['gc:AgentiveEkklesia', 'Assembly / Ekklesia', 'gc', 'org:FormalOrganization'],
   ['gc:Community', 'Community', 'gc', 'org:Organization'], ['gc:Tribe', 'Tribe', 'gc', 'org:OrganizationalUnit'], ['gc:Nation', 'Nation', 'gc', 'org:FormalOrganization'],
-  ['gc:House', 'House / Lineage', 'gc', 'org:OrganizationalUnit'], ['gc:ApostolicBody', 'Apostolic Body', 'gc', 'gc:AgentiveEkklesia'],
+  ['gc:House', 'House / Lineage', 'gc', 'org:OrganizationalUnit'], ['gc:Genealogy', 'Genealogy / Ancestral Line', 'gc', 'gc:House'], ['gc:ApostolicBody', 'Apostolic Body', 'gc', 'gc:AgentiveEkklesia'],
   ['gc:BiblicalEvent', 'Biblical Event', 'gc', 'prov:Activity'], ['gc:Covenant', 'Covenant', 'gc', 'dul:Description'],
   // fine-grained interactions (conversation level) — speech acts, letters, encounters between agents
   ['gc:Interaction', 'Interaction', 'gc', 'gc:BiblicalEvent'], ['gc:Correspondence', 'Correspondence (Letter)', 'gc', 'gc:Interaction'],
@@ -296,7 +313,7 @@ function classifyOrg(name) {
   if (/^Tribe of/i.test(name)) return ['gc:Tribe', 'org:OrganizationalUnit', name.includes('Levi') ? 'Levite' : null];
   if (/^Nation of/i.test(name)) return ['gc:Nation', 'org:FormalOrganization', null];
   if (/Apostles/i.test(name)) return ['gc:ApostolicBody', 'gc:AgentiveEkklesia', 'Apostle'];
-  if (/(Line|Genealogy) of/i.test(name)) return ['gc:House', 'org:OrganizationalUnit', null];
+  if (/(Line|Genealogy|Ancestry) of/i.test(name)) return ['gc:Genealogy', 'org:OrganizationalUnit', null];
   return ['gc:Community', 'org:Organization', null];
 }
 
@@ -654,6 +671,11 @@ function main() {
     const osis = (nodeVerse.find((v) => v.id === id) || {}).osis ?? null;
     sigRows.push({ id, pol: POL[p], basis, osis });
   }
+  // wisdom signals (gc:WisdomSignal) — shown as verse-backed chips alongside character signals
+  for (const [name, [val, basis, osis]] of Object.entries(WISDOM)) {
+    const id = nameToId.get(name) || pickMax(peopleByKey.get(norm(name)));
+    if (id && byId.has(id)) sigRows.push({ id, pol: val >= 0 ? 'positive' : 'negative', basis: `Wisdom — ${basis}`, osis: osis ?? null });
+  }
   writeFileSync(`${OUT}/signal.sql`, sigRows.map((s) => `INSERT INTO signal(subject_id,polarity,basis,osis) VALUES('${esc(s.id)}','${s.pol}','${esc(s.basis)}',${s.osis ? `'${esc(s.osis)}'` : 'NULL'});`).join('\n') + '\n');
   files.push(`${OUT}/signal.sql`);
   console.log('signals', sigRows.length, '/', SIGNALS.length, 'resolved');
@@ -699,6 +721,11 @@ function main() {
     const label = byId.get(id)?.label;
     const val = MORAL_FINE[label] != null ? MORAL_FINE[label] : +(0.7 * (m.sum / m.n)).toFixed(3);
     scoreRows.push({ id, dim: 'moral', val, basis: m.bases.join('; '), method: 'curated' });
+  }
+  // curated: wisdom / discernment (wise ↔ foolish) — a distinct trust signal
+  for (const [name, [val, basis]] of Object.entries(WISDOM)) {
+    const id = nameToId.get(name) || pickMax(peopleByKey.get(norm(name)));
+    if (id && byId.has(id)) scoreRows.push({ id, dim: 'wisdom', val, basis, method: 'curated (gc:WisdomSignal)' });
   }
   // curated: historical_trust (extra-biblical corroboration), attached where the node exists
   for (const [name, [val, basis]] of Object.entries(HISTORICAL)) {

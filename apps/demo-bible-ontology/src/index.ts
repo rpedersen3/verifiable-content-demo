@@ -130,8 +130,11 @@ app.get('/api/graph', async (c) => {
   const center = c.req.query('center');
   if (!center) return c.json({ ok: false, error: 'center required' }, 400);
   type NRow = { rel: string; id: string; label: string; kind: string; tStart: number | null; tEnd: number | null; img: string | null };
-  const out = await rows<NRow>(c.env.DB, 'SELECT e.rel, e.dst id, n.label, n.kind, n.t_start tStart, n.t_end tEnd, n.image_thumb img FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=? LIMIT 250', center);
-  const inc = await rows<NRow>(c.env.DB, 'SELECT e.rel, e.src id, n.label, n.kind, n.t_start tStart, n.t_end tEnd, n.image_thumb img FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? LIMIT 250', center);
+  // Exclude reified org:Membership nodes (a W3C ORG implementation detail — the direct
+  // person→org:memberOf edge already conveys membership) and the giant genealogy container.
+  const HIDE = "n.kind!='membership' AND COALESCE(n.gc_class,'')!='gc:Genealogy'";
+  const out = await rows<NRow>(c.env.DB, `SELECT e.rel, e.dst id, n.label, n.kind, n.t_start tStart, n.t_end tEnd, n.image_thumb img FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=? AND ${HIDE} LIMIT 250`, center);
+  const inc = await rows<NRow>(c.env.DB, `SELECT e.rel, e.src id, n.label, n.kind, n.t_start tStart, n.t_end tEnd, n.image_thumb img FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? AND ${HIDE} LIMIT 250`, center);
   const self = await c.env.DB.prepare('SELECT id,label,kind,t_start tStart,t_end tEnd,image_thumb img FROM node WHERE id=?').bind(center).first<{ id: string; label: string; kind: string; tStart: number | null; tEnd: number | null; img: string | null }>();
   // trust-signal polarity per node (the signal table is tiny — load it all + map)
   const sigRows = await rows<{ subject_id: string; polarity: string }>(c.env.DB, 'SELECT subject_id,polarity FROM signal');
