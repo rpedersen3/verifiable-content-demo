@@ -63,7 +63,7 @@ const EVENT_ALIAS = { Creation: 'Creation of all things', Flood: 'The Great Floo
 
 // ─── Trust-score curation (the computed dimensions are derived later from the graph) ──
 // moral (good↔evil, −1..+1): fine overrides on top of the +/−/~ signal seed.
-const MORAL_FINE = { Jesus: 1.0, 'Judas Iscariot': -0.95, Herod: -0.85, Cain: -0.85, Jezebel: -0.85, Pharaoh: -0.8, Ahab: -0.75, Jeroboam: -0.7, Saul: -0.45, Solomon: 0.35, David: 0.45, Abraham: 0.85, Moses: 0.85, Noah: 0.85, Paul: 0.85, Mary: 0.9, Stephen: 0.85, Ruth: 0.85, Daniel: 0.85, Joseph: 0.8, Esther: 0.8 };
+const MORAL_FINE = { Jesus: 1.0, 'Judas': -0.95, Herod: -0.85, Cain: -0.85, Jezebel: -0.85, Pharaoh: -0.8, Ahab: -0.75, Jeroboam: -0.7, Saul: -0.45, Solomon: 0.35, David: 0.45, Abraham: 0.85, Moses: 0.85, Noah: 0.85, Paul: 0.85, Mary: 0.9, Stephen: 0.85, Ruth: 0.85, Daniel: 0.85, Joseph: 0.8, Esther: 0.8 };
 // WISDOM / discernment signal (wise ↔ foolish) — a trust dimension distinct from moral alignment:
 // someone can be wise but wicked, or righteous but rash. [value -1..1, basis, verse].
 const WISDOM = {
@@ -81,6 +81,64 @@ const WISDOM = {
   Rehoboam: [-0.6, 'forsook the elders’ counsel for the young men’s folly', '1Kgs.12.8'],
   Nabal: [-0.75, 'a fool; "folly is with him" (his name means fool)', '1Sam.25.25'],
 };
+// FAITHFULNESS / covenant loyalty (faithful ↔ faithless)
+const FAITHFULNESS = {
+  Jesus: [1.0, 'called Faithful and True', 'Rev.19.11'], Abraham: [0.9, 'believed God; counted as righteousness', 'Gen.15.6'],
+  Ruth: [0.92, '"where you go I will go" — covenant loyalty', 'Ruth.1.16'], Joseph: [0.85, 'kept faith in slavery and prison', 'Gen.39.9'],
+  Daniel: [0.9, 'prayed faithfully despite the decree', 'Dan.6.10'], Moses: [0.85, 'faithful in all God’s house', 'Heb.3.5'],
+  Caleb: [0.9, 'wholly followed the LORD', 'Num.14.24'], David: [0.7, 'a man after God’s own heart, though he stumbled', 'Acts.13.22'],
+  'Judas': [-0.95, 'betrayed the Son of Man', 'Luke.22.48'], Saul: [-0.5, 'rejected for disobedience', '1Sam.15.23'],
+  Demas: [-0.6, 'deserted Paul, in love with this world', '2Tim.4.10'], Solomon: [-0.3, 'his heart turned after other gods', '1Kgs.11.4'],
+};
+// COURAGE / boldness (0..1)
+const COURAGE = {
+  David: [0.9, 'faced Goliath in the name of the LORD', '1Sam.17.45'], Joshua: [0.9, '"be strong and courageous"', 'Josh.1.9'],
+  Daniel: [0.85, 'faced the lions’ den', 'Dan.6.16'], Esther: [0.88, '"if I perish, I perish"', 'Esth.4.16'],
+  Stephen: [0.85, 'bold witness unto death', 'Acts.7.51'], Paul: [0.85, 'bold before kings and mobs', 'Acts.20.24'],
+  Elijah: [0.85, 'confronted Ahab and the prophets of Baal', '1Kgs.18.21'], Nehemiah: [0.8, 'rebuilt the wall amid threats', 'Neh.6.11'],
+  Gideon: [0.5, 'timid, then led the 300', 'Judg.7.7'], Peter: [0.6, 'bold and faltering by turns', 'Acts.4.13'],
+};
+// TRUTHFULNESS / communication reliability (truthful ↔ deceptive)
+const TRUTHFULNESS = {
+  Jesus: [1.0, '"I am the way, the truth, and the life"', 'John.14.6'], Nathan: [0.9, 'truthful prophetic rebuke of David', '2Sam.12.7'],
+  Samuel: [0.9, 'none of his words fell to the ground', '1Sam.3.19'], Micaiah: [0.88, 'spoke truth against 400 prophets', '1Kgs.22.14'],
+  Elijah: [0.85, 'true prophet of the LORD', '1Kgs.17.1'], Daniel: [0.85, 'reliable interpreter of dreams', 'Dan.2.47'],
+  Gehazi: [-0.7, 'lied to Elisha for gain', '2Kgs.5.25'], Jacob: [-0.3, 'deceived Isaac for the blessing', 'Gen.27.19'],
+  Ananias: [-0.8, 'lied to the Holy Spirit', 'Acts.5.3'], Jezebel: [-0.7, 'false letters to kill Naboth', '1Kgs.21.9'],
+};
+// REPENTANCE / teachability (repentant ↔ hard-hearted)
+const REPENTANCE = {
+  David: [0.9, '"I have sinned against the LORD" — Psalm 51', '2Sam.12.13'], Peter: [0.85, 'wept bitterly, then restored', 'Luke.22.62'],
+  Manasseh: [0.75, 'humbled himself greatly before God', '2Chr.33.12'], Josiah: [0.8, 'tore his clothes and sought the LORD', '2Kgs.22.19'],
+  Zacchaeus: [0.8, 'restored fourfold', 'Luke.19.8'], Jonah: [0.5, 'obeyed at last, but resented mercy', 'Jonah.3.3'],
+  Pharaoh: [-0.8, 'hardened his heart repeatedly', 'Exod.8.32'], Saul: [-0.5, 'made excuses rather than repent', '1Sam.15.21'],
+  Cain: [-0.6, 'unrepentant after his sin', 'Gen.4.9'], 'Judas': [-0.5, 'remorse without restoration', 'Matt.27.5'],
+};
+// every curated trust dimension → [score key, data map, signal class, UI label]
+const CURATED_DIMS = [
+  ['wisdom', WISDOM, 'gc:WisdomSignal'], ['faithfulness', FAITHFULNESS, 'gc:FaithfulnessSignal'],
+  ['courage', COURAGE, 'gc:CourageSignal'], ['truthfulness', TRUTHFULNESS, 'gc:TruthfulnessSignal'],
+  ['repentance', REPENTANCE, 'gc:RepentanceSignal'],
+];
+// ACTION signals — specific deeds attributed to an agent [name, deed, polarity +/-/~, verse].
+const ACTIONS = [
+  ['Jesus', 'raised Lazarus from the dead', '+', 'John.11.43'], ['Jesus', 'washed the disciples’ feet', '+', 'John.13.5'],
+  ['Jesus', 'fed the five thousand', '+', 'Matt.14.20'], ['Jesus', 'calmed the storm', '+', 'Mark.4.39'],
+  ['Jesus', 'cleansed the temple', '+', 'John.2.15'], ['Jesus', 'healed a leper', '+', 'Matt.8.3'],
+  ['Jesus', 'forgave the sinful woman', '+', 'Luke.7.48'], ['Jesus', 'laid down his life on the cross', '+', 'John.19.30'],
+  ['Jesus', 'rose from the dead', '+', 'Matt.28.6'],
+  ['Judas', 'betrayed Jesus with a kiss', '-', 'Luke.22.48'], ['Judas', 'sold Jesus for thirty pieces of silver', '-', 'Matt.26.15'],
+  ['Peter', 'walked on the water toward Jesus', '+', 'Matt.14.29'], ['Peter', 'confessed "You are the Christ"', '+', 'Matt.16.16'],
+  ['Peter', 'denied Jesus three times', '-', 'Luke.22.60'],
+  ['David', 'killed Goliath', '+', '1Sam.17.50'], ['David', 'spared Saul’s life in the cave', '+', '1Sam.24.7'],
+  ['David', 'took Bathsheba and had Uriah killed', '-', '2Sam.11.15'],
+  ['Moses', 'stretched his hand over the Red Sea', '+', 'Exod.14.21'], ['Moses', 'struck the rock in anger', '-', 'Num.20.11'],
+  ['Abraham', 'offered Isaac in obedience', '+', 'Gen.22.10'], ['Cain', 'murdered his brother Abel', '-', 'Gen.4.8'],
+  ['Stephen', 'forgave those stoning him', '+', 'Acts.7.60'], ['Joseph', 'forgave his brothers', '+', 'Gen.45.4'],
+  ['Elijah', 'raised the widow’s son', '+', '1Kgs.17.22'], ['Elijah', 'called down fire on Carmel', '+', '1Kgs.18.38'],
+  ['Noah', 'built the ark as commanded', '+', 'Gen.6.22'], ['Daniel', 'prayed despite the decree', '+', 'Dan.6.10'],
+  ['Ruth', 'gleaned to provide for Naomi', '+', 'Ruth.2.2'], ['Paul', 'persecuted the church before conversion', '-', 'Acts.8.3'],
+];
 // historical_trust (extra-biblical corroboration, 0..1) — by entity name, attached only where a node exists.
 const HISTORICAL = {
   // people with epigraphic / archaeological attestation
@@ -108,7 +166,7 @@ const classifyEventGc = (title) => { for (const [re, c] of EVENT_GC) if (re.test
 const FLOR_DATES = {
   Peter: [1, 64], Paul: [5, 67], John: [6, 100], James: [1, 62], Andrew: [5, 60], Matthew: [5, 74], Thomas: [1, 72],
   Philip: [5, 80], Bartholomew: [1, 70], Stephen: [1, 34], Barnabas: [1, 61], Timotheus: [17, 97], Titus: [10, 105],
-  'Mary, mother of Jesus': [-18, 48], Mary: [-18, 48], Caiaphas: [-14, 46], 'Judas Iscariot': [1, 33], Judas: [1, 33],
+  'Mary, mother of Jesus': [-18, 48], Mary: [-18, 48], Caiaphas: [-14, 46], 'Judas': [1, 33], Judas: [1, 33],
   Nathanael: [1, 70], Nicodemus: [1, 70], Lazarus: [1, 63], Martha: [1, 60], Mark: [5, 68], Luke: [10, 84],
   Cornelius: [1, 60], Gamaliel: [-20, 52], Matthias: [1, 80], Jude: [1, 70], Herod: [-20, 39], Pilate: [-10, 39],
   Philemon: [5, 70], Silas: [1, 70], Apollos: [1, 75], Aquila: [1, 70], Priscilla: [1, 70], Lydia: [1, 70],
@@ -280,7 +338,7 @@ const SIGNALS = [
   ['Paul', '+', 'zeal for the gospel'], ['Barnabas', '+', 'son of encouragement'], ['Esther', '+', 'courage for her people'],
   ['Cain', '-', 'murdered his brother'], ['Pharaoh', '-', 'hardened his heart'], ['Korah', '-', 'rebellion'],
   ['Achan', '-', 'theft + covenant breach'], ['Saul', '-', 'disobedience + jealousy'], ['Ahab', '-', 'promoted idolatry'],
-  ['Jezebel', '-', 'idolatry + murder'], ['Jeroboam', '-', 'led Israel into sin'], ['Judas Iscariot', '-', 'betrayed Jesus'],
+  ['Jezebel', '-', 'idolatry + murder'], ['Jeroboam', '-', 'led Israel into sin'], ['Judas', '-', 'betrayed Jesus'],
   ['Herod', '-', 'murdered the innocents'], ['Ananias', '-', 'deceit'], ['David', '-', 'adultery + Uriah’s death'],
   ['Solomon', '-', 'turned to idols in old age'],
   // organizations + events
@@ -511,6 +569,28 @@ function main() {
   console.log('ingest · sources', ingest.sources.length, '· xrefs', ingest.xrefs.length, '· node_source', ingest.nodeSources.length, '· forms', ingest.forms.length, '· geo-filled places', ingest.stats.geoFilled);
   if (ingest.stats.openbible.merged) console.log('ingest · openbible geo-merged (de-duplicated)', ingest.stats.openbible.merged, 'places');
 
+  // Fold coord-less place stubs (e.g. TIPNR "Antioch" with no location/verses) into the most-attested
+  // place that shares their core name — duplicates with no distinguishing data collapse into the real one.
+  {
+    const coreOf = (s) => String(s || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/\b\d+\b/g, ' ').replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+    const vCount = new Map();
+    for (const nv of nodeVerse) vCount.set(nv.id, (vCount.get(nv.id) ?? 0) + 1);
+    const canonByCore = new Map();
+    for (const n of byId.values()) if (n.kind === 'place' && n.lat != null) { const k = coreOf(n.label); if (k) { const cur = canonByCore.get(k); if (!cur || (vCount.get(n.id) ?? 0) > (vCount.get(cur) ?? 0)) canonByCore.set(k, n.id); } }
+    const remap = new Map();
+    for (const n of byId.values()) if (n.kind === 'place' && n.lat == null) { const c = canonByCore.get(coreOf(n.label)); if (c && c !== n.id) remap.set(n.id, c); }
+    if (remap.size) {
+      for (const e of edges) { if (remap.has(e.src)) e.src = remap.get(e.src); if (remap.has(e.dst)) e.dst = remap.get(e.dst); }
+      for (const nv of nodeVerse) if (remap.has(nv.id)) nv.id = remap.get(nv.id);
+      for (const x of ingest.xrefs) if (remap.has(x.nodeId)) x.nodeId = remap.get(x.nodeId);
+      for (const ns of ingest.nodeSources) if (remap.has(ns.nodeId)) ns.nodeId = remap.get(ns.nodeId);
+      for (const f of ingest.forms) if (remap.has(f.nodeId)) f.nodeId = remap.get(f.nodeId);
+      for (const id of remap.keys()) byId.delete(id);
+      const keep = nodes.filter((n) => !remap.has(n.id)); nodes.length = 0; nodes.push(...keep);
+      console.log('place de-dup · folded', remap.size, 'coord-less place stubs into canonical places');
+    }
+  }
+
   // Canonical places: distinguish same-named places that sit in different locations by region
   // (e.g. "Dibon" in Moab vs the one in Judah). Rough lat/lon boxes for the biblical world.
   const REGIONS = [
@@ -671,10 +751,19 @@ function main() {
     const osis = (nodeVerse.find((v) => v.id === id) || {}).osis ?? null;
     sigRows.push({ id, pol: POL[p], basis, osis });
   }
-  // wisdom signals (gc:WisdomSignal) — shown as verse-backed chips alongside character signals
-  for (const [name, [val, basis, osis]] of Object.entries(WISDOM)) {
-    const id = nameToId.get(name) || pickMax(peopleByKey.get(norm(name)));
-    if (id && byId.has(id)) sigRows.push({ id, pol: val >= 0 ? 'positive' : 'negative', basis: `Wisdom — ${basis}`, osis: osis ?? null });
+  // curated character signals (wisdom, faithfulness, courage, truthfulness, repentance) — verse-backed chips
+  for (const [dim, map] of CURATED_DIMS) {
+    const dlabel = dim[0].toUpperCase() + dim.slice(1);
+    for (const [name, [val, basis, osis]] of Object.entries(map)) {
+      const id = pickMax(peopleByKey.get(norm(name))) || nameToId.get(name);
+      if (id && byId.has(id)) sigRows.push({ id, pol: val >= 0 ? 'positive' : 'negative', basis: `${dlabel} — ${basis}`, osis: osis ?? null });
+    }
+  }
+  // ACTION signals — specific deeds attributed to an agent become trust signals (Jesus raising the
+  // dead and washing feet; Judas’ betrayal; Peter’s denial …). Each is a verse-backed gc:*Signal.
+  for (const [name, basis, pol, osis] of ACTIONS) {
+    const id = pickMax(peopleByKey.get(norm(name))) || nameToId.get(name);
+    if (id && byId.has(id)) sigRows.push({ id, pol: pol === '-' ? 'negative' : pol === '~' ? 'mixed' : 'positive', basis: `Act — ${basis}`, osis: osis ?? null });
   }
   writeFileSync(`${OUT}/signal.sql`, sigRows.map((s) => `INSERT INTO signal(subject_id,polarity,basis,osis) VALUES('${esc(s.id)}','${s.pol}','${esc(s.basis)}',${s.osis ? `'${esc(s.osis)}'` : 'NULL'});`).join('\n') + '\n');
   files.push(`${OUT}/signal.sql`);
@@ -722,10 +811,13 @@ function main() {
     const val = MORAL_FINE[label] != null ? MORAL_FINE[label] : +(0.7 * (m.sum / m.n)).toFixed(3);
     scoreRows.push({ id, dim: 'moral', val, basis: m.bases.join('; '), method: 'curated' });
   }
-  // curated: wisdom / discernment (wise ↔ foolish) — a distinct trust signal
-  for (const [name, [val, basis]] of Object.entries(WISDOM)) {
-    const id = nameToId.get(name) || pickMax(peopleByKey.get(norm(name)));
-    if (id && byId.has(id)) scoreRows.push({ id, dim: 'wisdom', val, basis, method: 'curated (gc:WisdomSignal)' });
+  // curated character dimensions (wisdom, faithfulness, courage, truthfulness, repentance) — each a
+  // distinct trust signal: someone can be wise but faithless, courageous but rash, etc.
+  for (const [dim, map, sigClass] of CURATED_DIMS) {
+    for (const [name, [val, basis]] of Object.entries(map)) {
+      const id = pickMax(peopleByKey.get(norm(name))) || nameToId.get(name);
+      if (id && byId.has(id)) scoreRows.push({ id, dim, val, basis, method: `curated (${sigClass})` });
+    }
   }
   // curated: historical_trust (extra-biblical corroboration), attached where the node exists
   for (const [name, [val, basis]] of Object.entries(HISTORICAL)) {

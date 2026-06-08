@@ -240,24 +240,25 @@ function provHtml(sources,origin){
   const list=(sources||[]).map(s=>'<span class="src" title="'+esc(s.name)+(s.src_ref?' · '+esc(s.src_ref):'')+(s.confidence!=null?' · attestation '+s.confidence:'')+'"><a class="link" href="'+esc(s.url)+'" target="_blank" rel="noopener">'+esc(s.abbrev||s.source_id)+'</a> <span class="muted">'+esc(s.license||'')+'</span></span>').join('');
   return '<div class="prov"><span class="muted">attested by:</span> '+list+'</div>';
 }
-const SDIM={moral:'Good ↔ Evil',wisdom:'Wise ↔ Foolish',graph_trust:'Graph trust',scriptural_trust:'Scriptural trust',historical_trust:'Historical trust',source_trust:'Source corroboration'};
-const SCOL={graph_trust:'#2563eb',scriptural_trust:'#0e7490',historical_trust:'#b45309',source_trust:'#7c3aed'};
+const SDIM={moral:'Good ↔ Evil',wisdom:'Wise ↔ Foolish',faithfulness:'Faithful ↔ Faithless',courage:'Courage',truthfulness:'Truthful ↔ Deceptive',repentance:'Repentant ↔ Hardened',graph_trust:'Graph trust',scriptural_trust:'Scriptural trust',historical_trust:'Historical trust',source_trust:'Source corroboration'};
+const SCOL={courage:'#0d9488',graph_trust:'#2563eb',scriptural_trust:'#0e7490',historical_trust:'#b45309',source_trust:'#7c3aed'};
+const BIPCOL={moral:'#1a8a4f',wisdom:'#7c5cff',faithfulness:'#2563eb',truthfulness:'#0e7490',repentance:'#b45309'};
 function scoreBars(scores){
   if(!scores||!scores.length)return '';
   const byD={};scores.forEach(s=>byD[s.dimension]=s);
-  const bip=(d)=>d==='moral'||d==='wisdom';
-  const rows=['moral','wisdom','graph_trust','scriptural_trust','historical_trust','source_trust'].filter(d=>byD[d]).map(d=>{const s=byD[d];const v=+s.value;
+  const bip=(d)=>BIPCOL[d]!=null;
+  const rows=['moral','wisdom','faithfulness','courage','truthfulness','repentance','graph_trust','scriptural_trust','historical_trust','source_trust'].filter(d=>byD[d]).map(d=>{const s=byD[d];const v=+s.value;
     const kind=/curated/.test(s.method||'')?'curated':'computed';
     const vs=bip(d)?(v>0?'+':'')+v.toFixed(2):v.toFixed(2);
     const tip=('<b>'+SDIM[d]+'</b> &nbsp;'+vs+'<br><span style="color:#8a96a3;text-transform:uppercase;font-size:10px">'+kind+' · '+esc(s.method||'')+'</span><br>'+esc(s.basis||'(no basis recorded)')).replace(/"/g,'&quot;');
     const dt=' data-tip="'+tip+'"';
     const name='<div class="sname"'+dt+'>'+SDIM[d]+'</div>';
-    if(bip(d)){const w=Math.abs(v)/2*100,left=v>=0?50:50-w,col=v>=0?(d==='wisdom'?'#7c5cff':'#1a8a4f'):'#c0392b';
+    if(bip(d)){const w=Math.abs(v)/2*100,left=v>=0?50:50-w,col=v>=0?BIPCOL[d]:'#c0392b';
       return name+'<div class="sbar bipolar"'+dt+'><span class="mid"></span><i style="left:'+left+'%;width:'+w+'%;background:'+col+'"></i></div><div class="sval" style="color:'+col+'"'+dt+'>'+vs+'</div>';}
     return name+'<div class="sbar"'+dt+'><i style="left:0;width:'+Math.round(v*100)+'%;background:'+SCOL[d]+'"></i></div><div class="sval"'+dt+'>'+v.toFixed(2)+'</div>';
   }).join('');
   return '<h3 class="muted" style="margin-top:16px">trust &amp; alignment signals</h3><div class="scores">'+rows+'</div>'+
-   '<div class="hint">Graph, scriptural &amp; source trust are <b>computed</b> (connectivity · verse coverage · independent source agreement); good↔evil, <b>wisdom</b> &amp; historical trust are <b>curated</b> verse-backed signals. Wisdom (discernment) is a distinct dimension from moral alignment — one can be wise but wicked, or righteous but rash.</div>';
+   '<div class="hint">Multi-dimensional trust: <b>good↔evil, wisdom, faithfulness, courage, truthfulness</b> &amp; <b>repentance</b> are <b>curated</b> verse-backed signals (one can be wise but faithless, or courageous but rash); graph, scriptural &amp; source trust are <b>computed</b>. Individual <b>actions</b> (e.g. raising the dead, betrayal) appear as signal chips above.</div>';
 }
 
 // ── hash routing: every view is a URL route so browser back/forward works ──

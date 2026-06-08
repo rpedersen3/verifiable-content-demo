@@ -164,6 +164,12 @@ export function ingestSources(ctx) {
       if (pt) { const [lon, lat] = String(pt).split(',').map(parseFloat); if (isFinite(lat) && isFinite(lon)) coordByName.set(k, { lat, lon, modern: null }); }
     }
   }
+  // core-name index of existing canonical places (Theographic/TIPNR) for de-dup: a "core" strips
+  // parenthetical qualifiers, numbers and punctuation, so "Antioch (Syria)" / "Antioch on the
+  // Orontes" / "Antioch" all share core "antioch" and merge by proximity.
+  const coreOf = (s) => String(s || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/\b\d+\b/g, ' ').replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+  const coreIndex = new Map();
+  for (const n of byId.values()) if (n.kind === 'place' && n.lat != null) { const k = coreOf(n.label); if (k) { if (!coreIndex.has(k)) coreIndex.set(k, []); coreIndex.get(k).push({ id: n.id }); } }
   const ancientFile = join(S, 'openbible-ancient.jsonl');
   if (existsSync(ancientFile)) {
     for (const line of readFileSync(ancientFile, 'utf8').split(/\r?\n/)) {
@@ -196,7 +202,7 @@ export function ingestSources(ctx) {
     let cand = null, geoKm = null;
     if (isFinite(obLat)) {
       const seen = new Set(); let bestD = Infinity, bestId = null;
-      for (const c of [...(placeByLabel.get(norm(name)) || []), ...(placeByLabel.get(norm(baseName)) || [])]) {
+      for (const c of [...(placeByLabel.get(norm(name)) || []), ...(placeByLabel.get(norm(baseName)) || []), ...(coreIndex.get(coreOf(name)) || [])]) {
         if (seen.has(c.id)) continue; seen.add(c.id);
         const nd = byId.get(c.id); if (nd && nd.lat != null) { const dd = haversineKm(obLat, obLon, nd.lat, nd.lon); if (dd < bestD) { bestD = dd; bestId = c.id; } }
       }
