@@ -69,6 +69,19 @@ const HISTORICAL = {
   Jerusalem: [1.0, 'continuously excavated capital'], Babylon: [1.0, 'excavated Neo-Babylonian capital'], Nineveh: [1.0, 'excavated Assyrian capital'], Damascus: [0.95, 'continuously inhabited city'], Rome: [1.0, 'imperial capital'], Jericho: [0.9, 'Tell es-Sultan excavations'], Samaria: [0.9, 'Omride palace + Samaria ostraca'], Hebron: [0.85, 'Bronze/Iron Age tell'], Bethlehem: [0.75, 'Iron Age settlement; bulla'], Nazareth: [0.7, 'Roman-era village remains'], Capernaum: [0.9, 'excavated synagogue + house of Peter'], Babylonia: [1.0, 'Neo-Babylonian records'],
 };
 const POLVAL = { positive: 1, negative: -1, mixed: 0 };
+// classify a biblical event into the deeper GCO behaviour taxonomy by its title
+const EVENT_GC = [
+  [/heal|cured|leper|sick|restored sight|made well/i, 'gc:Healing'], [/cast out|demon|unclean spirit|exorc|possess/i, 'gc:Exorcism'],
+  [/feeding|fed the|loaves|manna|water from the rock|provide/i, 'gc:Provision'], [/rais(ed|ing)|raised to life|resurrect|came to life/i, 'gc:Raising'],
+  [/baptiz|baptism/i, 'gc:Baptism'], [/anoint/i, 'gc:Anointing'], [/circumcis/i, 'gc:Circumcision'],
+  [/sacrifice|offering|burnt offering|passover|altar/i, 'gc:Sacrifice'], [/feast|festival|tabernacles|pentecost|unleavened/i, 'gc:Feast'], [/\bpray|prayer/i, 'gc:PrayerAct'],
+  [/covenant/i, 'gc:CovenantAct'], [/call(ed|ing)|commission|chose|appoint|ordain/i, 'gc:Calling'], [/\bsent\b|sending|missionary journey/i, 'gc:Sending'],
+  [/battle|\bwar\b|fought|defeat|conquest|siege|slew|struck down/i, 'gc:Battle'], [/journey|exodus|wander|travel|voyage|set out|departed/i, 'gc:Journey'],
+  [/vision|dream|revelation|appeared|transfigur/i, 'gc:Vision'], [/judgment|plague|punish|wrath|flood|destroy/i, 'gc:Judgment'], [/deliver|rescue|saved|salvation|freed/i, 'gc:Deliverance'],
+  [/teach|sermon|parable|preach|spoke to the crowd/i, 'gc:TeachingAct'], [/repent|convert|conversion/i, 'gc:Conversion'], [/\bsin\b|transgress|golden calf|idolat|rebell|disobey/i, 'gc:Transgression'],
+  [/\bbirth\b|\bborn\b|nativity/i, 'gc:Birth'], [/death|died|martyr|stoned|crucif|killed/i, 'gc:Death'], [/miracle|\bsign\b|wonder|turned water/i, 'gc:Miracle'],
+];
+const classifyEventGc = (title) => { for (const [re, c] of EVENT_GC) if (re.test(title || '')) return c; return 'gc:BiblicalEvent'; };
 // Approximate lifespans (scholarly estimates) for key figures Theographic leaves undated — chiefly
 // the New Testament generation, so "people from Jesus' time" appear on the timeline. Applied only
 // where the node has no date; resolved to the most-attested node of that name.
@@ -139,9 +152,22 @@ const CLASSES = [
   // EP-Plan (executable plan) — executable plans/steps with preconditions & constraints
   ['epplan:ExecutablePlan', 'Executable Plan', 'epplan', 'pplan:Plan'], ['epplan:ExecutableStep', 'Executable Step', 'epplan', 'pplan:Step'],
   ['epplan:Precondition', 'Precondition', 'epplan', 'dul:Description'], ['epplan:Constraint', 'Constraint', 'epplan', 'dul:Description'],
+  // ── Global Church Ontology: deeper biblical-behaviour taxonomy (events / acts) ──
+  ['gc:Miracle', 'Miracle', 'gc', 'gc:BiblicalEvent'], ['gc:Healing', 'Healing', 'gc', 'gc:Miracle'], ['gc:Exorcism', 'Exorcism', 'gc', 'gc:Miracle'], ['gc:Provision', 'Provision / Feeding', 'gc', 'gc:Miracle'], ['gc:Raising', 'Raising the dead', 'gc', 'gc:Miracle'],
+  ['gc:WorshipAct', 'Worship', 'gc', 'gc:BiblicalEvent'], ['gc:Sacrifice', 'Sacrifice / Offering', 'gc', 'gc:WorshipAct'], ['gc:PrayerAct', 'Prayer', 'gc', 'gc:WorshipAct'], ['gc:Feast', 'Feast / Festival', 'gc', 'gc:WorshipAct'],
+  ['gc:CovenantAct', 'Covenant Act', 'gc', 'gc:BiblicalEvent'], ['gc:Baptism', 'Baptism', 'gc', 'gc:CovenantAct'], ['gc:Anointing', 'Anointing', 'gc', 'gc:CovenantAct'], ['gc:Circumcision', 'Circumcision', 'gc', 'gc:CovenantAct'],
+  ['gc:Calling', 'Calling / Commissioning', 'gc', 'gc:BiblicalEvent'], ['gc:Appointment', 'Appointment / Ordination', 'gc', 'gc:Calling'], ['gc:Sending', 'Sending / Mission', 'gc', 'gc:Calling'], ['gc:ChurchPlanting', 'Church Planting', 'gc', 'gc:Sending'],
+  ['gc:Judgment', 'Judgment', 'gc', 'gc:BiblicalEvent'], ['gc:Deliverance', 'Deliverance / Salvation', 'gc', 'gc:BiblicalEvent'], ['gc:Battle', 'Battle / Conflict', 'gc', 'gc:BiblicalEvent'], ['gc:Journey', 'Journey / Migration', 'gc', 'gc:BiblicalEvent'],
+  ['gc:Vision', 'Vision / Revelation', 'gc', 'gc:BiblicalEvent'], ['gc:TeachingAct', 'Teaching', 'gc', 'gc:BiblicalEvent'], ['gc:Conversion', 'Conversion / Repentance', 'gc', 'gc:BiblicalEvent'], ['gc:Transgression', 'Sin / Transgression', 'gc', 'gc:BiblicalEvent'],
+  ['gc:Birth', 'Birth', 'gc', 'gc:BiblicalEvent'], ['gc:Death', 'Death', 'gc', 'gc:BiblicalEvent'], ['gc:Martyrdom', 'Martyrdom', 'gc', 'gc:Death'],
+  // biblical speech behaviours (extend the illocutionary taxonomy)
+  ['gc:Prophecy', 'Prophecy', 'gc', 'gc:Assertive'], ['gc:Parable', 'Parable', 'gc', 'gc:Assertive'], ['gc:Confession', 'Confession', 'gc', 'gc:Assertive'],
+  ['gc:Curse', 'Curse', 'gc', 'gc:Expressive'], ['gc:Praise', 'Praise', 'gc', 'gc:Expressive'], ['gc:Vow', 'Vow', 'gc', 'gc:Commissive'],
+  // grouped biblical roles (cleaner GCO tree)
+  ['gc:Role', 'Biblical Role', 'gc', 'org:Role'],
   ['gc:Place', 'Biblical Place', 'gc', 'geo:Feature'], ['gc:Responsibility', 'Responsibility', 'gc', 'dul:Concept'],
   // gc roles (Bible usage)
-  ...[['Patriarch'], ['Matriarch'], ['Prophet'], ['Prophetess'], ['Priest'], ['HighPriest', 'High Priest'], ['King'], ['Queen'], ['Judge'], ['Apostle'], ['Disciple'], ['Levite'], ['Elder'], ['Deacon'], ['Evangelist'], ['Leader'], ['Governor'], ['Scribe'], ['Shepherd'], ['Messiah']].map(([r, l]) => [`gc:${r}`, l ?? r, 'gc', 'org:Role']),
+  ...[['Patriarch'], ['Matriarch'], ['Prophet'], ['Prophetess'], ['Priest'], ['HighPriest', 'High Priest'], ['King'], ['Queen'], ['Judge'], ['Apostle'], ['Disciple'], ['Levite'], ['Elder'], ['Deacon'], ['Evangelist'], ['Leader'], ['Governor'], ['Scribe'], ['Shepherd'], ['Messiah']].map(([r, l]) => [`gc:${r}`, l ?? r, 'gc', 'gc:Role']),
 ];
 
 // ─── Ontology vocabulary (properties / relationship types) ────────────────────
@@ -382,7 +408,7 @@ function main() {
   // events → prov:Activity (+ participants, verses)
   for (const e of events) {
     const f = e.fields;
-    addNode({ id: e.id, canonId: `${slugify(f.title)}_${e.id.slice(-4)}`, label: f.title ?? 'Event', kind: 'event', disambig: ord(yr(f.startDate)), prov: 'prov:Activity', dul: 'dul:Event', gc: 'gc:BiblicalEvent', aps: null, tStart: yr(f.startDate), tEnd: null, extra: { startDate: f.startDate, duration: f.duration } });
+    addNode({ id: e.id, canonId: `${slugify(f.title)}_${e.id.slice(-4)}`, label: f.title ?? 'Event', kind: 'event', disambig: ord(yr(f.startDate)), prov: 'prov:Activity', dul: 'dul:Event', gc: classifyEventGc(f.title), aps: null, tStart: yr(f.startDate), tEnd: null, extra: { startDate: f.startDate, duration: f.duration } });
     linkVerses(e.id, f.verses);
     for (const part of f.participants ?? []) if (known.has(part)) addEdge(e.id, 'prov:wasAssociatedWith', part);
     for (const loc of f.locations ?? []) if (known.has(loc)) addEdge(e.id, 'dul:hasLocation', loc); // event → place (real Theographic data)

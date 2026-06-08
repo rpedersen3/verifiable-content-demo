@@ -1,17 +1,51 @@
 // Single-page explorer served by the Worker. Vanilla JS + SVG; talks to /api/*.
 export const UI = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bible Ontology — PROV-O graph + GCO validation</title>
+<title>Bible Explorer</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root{--bg:#f6f8fb;--card:#fff;--ink:#1f2733;--muted:#6b7785;--line:#e4e9f0;--accent:#2f6df0;--ok:#1a8a4f;--no:#c0392b;--warn:#b45309;--mono:ui-monospace,Menlo,monospace}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
 .wrap{max-width:1080px;margin:0 auto;padding:24px 20px 64px}
-h1{font-size:24px;margin:0}.sub{color:var(--muted);margin:4px 0 18px;font-size:13px}
-nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px}
-nav button{background:#eef2fb;color:var(--accent);border:0;border-radius:8px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer}
-nav button.on{background:var(--accent);color:#fff}
+.site-header{display:flex;align-items:baseline;gap:14px;margin-bottom:14px}
+.brand-name{font-size:22px;font-weight:800;color:var(--ink);cursor:pointer;letter-spacing:-.01em}
+.brand-name:hover{color:var(--accent)}
+.brand-sub{font-size:12px;color:var(--muted)}
+nav{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+nav button{background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:7px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .1s,color .1s,border-color .1s}
+nav button:hover{background:#eef2fb;color:var(--accent);border-color:#d0dbf5}
+nav button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+nav button.nav-util{font-size:12px;padding:5px 11px}
+nav button.nav-util:hover{background:#f8fafd;color:var(--ink)}
+nav button.nav-util.on{background:#eef2fb;color:var(--accent);border-color:var(--accent)}
+.nav-sep{width:1px;height:22px;background:var(--line);margin:0 6px;align-self:center;flex:none}
+.sec-head{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:8px;border:0;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:#1a58d4}
+/* home gateway */
+.gw-hero{background:linear-gradient(135deg,#eef3fc,#f6f8fb);border:1px solid var(--line);border-radius:16px;padding:26px 26px 22px;margin-bottom:18px}
+.gw-hero h2{margin:0 0 3px;font-size:24px;font-weight:800;letter-spacing:-.01em}
+.gw-hero .lead{color:var(--muted);font-size:14px;margin:0 0 16px}
+.gw-search-in{font-size:16px;padding:12px 16px;border-radius:10px;border:1px solid var(--line);width:100%;max-width:560px;background:#fff}
+.gw-search-in:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,109,240,.12)}
+.gw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:18px}
+.gw-tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px 16px;cursor:pointer;transition:box-shadow .15s,transform .15s,border-color .15s}
+.gw-tile:hover{box-shadow:0 6px 22px rgba(20,30,50,.10);transform:translateY(-2px);border-color:#c8d5f0}
+.gw-preview{height:92px;margin-bottom:12px;border-radius:9px;background:#f8fafd;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.gw-preview svg{width:100%;height:100%;display:block}
+.gw-label{font-size:15px;font-weight:700;color:var(--ink)}
+.gw-desc{font-size:12px;color:var(--muted);line-height:1.4;margin-top:2px}
+.gw-feat{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px}
+.gw-fc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px;cursor:pointer;text-align:center;flex:none;width:108px;transition:border-color .12s,box-shadow .12s}
+.gw-fc:hover{border-color:var(--accent);box-shadow:0 4px 14px rgba(20,30,50,.08)}
+.gw-fc img{width:70px;height:70px;object-fit:cover;border-radius:9px;margin:0 auto 7px;display:block}
+.gw-fc .fn{font-size:13px;font-weight:700}.gw-fc .fk{font-size:11px;color:var(--muted)}
+/* custom map basemap control */
+#map{position:relative}
+.map-basectl{position:absolute;top:10px;right:10px;z-index:1000;display:flex;gap:2px;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:8px;padding:3px;box-shadow:0 2px 8px rgba(20,30,50,.12)}
+.map-basbtn{background:transparent;border:0;border-radius:6px;padding:5px 11px;font:12px/1 system-ui,sans-serif;font-weight:600;color:var(--muted);cursor:pointer}
+.map-basbtn:hover{background:#eef2fb;color:var(--accent)}.map-basbtn.on{background:var(--accent);color:#fff}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .stat{background:#f8fafd;border:1px solid var(--line);border-radius:10px;padding:12px}
@@ -112,19 +146,19 @@ svg#tsvg{display:block;background:#fbfcfe}
 .tnode{cursor:pointer}.tnode:hover rect,.tnode:hover polygon{fill-opacity:1;stroke:#1f2733;stroke-width:1.2}
 .tnode:hover text{font-weight:600}
 </style></head><body><div class="wrap">
-<h1 onclick="nav('overview')" style="cursor:pointer" title="Home (overview)">Bible Ontology</h1>
-<div class="sub">A PROV-O graph of the Bible (Agent · Activity · Entity) over DUL · W3C ORG · GeoSPARQL · aps:skills · gc:, used to validate the Global Church Ontology. Data: Theographic Bible Metadata (CC-BY-SA).</div>
+<div class="site-header"><span class="brand-name" onclick="nav('home')" title="Home">Bible Explorer</span><span class="brand-sub" id="brandsub"></span></div>
 <nav>
- <button data-t="overview" class="on">Overview</button>
+ <button data-t="home" class="on">Home</button>
  <button data-t="explore">Explore</button>
- <button data-t="classes">Inheritance</button>
- <button data-t="timeline">Timeline</button>
  <button data-t="geo">Map</button>
- <button data-t="oikos">Circles</button>
+ <button data-t="timeline">Timeline</button>
+ <button data-t="oikos">Oikos</button>
  <button data-t="generations">Generations</button>
- <button data-t="graph">Trust graph</button>
- <button data-t="validate">Validate GCO</button>
- <button data-t="admin">Admin</button>
+ <button data-t="graph">Trust Graph</button>
+ <span class="nav-sep"></span>
+ <button data-t="classes" class="nav-util">Class Browser</button>
+ <button data-t="validate" class="nav-util">Validate GCO</button>
+ <button data-t="admin" class="nav-util">Admin</button>
 </nav>
 <div id="view"></div>
 <div id="htip" class="gtip"></div>
@@ -213,20 +247,47 @@ function scoreBars(scores){
 }
 
 // ── hash routing: every view is a URL route so browser back/forward works ──
-const TABS=['overview','explore','classes','timeline','geo','oikos','generations','graph','validate','admin'];
+const TABS=['home','explore','classes','timeline','geo','oikos','generations','graph','validate','admin'];
 function nav(h){if(('#'+h)===location.hash)applyHash();else location.hash=h;}
 function markNav(t){document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t===t));}
 function applyHash(){
-  let h=decodeURIComponent(location.hash.replace(/^#/,''));if(!h)h='overview';
-  const i=h.indexOf('/'),t=i<0?h:h.slice(0,i),arg=i<0?'':h.slice(i+1);
+  let h=decodeURIComponent(location.hash.replace(/^#/,''));if(!h)h='home';
+  let i=h.indexOf('/'),t=i<0?h:h.slice(0,i),arg=i<0?'':h.slice(i+1);
+  if(t==='overview')t='home';
   if(t==='node'){tab='explore';markNav('explore');if(document.getElementById('detail')){if(arg)renderNode(arg);}else{explore().then(()=>arg&&renderNode(arg));}return;}
   if(t==='graph'&&arg){graphCenter=arg;gExpand={};gFilters={};}
   if(t==='oikos'&&arg)oikosCenter=arg;
   if(t==='generations'&&arg)genRoot=arg;
-  tab=TABS.includes(t)?t:'overview';markNav(tab);render();
+  tab=TABS.includes(t)?t:'home';markNav(tab);render();
 }
 window.addEventListener('hashchange',applyHash);
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>nav(b.dataset.t));
+
+// ── Home gateway ──
+const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
+const SVG_TL='<svg viewBox="0 0 200 92">'+[['#2563eb',24,86],['#0e7490',46,118],['#b45309',74,78],['#1a8a4f',104,66],['#9333ea',142,46]].map((b,i)=>'<rect x="'+b[1]+'" y="'+(14+i*15)+'" width="'+b[2]+'" height="9" rx="3" fill="'+b[0]+'"/>').join('')+'<line x1="12" y1="8" x2="12" y2="86" stroke="#cbd5e1"/></svg>';
+const SVG_RING='<svg viewBox="0 0 200 92"><g transform="translate(100,46)">'+[40,28,16].map(r=>'<circle r="'+r+'" fill="none" stroke="#cbd5e1" stroke-dasharray="2 3"/>').join('')+[[0,-38],[33,-18],[36,18],[0,38],[-33,18],[-36,-18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="5" fill="#0d9488"/>').join('')+'<circle r="9" fill="#2f6df0"/></g></svg>';
+const SVG_TREE='<svg viewBox="0 0 200 92">'+['M100 18 L50 50','M100 18 L100 50','M100 18 L150 50','M50 50 L36 80','M50 50 L64 80','M150 50 L150 80'].map(d=>'<path d="'+d+'" stroke="#cbd5e1" fill="none"/>').join('')+[[100,18,7,'#2f6df0'],[50,50,5,'#9333ea'],[100,50,5,'#9333ea'],[150,50,5,'#9333ea'],[36,80,4,'#2563eb'],[64,80,4,'#2563eb'],[150,80,4,'#2563eb']].map(n=>'<circle cx="'+n[0]+'" cy="'+n[1]+'" r="'+n[2]+'" fill="'+n[3]+'"/>').join('')+'</svg>';
+const SVG_EGO=(()=>{const p=[[0,-34,'#0e7490'],[32,-18,'#b45309'],[37,8,'#1a8a4f'],[20,32,'#9333ea'],[-20,32,'#c0392b'],[-37,8,'#0d9488'],[-32,-18,'#2563eb']];return '<svg viewBox="0 0 200 92"><g transform="translate(100,46)">'+p.map(x=>'<line x1="0" y1="0" x2="'+x[0]+'" y2="'+x[1]+'" stroke="#dbe2ec"/>').join('')+p.map(x=>'<circle cx="'+x[0]+'" cy="'+x[1]+'" r="5" fill="'+x[2]+'"/>').join('')+'<circle r="10" fill="#2f6df0"/></g></svg>';})();
+const SVG_SEARCH='<svg viewBox="0 0 200 92"><rect x="28" y="34" width="118" height="24" rx="12" fill="#fff" stroke="#cbd5e1"/><text x="42" y="50" font-size="11" fill="#9aa7b6">Jesus…</text><circle cx="160" cy="46" r="11" fill="none" stroke="#2f6df0" stroke-width="3"/><line x1="168" y1="54" x2="178" y2="64" stroke="#2f6df0" stroke-width="3"/></svg>';
+async function home(){
+  const TILES=[['geo','Map','1,758 geolocated places · activities · time animation',SVG_MAP],['timeline','Timeline','4200 BC – 90 AD · lifespans + activities',SVG_TL],['oikos','Oikos','Relationship rings · family · household · network',SVG_RING],['generations','Generations','Descent · discipleship · church plants',SVG_TREE],['graph','Trust Graph','Entity relationships · trust signals',SVG_EGO],['explore','Explore','Search 6,800+ entities · read the verses',SVG_SEARCH]];
+  V.innerHTML='<div class="gw-hero"><h2>Explore the Bible as a living graph</h2><p class="lead">People, places, events, relationships — and the verses behind them — across all 66 books.</p>'+
+   '<input id="hq" class="gw-search-in" placeholder="Search people, places, events… (e.g. Jesus, Jerusalem, Exodus)"/>'+
+   '<div class="gchips" id="hkf" style="margin-top:10px"></div><div id="hres"></div></div>'+
+   '<div class="gw-grid">'+TILES.map(t=>'<div class="gw-tile" onclick="nav(\\''+t[0]+'\\')"><div class="gw-preview">'+t[3]+'</div><div class="gw-label">'+esc(t[1])+'</div><div class="gw-desc">'+esc(t[2])+'</div></div>').join('')+'</div>'+
+   '<div class="sec-head">Featured people</div><div class="gw-feat" id="hfeat"><span class="ghint">loading…</span></div>';
+  let hk='';const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places']];
+  const drawKf=()=>{document.getElementById('hkf').innerHTML=KF.map(k=>'<span class="gchip'+(hk===k[0]?' on':'')+'" data-k="'+k[0]+'">'+esc(k[1])+'</span>').join('');document.querySelectorAll('#hkf [data-k]').forEach(ch=>ch.onclick=()=>{hk=ch.dataset.k;drawKf();runH();});};
+  drawKf();
+  const hq=document.getElementById('hq');hq.focus();
+  const runH=async()=>{const term=hq.value.trim(),r=document.getElementById('hres');if(term.length<2&&!hk){r.innerHTML='';return;}const d=await api('/search?q='+encodeURIComponent(term)+(hk?'&kind='+hk:''));r.innerHTML='<ul class="list" style="margin-top:10px">'+d.results.slice(0,8).map(x=>'<li onclick="showNode(\\''+x.id+'\\')">'+(x.image_thumb?'<img class="mini" loading="lazy" src="'+esc(x.image_thumb)+'"/>':dot(x.kind))+'<b>'+esc(x.label)+'</b> <span class="muted">'+(x.disambig?esc(x.disambig)+' · ':'')+esc(x.prov_class||x.gc_class||'')+'</span></li>').join('')+'</ul>';};
+  let t;hq.oninput=()=>{clearTimeout(t);t=setTimeout(runH,160);};
+  const ov=await api('/overview').catch(()=>({}));const tot=(ov&&ov.totals)||{};
+  const bs=document.getElementById('brandsub');if(bs)bs.textContent=(tot.nodes?tot.nodes.toLocaleString()+' entities · ':'')+'1,758 places · 66 books';
+  const feats=await Promise.all(['Jesus','Paul','Abraham','David','Mary'].map(n=>api('/search?q='+n+'&kind=person').catch(()=>({}))));
+  document.getElementById('hfeat').innerHTML=feats.map(d=>{const r=(d.results||[]).find(x=>x.image_thumb)||(d.results||[])[0];if(!r)return '';return '<div class="gw-fc" onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img loading="lazy" src="'+esc(r.image_thumb)+'"/>':'<div style="height:70px"></div>')+'<div class="fn">'+esc(r.label)+'</div><div class="fk">'+esc(r.kind)+'</div></div>';}).join('')||'<span class="ghint">—</span>';
+}
 
 // ── verse passage popup: click a verse ref → read it with its logically-grouped surrounding verses ──
 function prettyRef(a,b){const x=a.split('.'),y=b.split('.');if(x[0]===y[0]&&x[1]===y[1])return x[0]+' '+x[1]+':'+x[2]+(x[2]!==y[2]?'–'+y[2]:'');if(x[0]===y[0])return x[0]+' '+x[1]+':'+x[2]+' – '+y[1]+':'+y[2];return a+' – '+b;}
@@ -248,7 +309,7 @@ document.addEventListener('keydown',(e)=>{if(e.key==='Escape')closePassage();});
 async function render(){
   if(geoTimer){clearInterval(geoTimer);geoTimer=null;}
   if(geoMap&&tab!=='geo'){try{geoMap.remove();}catch(e){}geoMap=null;}
-  if(tab==='overview')return overview();
+  if(tab==='home')return home();
   if(tab==='explore')return explore();
   if(tab==='classes')return classes();
   if(tab==='timeline')return timeline();
@@ -261,14 +322,14 @@ async function render(){
 }
 // ── Inheritance browser: a class + ALL its subclasses across every layer ──
 let clsList=null,clsKids={},clsExp={},clsSel='';
-const CLS_ROOTS=['prov:Agent','prov:Activity','prov:Entity','dul:Concept','dul:Description','dul:Role','dul:Situation'];
+const CLS_ROOTS=['prov:Agent','prov:Activity','prov:Entity','pplan:Plan','dns:Assertion','gc:Role'];
 async function classes(){
-  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Ontology inheritance</h3>'+
-   '<p class="hint">Click a class to see its instances; click <b>▸</b> to expand its <b>subclasses</b> and drill down (e.g. prov:Agent ▸ prov:Organization ▸ org:Organization ▸ assemblies / tribes / nations). Selecting a subclass filters to it and its descendants — the database stores the transitive subclass closure.</p>'+
+  V.innerHTML='<div class="card"><div class="sec-head">Class browser · Global Church Ontology</div>'+
+   '<p class="hint" style="margin:0 0 12px">Click a class to list its instances; expand <b>▸</b> to drill into subclasses. The Global Church Ontology extends PROV-O · P-Plan · EP-Plan · DOLCE+DnS.</p>'+
    '<div class="grid2"><div id="ctree"></div><div id="cout"></div></div></div>';
   if(!clsList){const d=await api('/classes');clsList=d.classes;clsKids={};clsList.forEach(c=>{if(c.parent)(clsKids[c.parent]=clsKids[c.parent]||[]).push(c);});}
-  clsExp={'prov:Agent':true,'prov:Organization':true};clsSel='prov:Agent';
-  drawTree();classQuery('prov:Agent');
+  clsExp={'prov:Activity':true,'gc:BiblicalEvent':true,'prov:Agent':true};clsSel='gc:BiblicalEvent';
+  drawTree();classQuery('gc:BiblicalEvent');
 }
 function drawTree(){
   const lbl=(c)=>(clsList.find(x=>x.curie===c)||{}).label||c;
@@ -477,8 +538,7 @@ function tlZoom(f){const c=(tlFrom+tlTo)/2,half=Math.max(8,(tlTo-tlFrom)/2*f);tl
 function tlPan(frac){const span=tlTo-tlFrom,d=Math.round(span*frac);if(tlFrom+d<-4300||tlTo+d>160)return;tlFrom+=d;tlTo+=d;drawTimeline();}
 const ordY=(y)=>y==null?'':(Math.abs(y)+(y<0?' BC':' AD'));
 async function timeline(){
-  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Timeline — people &amp; activities</h3>'+
-   '<p class="hint" style="margin-top:0">Lifespans of dated people (bars) and biblical activities (markers) across history. Pick an era; hover for detail; click to open. Color = trust signal.</p>'+
+  V.innerHTML='<div class="card"><div class="sec-head">Timeline · people &amp; activities</div>'+
    '<div class="gchips" id="teras"></div>'+
    '<div class="gchips" style="margin-top:4px"><span class="gchip" id="tzin">＋ zoom in</span><span class="gchip" id="tzout">－ zoom out</span><span class="gchip" id="tpanl">◀ earlier</span><span class="gchip" id="tpanr">later ▶</span></div>'+
    '<div id="twrap"></div></div><div id="ttip" class="gtip"></div>';
@@ -530,8 +590,7 @@ async function drawTimeline(){
 // ── Geospatial map (Leaflet) with time animation ──
 let geoMap=null,geoTimer=null;
 async function geo(){
-  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Geospatial — places · activities · people</h3>'+
-   '<p class="hint" style="margin-top:0">Real coordinates (OpenBible / Theographic). Activities sit at their recorded location and people at their birthplace — only edge-backed locations, no fabricated points. Toggle layers; drag the year or press play to animate history.</p>'+
+  V.innerHTML='<div class="card"><div class="sec-head">Map</div>'+
    '<div class="gchips" id="glayers"></div>'+
    '<div id="map" style="height:520px;border:1px solid var(--line);border-radius:10px;z-index:0"></div>'+
    '<div id="gtime" style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div></div>';
@@ -546,7 +605,12 @@ async function geo(){
   const osmStd=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'});
   const cartoClean=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:18,subdomains:'abcd',attribution:'&copy; OpenStreetMap &copy; CARTO'});
   esriStreet.addTo(map);   // default: full street map with English city + water labels
-  L.control.layers({'Streets (English)':esriStreet,'Topographic (English)':esriTopo,'Satellite':esriImagery,'OpenStreetMap':osmStd,'Clean (no labels)':cartoClean},null,{position:'topright',collapsed:false}).addTo(map);
+  const BASEMAPS=[['Streets',esriStreet],['Topo',esriTopo],['Satellite',esriImagery],['Minimal',cartoClean]];
+  let activeBase=esriStreet;
+  const bctl=document.createElement('div');bctl.className='map-basectl';
+  bctl.innerHTML=BASEMAPS.map((b,i)=>'<button class="map-basbtn'+(i===0?' on':'')+'" data-i="'+i+'">'+b[0]+'</button>').join('');
+  document.getElementById('map').appendChild(bctl);
+  bctl.querySelectorAll('.map-basbtn').forEach((btn,i)=>btn.onclick=()=>{map.removeLayer(activeBase);activeBase=BASEMAPS[i][1];activeBase.addTo(map);bctl.querySelectorAll('.map-basbtn').forEach((b,j)=>b.classList.toggle('on',j===i));});
   const sigC=(n,def)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':def;
   const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);return r.length?'<div style="margin-top:5px">'+r.map(o=>'<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:#eef2fb;color:#3a4a63;border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none">'+esc(o)+'</a>').join('')+'</div>':'';};
   const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
@@ -580,8 +644,7 @@ let oikosCenter=null,oikosOrgs=false;
 const RING=[{label:'Family (oikos)',color:'#e87c3e',r:120},{label:'Household & kin',color:'#0d9488',r:212},{label:'Network & conversations',color:'#9333ea',r:300}];
 function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner|hasRelative/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|org:member|org:organization|org:role|companionOf/.test(rel))return 1;return 2;}
 async function oikos(){
-  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Oikos circles — relationships out from a person</h3>'+
-   '<p class="hint" style="margin-top:0">Concentric circles of <b>people</b> around a person: inner = <b>family</b> (oikos), middle = <b>household &amp; kin</b>, outer = <b>network &amp; conversations</b>. Search a person; click anyone to recenter.</p>'+
+  V.innerHTML='<div class="card"><div class="sec-head">Oikos · relationship circles</div>'+
    '<input id="oq" placeholder="Center on a person… (e.g. Paul, Peter, David, Mary)"/>'+
    '<label class="hint" style="display:inline-flex;gap:5px;align-items:center;margin:8px 0 0"><input type="checkbox" id="oorg"'+(oikosOrgs?' checked':'')+'> include organizations (churches, tribes…)</label>'+
    '<div id="ores"></div><div id="owrap"></div></div><div id="otip" class="gtip"></div>';
@@ -627,8 +690,7 @@ async function drawOikos(){
 let genRoot=null,genRels='gc:hasChild';
 const GEN_LENS=[['gc:hasChild','Descent (parent→child)'],['gc:discipled,gc:planted','Discipleship & church plants'],['gc:gaveRiseTo,org:hasSubOrganization,gc:grewOutOf,gc:planted,gc:discipled','Organizations (what grew out of what)']];
 async function generations(){
-  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">Generational map — lineage, discipleship &amp; what grew out of what</h3>'+
-   '<p class="hint" style="margin-top:0">Generations of a root by descent, or by <b>movement</b> — discipleship &amp; church plants (e.g. Jesus → the Twelve → Paul → Timothy; Paul plants Ephesus, Corinth…). Search a root; click to open. Below: how organizations grew out of their founders.</p>'+
+  V.innerHTML='<div class="card"><div class="sec-head">Generations · lineage · discipleship · movements</div>'+
    '<div class="gchips" id="glens"></div>'+
    '<input id="gnq" placeholder="Root… (descent: Abraham, Jacob · movement: Jesus, Paul, Barnabas)"/><div id="gnres"></div><div id="gnwrap"></div></div>'+
    '<div id="orgwrap"></div><div id="otip" class="gtip"></div>';
