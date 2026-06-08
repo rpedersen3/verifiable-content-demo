@@ -45,4 +45,14 @@ dd { margin: 0; }
 .dot.no { background: #d8b4b4; }
 .citation summary { cursor: pointer; font-weight: 600; color: var(--muted); }
 .citation pre { background: #0f1622; color: #cfe1ff; padding: 14px; border-radius: 8px; overflow: auto; font-size: 12px; }
+.ask .ask-input { flex: 1; min-width: 240px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.ask .answer { margin-top: 12px; }
+.ask .answer pre { white-space: pre-wrap; background: #f3f6fb; border: 1px solid var(--line); border-radius: 8px; padding: 14px; font: inherit; font-size: 15px; line-height: 1.55; }
+.cites { list-style: none; margin: 12px 0 0; padding: 0; }
+.cite { border-top: 1px solid var(--line); padding: 8px 0; }
+.cite-ref { display: flex; align-items: center; gap: 10px; }
+.verify-btn { margin-left: auto; padding: 4px 12px; font-size: 13px; background: #eef2fb; color: var(--accent); }
+.verdict { font-size: 12px; margin-top: 6px; }
+.verdict.ok { color: var(--ok); }
+.verdict.no { color: var(--no); }
 footer { color: var(--muted); font-size: 12px; margin-top: 32px; border-top: 1px solid var(--line); padding-top: 16px; }

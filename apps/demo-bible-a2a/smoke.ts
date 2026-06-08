@@ -77,5 +77,25 @@ let canonicalId = '';
   check('licensed: accessible WITH a SIGNED entitlement', r.ok && r.accessible === true && typeof r.text === 'string', { accessible: r.accessible, gate: r.gate });
 }
 
+// ── AI-safe citation flow ──────────────────────────────────────────────────
+{
+  const ask = (await (await post('/ask', { question: 'What does it say about love?' })).json()) as any;
+  check('agent answers + cites sources (topic match)', ask.ok && ask.topic === "God's love" && ask.citations.length === 2 && /For God so loved/.test(ask.answer), { topic: ask.topic, n: ask.citations?.length });
+  check('each citation is agent-signed (EIP-712 proof)', ask.citations.every((x: any) => x.citation?.proof?.type === 'Eip712Signature2026'));
+
+  const first = ask.citations[0];
+  const v = (await (await post('/verify', { citation: first.citation, reference: first.reference, edition: first.edition })).json()) as any;
+  check('verify: agent signature valid + commitment matches the live source', v.ok && v.agentSignatureValid && v.commitmentMatchesSource, v);
+
+  // Tamper: a citation whose commitment does not match the source must fail.
+  const tampered = JSON.parse(JSON.stringify(first.citation));
+  tampered.credentialSubject.commitment.value = '0x' + '00'.repeat(32);
+  const vt = (await (await post('/verify', { citation: tampered, reference: first.reference, edition: first.edition })).json()) as any;
+  check('verify: a tampered citation is rejected', vt.ok === false, { agentSig: vt.agentSignatureValid, commitment: vt.commitmentMatchesSource });
+
+  const tlog = (await (await a2a.request('/transparency', {}, env)).json()) as any;
+  check('transparency log records emitted citations', tlog.ok && tlog.count >= 2);
+}
+
 console.log(failures === 0 ? '\nTRIAD v2 SMOKE PASSED' : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

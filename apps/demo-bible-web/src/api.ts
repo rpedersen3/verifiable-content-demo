@@ -101,3 +101,47 @@ export async function issueEntitlement(edition: string): Promise<SignedEntitleme
   if (!body.ok || !body.entitlement) throw new Error(body.error ?? 'could not issue entitlement');
   return body.entitlement;
 }
+
+export interface AskCitation {
+  reference: string;
+  edition: string;
+  text: string | null;
+  canonicalId: string;
+  descriptorId: string;
+  commitment?: { value: string };
+  citation: unknown;
+}
+export interface AskResult {
+  ok: boolean;
+  question: string;
+  topic: string | null;
+  answer: string;
+  citations: AskCitation[];
+}
+export interface VerifyResult {
+  ok: boolean;
+  agentSignatureValid: boolean;
+  signer: string | null;
+  expectedAgent: string;
+  commitmentMatchesSource: boolean;
+}
+
+/** Ask the agent a question — it answers with verifiable signed citations. */
+export async function askQuestion(question: string): Promise<AskResult> {
+  const res = await fetch(`${A2A_BASE}/ask`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ question }),
+  });
+  return res.json() as Promise<AskResult>;
+}
+
+/** Independently verify a citation: agent signature + commitment-matches-source. */
+export async function verifyCitation(citation: unknown, reference: string, edition: string): Promise<VerifyResult> {
+  const res = await fetch(`${A2A_BASE}/verify`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ citation, reference, edition }),
+  });
+  return res.json() as Promise<VerifyResult>;
+}

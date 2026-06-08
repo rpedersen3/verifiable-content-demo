@@ -5,14 +5,83 @@ import {
   fetchBooks,
   resolvePassage,
   issueEntitlement,
+  askQuestion,
+  verifyCitation,
   type Edition,
   type BibleBook,
   type ResolveResult,
+  type AskResult,
+  type AskCitation,
+  type VerifyResult,
 } from './api';
 
 function short(hex?: string, n = 6): string {
   if (!hex) return '';
   return hex.length > 2 * n + 2 ? `${hex.slice(0, n + 2)}…${hex.slice(-n)}` : hex;
+}
+
+function CitationCard({ cite }: { cite: AskCitation }) {
+  const [verdict, setVerdict] = useState<VerifyResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function verify() {
+    setBusy(true);
+    try {
+      setVerdict(await verifyCitation(cite.citation, cite.reference, cite.edition));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <li className="cite">
+      <div className="cite-ref">
+        <b>{cite.reference}</b> <span className="mono">{short((cite.citation as { proof?: { proofValue?: string } })?.proof?.proofValue, 6)}</span>
+        <button className="verify-btn" onClick={verify} disabled={busy}>
+          {busy ? '…' : verdict ? (verdict.ok ? '✓ verified' : '✗ failed') : 'Verify'}
+        </button>
+      </div>
+      {verdict && (
+        <div className={`verdict ${verdict.ok ? 'ok' : 'no'}`}>
+          agent signature {verdict.agentSignatureValid ? '✓' : '✗'} · commitment matches source {verdict.commitmentMatchesSource ? '✓' : '✗'}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function AskPanel() {
+  const [q, setQ] = useState('What does it say about love?');
+  const [res, setRes] = useState<AskResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function ask() {
+    setBusy(true);
+    try {
+      setRes(await askQuestion(q));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="card ask">
+      <h2>Ask — verifiable citations</h2>
+      <div className="row">
+        <input className="ask-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask a question…" />
+        <button onClick={ask} disabled={busy}>{busy ? '…' : 'Ask'}</button>
+      </div>
+      <p className="hint">Try “love”, “comfort”, “strength”, or “creation”. The agent answers and emits signed citations you can verify.</p>
+      {res?.ok && (
+        <div className="answer">
+          <pre>{res.answer}</pre>
+          {res.citations.length > 0 && (
+            <ul className="cites">
+              {res.citations.map((c) => (
+                <CitationCard key={c.descriptorId} cite={c} />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
+  );
 }
 
 export function App() {
@@ -62,6 +131,8 @@ export function App() {
         <h1>{BRANDING.name}</h1>
         <p className="tagline">{BRANDING.tagline}</p>
       </header>
+
+      <AskPanel />
 
       <section className="picker card">
         <h2>{COPY.pickPassage}</h2>

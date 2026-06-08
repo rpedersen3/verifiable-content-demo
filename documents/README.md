@@ -3,6 +3,7 @@
 This folder explains the `verifiable-content-demo` architecture from four angles:
 
 - [Branding Approach](./branding-approach.md) - value narrative, differentiation from YouVersion-style products, and stakeholder messaging.
+- [Agentic Trust Technical Description](./agentic-trust-technical-description.md) - simple technical explanation of validators, translation agents, and shared response evidence.
 - [Information Architecture](./information-architecture.md) - user-facing concepts, labels, content objects, and navigation model.
 - [Operational Architecture](./operational-architecture.md) - local services, ports, scripts, runtime dependencies, checks, and observability.
 - [System Architecture](./system-architecture.md) - component boundaries, trust boundaries, data flow, and entitlement flow.
