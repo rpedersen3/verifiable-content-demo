@@ -6,7 +6,8 @@
 //   VALIDATOR_URL=https://<vercel>  pnpm validate:e2e
 // Defaults target the live Cloudflare a2a/mcp (on-chain mode, Base Sepolia).
 
-import { keccak256, toBytes } from 'viem';
+import { keccak256, toBytes, recoverAddress } from 'viem';
+import { verifyCredentialStructural } from '@agenticprimitives/verifiable-credentials';
 import { buildPoseidonTree, proveMembership, toField } from '@verifiable-content-demo/zk-membership';
 
 const A2A = process.env.A2A_URL ?? 'https://demo-bible-a2a-production.richardpedersen3.workers.dev';
@@ -65,12 +66,30 @@ async function main() {
   const ok = await jpost(`${VALIDATOR}/validate`, bundle);
   show('Honest bundle', ok);
 
+  // The validator is an attesting agent: verify its SIGNED ValidationAttestation
+  // + that the trust graph asserts VALIDATED_OUTPUT.
+  let attOk = false;
+  let edgeOk = false;
+  const att = ok.attestation as any;
+  if (att?.proof) {
+    const vr = verifyCredentialStructural(att);
+    const expected = String(att.credentialSubject?.validatorAgentId ?? '').split(':').pop() ?? '';
+    if (vr.structural && vr.expectedDigest && vr.proofValue) {
+      const signer = await recoverAddress({ hash: vr.expectedDigest, signature: vr.proofValue });
+      attOk = signer.toLowerCase() === expected.toLowerCase();
+    }
+    edgeOk = (ok.graph?.edges ?? []).some((e: any) => e.rel === 'VALIDATED_OUTPUT' && e.to === bundle.agent.agentId);
+    console.log(`\nValidationAttestation by ${att.credentialSubject?.validatorName}: signature ${attOk ? '✓' : '✗'} | outcome "${att.credentialSubject?.outcome}" | profile "${att.credentialSubject?.validationProfile}"`);
+    console.log(`Trust graph: ${(ok.graph?.edges ?? []).length} edges; VALIDATED_OUTPUT ${edgeOk ? '✓' : '✗'}`);
+    for (const e of ok.graph?.edges ?? []) console.log(`  ${e.from}  --${e.rel}-->  ${e.to}`);
+  }
+
   const tampered = JSON.parse(JSON.stringify(bundle));
   tampered.response.text = (tampered.response.text ?? '') + ' (TAMPERED)';
   const bad = await jpost(`${VALIDATOR}/validate`, tampered);
   show('Tampered response', bad);
 
-  const pass = ok.outcome === 'validated' && bad.outcome === 'rejected';
+  const pass = ok.outcome === 'validated' && bad.outcome === 'rejected' && attOk && edgeOk;
   console.log(`\n${pass ? 'HOSTED VALIDATOR E2E PASSED ✓' : 'HOSTED VALIDATOR E2E FAILED ✗'}`);
   process.exit(pass ? 0 : 1);
 }

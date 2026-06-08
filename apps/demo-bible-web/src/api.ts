@@ -145,3 +145,35 @@ export async function verifyCitation(citation: unknown, reference: string, editi
   });
   return res.json() as Promise<VerifyResult>;
 }
+
+export interface GraphEdge {
+  from: string;
+  rel: string;
+  to: string;
+  meta?: Record<string, unknown>;
+}
+export interface GraphNode {
+  id: string;
+  label: string;
+  kind: string;
+}
+export interface TrustValidation {
+  ok: boolean;
+  reference: string;
+  outcome: 'validated' | 'gated' | 'rejected';
+  checks: Record<string, { ok: boolean; detail?: string }>;
+  attestation?: { credentialSubject?: Record<string, unknown>; proof?: { proofValue?: string } };
+  graph?: { nodes: GraphNode[]; edges: GraphEdge[] };
+  validator?: string;
+}
+
+/** Ask the agent to assemble an evidence bundle and have the INDEPENDENT
+ *  (hosted) validator check it — returns the outcome, signed attestation + graph. */
+export async function validateResponse(reference: string, edition: string): Promise<TrustValidation> {
+  const res = await fetch(`${A2A_BASE}/trust/validate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ reference, edition }),
+  });
+  return res.json() as Promise<TrustValidation>;
+}

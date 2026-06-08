@@ -6,13 +6,13 @@ import {
   resolvePassage,
   issueEntitlement,
   askQuestion,
-  verifyCitation,
+  validateResponse,
   type Edition,
   type BibleBook,
   type ResolveResult,
   type AskResult,
   type AskCitation,
-  type VerifyResult,
+  type TrustValidation,
 } from './api';
 
 function short(hex?: string, n = 6): string {
@@ -20,13 +20,52 @@ function short(hex?: string, n = 6): string {
   return hex.length > 2 * n + 2 ? `${hex.slice(0, n + 2)}…${hex.slice(-n)}` : hex;
 }
 
+function nodeLabel(graph: TrustValidation['graph'], id: string): string {
+  return graph?.nodes.find((n) => n.id === id)?.label ?? (id.startsWith('0x') || id.startsWith('eip155') ? id.slice(0, 14) + '…' : id);
+}
+
+// The trust graph + signed ValidationAttestation from the INDEPENDENT validator.
+function TrustGraphCard({ v }: { v: TrustValidation }) {
+  const cs = (v.attestation?.credentialSubject ?? {}) as Record<string, unknown>;
+  const checks = Object.values(v.checks ?? {});
+  const passed = checks.filter((c) => c.ok).length;
+  const cls = v.outcome === 'validated' ? 'ok' : v.outcome === 'gated' ? 'gate' : 'no';
+  return (
+    <div className="trustgraph">
+      <div className="tg-head">
+        <span className={`badge ${cls}`}>{v.outcome ?? 'error'}</span>
+        <span className="tg-by">attested by <b>{String(cs.validatorName ?? 'demo-validator.agent')}</b></span>
+      </div>
+      <dl className="tg-meta">
+        <dt>Profile</dt>
+        <dd>{String(cs.validationProfile ?? '—')}</dd>
+        <dt>Checks</dt>
+        <dd>{passed}/{checks.length} passed</dd>
+        <dt>Attestation</dt>
+        <dd className="mono">{short(v.attestation?.proof?.proofValue, 8)}</dd>
+      </dl>
+      {v.graph && (
+        <ul className="tg-edges">
+          {v.graph.edges.map((e, i) => (
+            <li key={i}>
+              <span className="tg-node">{nodeLabel(v.graph, e.from)}</span>
+              <em>{e.rel.replace(/_/g, ' ').toLowerCase()}</em>
+              <span className="tg-node">{nodeLabel(v.graph, e.to)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function CitationCard({ cite }: { cite: AskCitation }) {
-  const [verdict, setVerdict] = useState<VerifyResult | null>(null);
+  const [v, setV] = useState<TrustValidation | null>(null);
   const [busy, setBusy] = useState(false);
-  async function verify() {
+  async function validate() {
     setBusy(true);
     try {
-      setVerdict(await verifyCitation(cite.citation, cite.reference, cite.edition));
+      setV(await validateResponse(cite.reference, cite.edition));
     } finally {
       setBusy(false);
     }
@@ -34,16 +73,12 @@ function CitationCard({ cite }: { cite: AskCitation }) {
   return (
     <li className="cite">
       <div className="cite-ref">
-        <b>{cite.reference}</b> <span className="mono">{short((cite.citation as { proof?: { proofValue?: string } })?.proof?.proofValue, 6)}</span>
-        <button className="verify-btn" onClick={verify} disabled={busy}>
-          {busy ? '…' : verdict ? (verdict.ok ? '✓ verified' : '✗ failed') : 'Verify'}
+        <b>{cite.reference}</b>
+        <button className="verify-btn" onClick={validate} disabled={busy}>
+          {busy ? '…' : v ? (v.outcome === 'validated' ? '✓ validated' : `✗ ${v.outcome}`) : 'Validate'}
         </button>
       </div>
-      {verdict && (
-        <div className={`verdict ${verdict.ok ? 'ok' : 'no'}`}>
-          agent signature {verdict.agentSignatureValid ? '✓' : '✗'} · commitment matches source {verdict.commitmentMatchesSource ? '✓' : '✗'}
-        </div>
-      )}
+      {v && <TrustGraphCard v={v} />}
     </li>
   );
 }
@@ -94,6 +129,17 @@ export function App() {
   const [result, setResult] = useState<ResolveResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [trust, setTrust] = useState<TrustValidation | null>(null);
+  const [validating, setValidating] = useState(false);
+
+  async function validateIndependently() {
+    setValidating(true);
+    try {
+      setTrust(await validateResponse(reference, edition));
+    } finally {
+      setValidating(false);
+    }
+  }
 
   useEffect(() => {
     Promise.all([fetchEditions(), fetchBooks()])
@@ -111,6 +157,7 @@ export function App() {
   async function lookup(withEntitlement = false) {
     setLoading(true);
     setErr(null);
+    setTrust(null);
     try {
       // Real trust path: the corpus issuer SIGNS an entitlement (EIP-712) — not a
       // client-built, unsigned one. The MCP verifies that signature before the gate.
@@ -214,6 +261,13 @@ export function App() {
                 </>
               )}
             </dl>
+            <div className="tg-action">
+              <button onClick={validateIndependently} disabled={validating}>
+                {validating ? 'validating…' : 'Validate independently →'}
+              </button>
+              <span className="hint">an independent validator agent checks the evidence + signs an attestation</span>
+            </div>
+            {trust && <TrustGraphCard v={trust} />}
           </div>
 
           {result.candidates && result.candidates.length > 0 && (

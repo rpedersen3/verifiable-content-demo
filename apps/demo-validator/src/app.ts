@@ -6,6 +6,8 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { validateBundle } from './validate.js';
 import { makeOnchainVerifier } from './onchain.js';
+import { buildValidationAttestation, hashJson, VALIDATOR_AGENT_ID, VALIDATOR_NAME } from './attestation.js';
+import { buildTrustGraph } from './trust-graph.js';
 import type { EvidenceBundle } from './bundle.js';
 
 const MCP_URL = (process.env.MCP_URL ?? 'http://localhost:8790').replace(/\/$/, '');
@@ -39,7 +41,42 @@ app.post('/validate', async (c) => {
   if (!bundle) return c.json({ ok: false, error: 'invalid bundle' }, 400);
   try {
     const result = await validateBundle(bundle, { trustedIssuers: TRUSTED_ISSUERS, fetchCorpus, verifySignature });
-    return c.json({ ok: true, ...result });
+
+    // The validator is an ATTESTING agent: sign a ValidationAttestation over the
+    // bundle + return a small trust graph around the validated output.
+    let attestation: unknown;
+    let graph: unknown;
+    if (result.checks.schema?.ok) {
+      const profile = `${bundle.policy?.policyProfile ?? 'public-domain-demo'}${bundle.proof?.zkMembership ? '+zk-membership' : ''}`;
+      attestation = await buildValidationAttestation({
+        subjectAgentId: bundle.agent.agentId,
+        subjectName: bundle.agent.agentName,
+        agentRunId: bundle.intent.agentRunId,
+        outputId: bundle.intent.outputId,
+        evidenceBundleHash: hashJson(bundle),
+        responseHash: bundle.response.responseHash,
+        validationProfile: profile,
+        outcome: result.outcome,
+        checksHash: hashJson(result.checks),
+        issuedAt: new Date().toISOString(),
+      });
+      const attHash = ((attestation as { proof?: { proofValue?: string } }).proof?.proofValue ?? '').slice(0, 18);
+      graph = buildTrustGraph({
+        validatorAgentId: VALIDATOR_AGENT_ID,
+        validatorName: VALIDATOR_NAME,
+        subjectAgentId: bundle.agent.agentId,
+        subjectName: bundle.agent.agentName ?? 'scripture-resolver.agent',
+        issuer: bundle.content.issuer,
+        issuerName: bundle.content.issuerName,
+        descriptorId: bundle.content.descriptorId,
+        profile,
+        outcome: result.outcome,
+        attestationHash: attHash,
+        agentRunId: bundle.intent.agentRunId,
+        outputId: bundle.intent.outputId,
+      });
+    }
+    return c.json({ ok: true, ...result, attestation, graph });
   } catch (e) {
     return c.json({ ok: false, error: 'validation error', detail: (e as Error).message }, 500);
   }

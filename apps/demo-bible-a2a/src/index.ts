@@ -7,11 +7,12 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { buildCitationAssertion, verifyCommitment, type Entitlement } from '@agenticprimitives/content-primitives';
 import { signCredential, verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT } from '@agenticprimitives/verifiable-credentials';
-import { recoverAddress } from 'viem';
+import { recoverAddress, keccak256, toBytes } from 'viem';
 import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
 
 interface Env {
   MCP_URL?: string;
+  VALIDATOR_URL?: string;
   MCP?: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> };
   A2A_PUBLIC_ORIGIN?: string;
 }
@@ -220,5 +221,63 @@ app.post('/verify', async (c) => {
 
 // The transparency log — every citation the agent has emitted this run.
 app.get('/transparency', (c) => c.json({ ok: true, count: transparencyLog.length, entries: transparencyLog.slice(-50) }));
+
+// Trust-graph facade: resolve + cite, ASSEMBLE the evidence bundle, hand it to
+// the independent (hosted) validator, and return its outcome + signed
+// ValidationAttestation + trust graph. (The zk membership proof needs a Node
+// prover, so it's added by the local `pnpm validate:e2e`, not this Worker.)
+app.post('/trust/validate', async (c) => {
+  const body = await c.req.json<{ reference?: string; edition?: string }>().catch(() => ({}) as { reference?: string; edition?: string });
+  if (!body.reference) return c.json({ ok: false, error: 'reference required' }, 400);
+  const vurl = (c.env.VALIDATOR_URL ?? '').replace(/\/$/, '');
+  if (!vurl) return c.json({ ok: false, error: 'validator not configured (set VALIDATOR_URL)' }, 503);
+
+  const runId = `run_${body.reference.replace(/\W+/g, '')}_${Date.now()}`;
+  const outputId = 'answer_1';
+  const r = await doResolve(c.env, { reference: body.reference, edition: body.edition, agentRunId: runId, outputId });
+  const pl = r.payload;
+  if (!pl?.ok) return c.json(pl, r.status as 400);
+  const cand = pl.candidates.find((x: any) => x.edition === (body.edition ?? pl.edition)) ?? pl.candidates[0];
+  if (!cand) return c.json({ ok: false, error: 'no candidate' }, 404);
+
+  const text: string | null = pl.text ?? null;
+  const responseHash = keccak256(toBytes(text ?? ''));
+  const bundle = {
+    intent: { intentType: 'quote', requestedReference: pl.display?.reference ?? body.reference, requestedEdition: cand.edition, agentRunId: runId, outputId },
+    agent: { agentId: AGENT_DID, agentName: 'scripture-resolver.agent' },
+    content: {
+      canonicalId: pl.canonicalReference.id,
+      canonicalEnvelope: pl.canonicalReference.envelope,
+      scheme: cand.descriptor.contentType,
+      displayReference: pl.display?.reference,
+      descriptorId: cand.descriptorId,
+      descriptor: cand.descriptor,
+      issuer: cand.issuer.address,
+      issuerName: cand.issuerName,
+      edition: cand.edition,
+      accessPolicy: cand.accessPolicy,
+      rightsStatus: cand.rightsStatus,
+    },
+    proof: { commitment: cand.commitment, commitmentVerified: text != null, corpusRef: cand.corpusRef, corpusRoot: cand.corpusRoot, inclusionProof: cand.inclusionProof, leafIndex: cand.leafIndex },
+    policy: { policyProfile: 'public-domain-demo', policyDecision: text != null ? 'allow' : 'gated', entitlement: null },
+    citation: pl.citation,
+    response: { text, responseHash, quotedSpans: text ? [{ start: 0, end: text.length, descriptorId: cand.descriptorId }] : [] },
+  };
+
+  const vres = await fetch(`${vurl}/validate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(bundle) });
+  const validation = (await vres.json()) as any;
+  return c.json({
+    ok: true,
+    reference: pl.display?.reference ?? body.reference,
+    edition: cand.edition,
+    accessible: pl.accessible,
+    text,
+    outcome: validation.outcome,
+    checks: validation.checks,
+    attestation: validation.attestation,
+    graph: validation.graph,
+    validator: vurl,
+  });
+});
 
 export default app;
