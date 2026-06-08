@@ -142,6 +142,27 @@ app.get('/api/graph', async (c) => {
   return c.json({ ok: true, center, nodes: [...nodes.values()], edges });
 });
 
+// Verse passage — the clicked verse plus its surrounding logically-grouped verses (BSB paragraph),
+// guaranteed a readable minimum window, clamped to the book. Returns verse text to read in a popup.
+app.get('/api/passage', async (c) => {
+  const osis = (c.req.query('osis') ?? '').trim();
+  if (!osis) return c.json({ ok: false, error: 'osis required' }, 400);
+  const ed = 'bsb';
+  const v = await c.env.DB.prepare('SELECT leaf_index AS li, osis FROM verses WHERE edition=? AND osis=?').bind(ed, osis).first<{ li: number; osis: string }>();
+  if (!v) return c.json({ ok: false, error: 'verse not found', osis }, 404);
+  const book = osis.split('.')[0];
+  const bk = await c.env.DB.prepare("SELECT min(leaf_index) lo, max(leaf_index) hi FROM verses WHERE edition=? AND osis LIKE ?").bind(ed, book + '.%').first<{ lo: number; hi: number }>();
+  const ps = await c.env.DB.prepare('SELECT max(start_idx) s FROM paragraph WHERE start_idx<=?').bind(v.li).first<{ s: number | null }>();
+  const pe = await c.env.DB.prepare('SELECT min(start_idx) e FROM paragraph WHERE start_idx>?').bind(v.li).first<{ e: number | null }>();
+  let start = ps?.s ?? v.li;
+  let end = pe?.e != null ? pe.e - 1 : (bk?.hi ?? v.li);
+  if (end - start + 1 < 6) { start = Math.min(start, v.li - 3); end = Math.max(end, v.li + 3); } // ensure readable context
+  start = Math.max(start, bk?.lo ?? start); end = Math.min(end, bk?.hi ?? end);                 // stay within the book
+  if (end - start + 1 > 14) { start = Math.max(bk?.lo ?? 0, v.li - 7); end = Math.min(bk?.hi ?? end, v.li + 6); }
+  const verses = await rows<{ osis: string; text: string }>(c.env.DB, 'SELECT osis, text FROM verses WHERE edition=? AND leaf_index BETWEEN ? AND ? ORDER BY leaf_index', ed, start, end);
+  return c.json({ ok: true, osis, edition: ed, verses });
+});
+
 // Generational lineage — descendants of a root person by generation (BFS over gc:hasChild).
 app.get('/api/lineage', async (c) => {
   const root = c.req.query('root');

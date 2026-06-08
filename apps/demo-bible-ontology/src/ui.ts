@@ -38,6 +38,16 @@ svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10p
 .leaflet-container img{border-radius:0;max-width:none}
 .leaflet-tooltip.maplabel{background:rgba(255,255,255,.82);border:0;box-shadow:none;color:#1f2733;font-size:11px;font-weight:600;padding:0 4px;white-space:nowrap}
 .leaflet-tooltip.maplabel:before{display:none;border:0}
+/* verse passage popup */
+.verses span{cursor:pointer}.verses span:hover{background:#dbe6fb}
+.vmodal{display:none;position:fixed;inset:0;z-index:50;background:rgba(20,30,50,.45);align-items:center;justify-content:center;padding:20px}
+.vmodal.on{display:flex}
+.vmodal .box{background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:82vh;overflow:auto;padding:18px 22px;box-shadow:0 14px 44px rgba(20,30,50,.32)}
+.vmodal h3{margin:0 0 2px;font-size:18px}
+.vmodal .x{float:right;cursor:pointer;color:var(--muted);font-size:22px;line-height:.8}
+.vmodal .vrow{padding:3px 0;line-height:1.6}
+.vmodal .vn{font:11px var(--mono);color:var(--muted);margin-right:7px;vertical-align:top}
+.vmodal .vrow.hot{background:#fff7e6;border-radius:5px;padding:4px 7px;margin:1px -7px}
 svg#gsvg{height:560px;display:block}
 .gnode{cursor:pointer;transition:opacity .12s}.gnode .gnlabel{pointer-events:none;font-weight:500}
 .gcluster{cursor:pointer;transition:opacity .12s}
@@ -112,6 +122,7 @@ svg#tsvg{display:block;background:#fbfcfe}
 </nav>
 <div id="view"></div>
 <div id="htip" class="gtip"></div>
+<div id="vmodal" class="vmodal"></div>
 </div>
 <script>
 const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b',interaction:'#db2777',speechact:'#db2777',plan:'#0891b2',step:'#14b8a6'};
@@ -194,6 +205,23 @@ function scoreBars(scores){
 }
 
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));render();});
+
+// ── verse passage popup: click a verse ref → read it with its logically-grouped surrounding verses ──
+function prettyRef(a,b){const x=a.split('.'),y=b.split('.');if(x[0]===y[0]&&x[1]===y[1])return x[0]+' '+x[1]+':'+x[2]+(x[2]!==y[2]?'–'+y[2]:'');if(x[0]===y[0])return x[0]+' '+x[1]+':'+x[2]+' – '+y[1]+':'+y[2];return a+' – '+b;}
+async function openPassage(osis){
+  const m=document.getElementById('vmodal');m.className='vmodal on';
+  m.innerHTML='<div class="box"><span class="x" onclick="closePassage()">×</span><div class="ghint">loading '+esc(osis)+'…</div></div>';
+  m.onclick=(e)=>{if(e.target===m)closePassage();};
+  let d;try{d=await api('/passage?osis='+encodeURIComponent(osis));}catch(e){d={ok:false};}
+  const box=m.querySelector('.box');if(!box)return;
+  if(!d.ok||!d.verses||!d.verses.length){box.innerHTML='<span class="x" onclick="closePassage()">×</span><div class="ghint">No text available for '+esc(osis)+'.</div>';return;}
+  const head=prettyRef(d.verses[0].osis,d.verses[d.verses.length-1].osis);
+  const body=d.verses.map(v=>'<div class="vrow'+(v.osis===osis?' hot':'')+'"><span class="vn">'+esc(v.osis.split('.')[2])+'</span>'+esc(v.text)+'</div>').join('');
+  box.innerHTML='<span class="x" onclick="closePassage()">×</span><h3>'+esc(head)+'</h3><div class="muted" style="font-size:11px;margin-bottom:10px">Berean Standard Bible (public domain) · paragraph context</div>'+body;
+  box.scrollTop=0;const hot=box.querySelector('.vrow.hot');if(hot)setTimeout(()=>hot.scrollIntoView({block:'center'}),40);
+}
+function closePassage(){const m=document.getElementById('vmodal');if(m)m.className='vmodal';}
+document.addEventListener('keydown',(e)=>{if(e.key==='Escape')closePassage();});
 
 async function render(){
   if(geoTimer){clearInterval(geoTimer);geoTimer=null;}
@@ -311,7 +339,7 @@ async function showNode(id){
    '<div>'+cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join('')+'</div>'+temporal+geo+sigs+scoreBars(d.scores)+formsHtml(d.forms)+xrefsHtml(d.xrefs)+
    (d.out.length?'<h3 class="muted" style="margin-top:16px">relationships</h3>'+grp(d.out,'out'):'')+
    (d.in.length?grp(d.in,'in'):'')+
-   '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses</h3><div class="verses">'+d.verses.map(v=>'<span>'+esc(v)+'</span>').join('')+'</div>'+
+   '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses <span style="font-weight:400;text-transform:none">· click to read</span></h3><div class="verses">'+d.verses.map(v=>'<span class="vref" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
    provHtml(d.sources,n.origin_source)+
    '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ view in trust graph</a></div></div>';
   const htip=document.getElementById('htip');

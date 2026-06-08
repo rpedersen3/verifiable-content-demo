@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS edge (id INTEGER PRIMARY KEY AUTOINCREMENT, src TEXT,
 CREATE TABLE IF NOT EXISTS node_verse (node_id TEXT, osis TEXT);
 -- Real Global Church Ontology terms (pulled) for validation against PROV-O + Bible usage.
 CREATE TABLE IF NOT EXISTS gco_term (curie TEXT PRIMARY KEY, label TEXT, type TEXT, parent TEXT, prov_align TEXT, comment TEXT);
+-- Berean Standard Bible verse text (public domain, CC0) + paragraph boundaries (logical grouping,
+-- from the BSB USFX paragraphing) so a clicked verse opens its surrounding passage to read.
+CREATE TABLE IF NOT EXISTS corpus (edition TEXT PRIMARY KEY, version TEXT, corpus_ref TEXT, corpus_root TEXT, leaf_count INTEGER, issuer TEXT);
+CREATE TABLE IF NOT EXISTS verses (edition TEXT, canonical_id TEXT, osis TEXT, leaf_index INTEGER, commitment TEXT, text TEXT, PRIMARY KEY (edition, canonical_id));
+CREATE TABLE IF NOT EXISTS paragraph (start_idx INTEGER PRIMARY KEY);  -- leaf_index where each paragraph begins
 CREATE INDEX IF NOT EXISTS idx_edge_src ON edge(src);
 CREATE INDEX IF NOT EXISTS idx_edge_dst ON edge(dst);
 CREATE INDEX IF NOT EXISTS idx_edge_rel ON edge(rel);
@@ -67,3 +72,5 @@ CREATE INDEX IF NOT EXISTS idx_xref_sv ON xref(scheme, value);
 CREATE INDEX IF NOT EXISTS idx_nsource_node ON node_source(node_id);
 CREATE INDEX IF NOT EXISTS idx_form_node ON node_form(node_id);
 CREATE INDEX IF NOT EXISTS idx_node_origin ON node(origin_source);
+CREATE INDEX IF NOT EXISTS idx_verses_osis ON verses(osis);
+CREATE INDEX IF NOT EXISTS idx_verses_leaf ON verses(leaf_index);

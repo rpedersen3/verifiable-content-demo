@@ -18,6 +18,7 @@ const FILES = [
   ['openbible-merged.txt', 'https://www.openbible.info/geo/data/merged.txt'],
   ['openbible-geometry.jsonl', 'https://raw.githubusercontent.com/openbibleinfo/Bible-Geocoding-Data/main/data/geometry.jsonl'],
   ['macula-greek.tsv', 'https://raw.githubusercontent.com/Clear-Bible/macula-greek/main/Nestle1904/tsv/macula-greek-Nestle1904.tsv'],
+  ['bsb.usfx.xml', 'https://raw.githubusercontent.com/seven1m/open-bibles/master/eng-bsb.usfx.xml'], // BSB paragraphing for the verse-passage popup
 ];
 
 for (const [name, url] of FILES) {
