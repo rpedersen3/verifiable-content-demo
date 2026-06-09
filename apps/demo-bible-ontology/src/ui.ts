@@ -354,7 +354,7 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
   try{const tr=await fetch((pend.authOrigin.endsWith('/')?pend.authOrigin.slice(0,-1):pend.authOrigin)+'/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant_type:'authorization_code',code,code_verifier:pend.verifier,client_id:CLIENT_ID,redirect_uri:location.origin+'/'})}).then(r=>r.json());
     if(!tr.id_token)throw new Error(tr.error||'no id_token returned');
     const claims=await verifyIdToken(pend.authOrigin,tr.id_token,pend.nonce);
-    session={idToken:tr.id_token,name:claims.agent_name||pend.name||'',sub:claims.sub,exp:claims.exp};
+    session={idToken:tr.id_token,name:claims.agent_name||pend.name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp};
     localStorage.setItem('sa.session',JSON.stringify(session));sessionStorage.removeItem('sa.pending');return true;
   }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));sessionStorage.removeItem('sa.pending');return false;}}
 function disconnect(){session=null;localStorage.removeItem('sa.session');renderConnect();}
@@ -435,7 +435,8 @@ function openSignalCourt(el){let p;try{p=JSON.parse(decodeURIComponent(el.datase
      '<div class="gchips" id="sc-stance"><span class="gchip mini on" data-st="challenge">⚑ Challenge</span><span class="gchip mini" data-st="agree">✓ Agree</span><span class="gchip mini" data-st="note">✎ Note</span></div>'+
      '<div class="muted" id="sc-as" style="font-size:12px"></div>'+
      '<textarea id="sc-comment" rows="3" placeholder="Why is this signal right or wrong? Cite verses…"></textarea>'+
-     '<button class="gchip on" onclick="sigFeedbackSubmit()" style="cursor:pointer;align-self:flex-start">Post feedback →</button>'+
+     '<button class="gchip on" id="sc-post" onclick="sigFeedbackSubmit()" style="cursor:pointer;align-self:flex-start">Post feedback →</button>'+
+     '<div id="sc-status" style="font-size:12px;min-height:16px"></div>'+
    '</div>';
   m.style.display='flex';
   document.querySelectorAll('#sc-stance [data-st]').forEach(s=>s.onclick=()=>{document.querySelectorAll('#sc-stance [data-st]').forEach(x=>x.classList.remove('on'));s.classList.add('on');});
@@ -452,12 +453,21 @@ async function sigAnalyze(){if(!requireConnect('challenge this signal'))return;c
   const st=scVerdict==='valid'?'agree':'challenge';document.querySelectorAll('#sc-stance [data-st]').forEach(x=>x.classList.toggle('on',x.dataset.st===st));}
 async function loadSigFeedback(){if(!scSig)return;let d;try{d=await api('/feedback?subject='+encodeURIComponent(scSig.id)+'&basis='+encodeURIComponent(scSig.basis));}catch(e){d={feedback:[]};}const fb=d.feedback||[];
   document.getElementById('sc-fb').innerHTML=fb.length?fb.map(f=>'<div class="sc-fbitem"><span class="sc-st sc-'+esc(f.stance)+'">'+esc(f.stance)+'</span> '+(f.verdict?'<span class="sc-st" style="background:#475569">'+esc(f.verdict)+'</span> ':'')+'<b>'+esc(f.author||'anonymous')+'</b> '+(f.signed?'<span title="signed feedback assertion" style="color:#1a8a4f;font-size:11px">✓ signed</span> ':'')+'<span class="muted" style="font-size:11px">'+esc((f.created_at||'').slice(0,10))+'</span><div style="margin-top:2px;white-space:pre-wrap">'+esc(f.comment)+'</div></div>').join(''):'<div class="muted" style="font-size:12px">No feedback yet — be the first to weigh in.</div>';}
-async function sigFeedbackSubmit(){if(!scSig)return;if(!requireConnect('post feedback'))return;const stEl=document.querySelector('#sc-stance .on');const stance=stEl?stEl.dataset.st:'note';const comment=document.getElementById('sc-comment').value.trim();
-  if(comment.length<2)return;
+async function sigFeedbackSubmit(){if(!scSig)return;if(!requireConnect('post feedback'))return;
+  const stEl=document.querySelector('#sc-stance .on'),stance=stEl?stEl.dataset.st:'note',comment=document.getElementById('sc-comment').value.trim();
+  const stat=document.getElementById('sc-status'),btn=document.getElementById('sc-post');
+  if(comment.length<2){if(stat)stat.innerHTML='<span style="color:#c0392b">Add a comment before posting.</span>';return;}
+  if(!session||!session.sub){if(stat)stat.innerHTML='<span style="color:#c0392b">Connect first — no signed identity.</span>';return;}
+  if(stat)stat.innerHTML='<span class="muted">signing &amp; posting your feedback assertion…</span>';if(btn){btn.disabled=true;btn.textContent='Posting…';}
   const action=scVerdict==='invalid'?'flag':scVerdict==='adjust'?'adjust':'keep';
   const payload={target:{entityId:scSig.id,entityLabel:scSig.label,signalKind:scSig.kind,basis:scSig.basis,verse:scSig.osis},stance:stance,verdict:scVerdict||'',comment:comment,agentRationale:scAnalysis||'',proposedCorrection:{action:action,note:''},author:{agentId:session.sub,name:session.name||''}};
-  try{const res=await fetch(A2A_BASE+'/submit-feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(x=>x.json());if(!res||!res.ok)throw new Error((res&&res.error)||'submit failed');}catch(e){alert('Could not post feedback: '+(e&&e.message?e.message:e));return;}
-  document.getElementById('sc-comment').value='';loadSigFeedback();}
+  try{const res=await fetch(A2A_BASE+'/submit-feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(x=>x.json());
+    if(!res||!res.ok)throw new Error((res&&res.error)||'the agent did not confirm');
+    if(stat)stat.innerHTML='<span style="color:#1a8a4f;font-weight:600">✓ Posted — your signed feedback assertion was recorded'+(scVerdict?' (verdict: '+esc(scVerdict)+')':'')+'.</span>';
+    document.getElementById('sc-comment').value='';scAnalysis='';
+    await loadSigFeedback();
+  }catch(e){if(stat)stat.innerHTML='<span style="color:#c0392b">✗ Could not post: '+esc(e&&e.message?e.message:String(e))+'</span>';}
+  if(btn){btn.disabled=false;btn.textContent='Post feedback →';}}
 function fullFromThumb(s){if(!s||s.indexOf('/img/')<0)return s;return s.replace('-thumb.jpg','.jpg').replace('-thumb.jpeg','.jpeg');}
 function imgHover(src,ev){const m=document.getElementById('imghover'),i=document.getElementById('imghoverImg');if(!m||!i||!src)return;const f=fullFromThumb(src);if(i.getAttribute('src')!==f)i.src=f;m.style.display='block';imgHoverMove(ev);}
 function imgHoverMove(ev){const m=document.getElementById('imghover');if(!m||m.style.display!=='block')return;const x=ev.clientX,y=ev.clientY,w=580,h=420;let l=x+18,t=y+18;if(l+w>innerWidth)l=Math.max(8,x-w-18);if(t+h>innerHeight)t=Math.max(8,innerHeight-h-8);m.style.left=l+'px';m.style.top=t+'px';}
