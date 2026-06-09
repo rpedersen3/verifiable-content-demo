@@ -55,6 +55,7 @@ declareTool({ name: 'get_entity' }, VAULT_CLS);
 declareTool({ name: 'find_entities' }, VAULT_CLS);
 declareTool({ name: 'get_trust_signals' }, VAULT_CLS);
 declareTool({ name: 'submit_feedback' }, VAULT_CLS);
+declareTool({ name: 'graph_query' }, VAULT_CLS);
 
 // Phase-1 trust profile derived from the resolved trust context (the trusted
 // issuer is the dev EOA or the on-chain issuer SA). A descriptor is a POLICY
@@ -522,6 +523,21 @@ app.post('/tools/submit_feedback', async (c) => {
   });
   audit('vault.submit_feedback', 'success', t.entityId, { stance, verdict: b.verdict ?? '', author: b.author.agentId, verse: t.verse ?? '' });
   return c.json({ ok: true, assertion });
+});
+
+// graph_query — the vault's read gateway to the Bible knowledge graph: forwards an
+// allowlisted ontology GET path (/api/*) to the data layer (ONT binding) and returns it.
+// This is what lets clients get ALL entity/signal/verse/relationship data through the
+// vault (via the Scripture Agent) rather than calling the data Worker directly.
+app.post('/tools/graph_query', async (c) => {
+  const gate = policyGate('graph_query', VAULT_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  const b = await c.req.json<{ path?: string }>().catch(() => ({}) as { path?: string });
+  const path = String(b.path ?? '');
+  if (!path.startsWith('/api/') || path.includes('..') || path.length > 800) return c.json({ ok: false, error: 'invalid path' }, 400);
+  const d = await ontFetch(c.env, path);
+  audit('vault.graph_query', 'success', path.split('?')[0] ?? path, {});
+  return c.json(d);
 });
 
 // Class tree (Global Church Ontology inheritance) — public.

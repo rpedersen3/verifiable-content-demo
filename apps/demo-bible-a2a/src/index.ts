@@ -95,6 +95,15 @@ app.post('/entity', async (c) => { const b = await c.req.json().catch(() => ({})
 app.get('/class-tree', async (c) => c.json(await mcpGet(c.env, '/mcp/class_tree')));
 // Submit a signed feedback assertion (challenge/agreement) on a trust signal.
 app.post('/submit-feedback', async (c) => { const b = await c.req.json().catch(() => ({})); const res = await mcpPost(c.env, '/tools/submit_feedback', b); return c.json(res.body, res.status as 200); });
+// Vault read gateway — all knowledge-graph reads (entities, signals, relationships, verses,
+// classes) flow through the agent → vault, so clients never call the data Worker directly.
+// e.g. GET /vault/node/David  ·  GET /vault/search?q=David&kind=person
+app.get('/vault/*', async (c) => {
+  const sub = c.req.path.replace(/^\/vault/, '');
+  const search = new URL(c.req.url).search;
+  const res = await mcpPost(c.env, '/tools/graph_query', { path: `/api${sub}${search}` });
+  return c.json(res.body, res.status as 200);
+});
 
 // Issue a signed Entitlement for a gated edition (proxied to the corpus issuer).
 app.post('/issue-entitlement', async (c) => {

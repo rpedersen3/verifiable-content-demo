@@ -219,7 +219,9 @@ svg#tsvg{display:block;background:#fbfcfe}
 <script>
 const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b',interaction:'#db2777',speechact:'#db2777',plan:'#0891b2',step:'#14b8a6'};
 const V=document.getElementById('view');
-const api=(p)=>fetch('/api'+p).then(r=>r.json());
+const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
+// All knowledge-graph reads go through the Scripture Agent → MCP vault (not the data Worker directly).
+const api=(p)=>fetch(A2A_BASE+'/vault'+p).then(r=>r.json());
 const esc=(s)=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const dot=(k)=>'<span class="kdot" style="background:'+(KC[k]||'#888')+'"></span>';
 let tab='overview';
@@ -421,7 +423,6 @@ function closeImg(){const m=document.getElementById('imgmodal');if(m)m.style.dis
 function pageTop(){window.scrollTo({top:0,behavior:'smooth'});}
 // ── Signal Court: challenge a trust signal (AI agent review) + public feedback ──
 let curNodeId='',curNodeLabel='',scSig=null,scAnalysis='',scVerdict='';
-const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
 function sigIcon(kind,basis,osis,val){return '<span class="sigq" data-s="'+encodeURIComponent(JSON.stringify({id:curNodeId,label:curNodeLabel,kind:kind,basis:basis||'',osis:osis||'',val:val}))+'" onclick="openSignalCourt(this);event.stopPropagation()" title="challenge / discuss this signal">⚖</span>';}
 function mdLite(t){return esc(String(t)).replace(/^#{1,6}\\s*(.+)$/gm,'<b>$1</b>').replace(/^\\s*[-*]\\s+/gm,'• ').replace(/^---+$/gm,'').replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>').split('\\n').join('<br>');}
 function openSignalCourt(el){let p;try{p=JSON.parse(decodeURIComponent(el.dataset.s));}catch(e){return;}scSig=p;const m=document.getElementById('sigcourt');if(!m)return;
