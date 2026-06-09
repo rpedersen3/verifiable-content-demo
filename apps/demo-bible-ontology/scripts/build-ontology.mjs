@@ -441,6 +441,9 @@ function main() {
   // record (Wikidata/image) is bound to the right canonical id. Exact unique label ≈ rock-solid;
   // a name collision resolved only by verse-dominance, or a label-mismatch (slug-prefix) match, is weaker.
   function resolveMatch(r) {
+    // Explicit pin: an enrichment record may name the exact canonical id (disambiguates same-name
+    // places like the three Gilgals — Jordan-plain vs Samaria). Highest-confidence, no name guessing.
+    if (r.canon_id) { for (const nd of byId.values()) if (nd.canonId === r.canon_id) return { id: nd.id, conf: 0.99, method: 'canon-id', basis: `pinned directly to canon_id ${r.canon_id}` }; return null; }
     const alias = (r.kind === 'person' ? PERSON_ALIAS : r.kind === 'place' ? PLACE_ALIAS : EVENT_ALIAS)[r.name];
     const key = norm(alias ?? r.name);
     if (r.kind === 'event') {
@@ -559,6 +562,22 @@ function main() {
       console.log('place de-dup · merged', remap.size, 'duplicate place records (all sources) into canonical places');
     }
   }
+
+  // Re-apply image enrichment for canon_id-pinned records. These can target ingest/OpenBible nodes
+  // (e.g. the Jordan-plain Gilgal = gilgal_ab94aea) that did not exist when the main enrichment loop
+  // ran above. Pinning by canon_id is a deliberate, verifiable binding (no same-name guessing).
+  let pinned = 0;
+  for (const r of ENRICH) {
+    if (!r.canon_id) continue;
+    let nd = null; for (const n of byId.values()) if (n.canonId === r.canon_id) { nd = n; break; }
+    if (!nd) { console.log('⚠ canon_id pin not found:', r.canon_id, `(${r.name})`); continue; }
+    if (r.image) nd.imageUrl = r.image;
+    if (r.thumb) nd.imageThumb = r.thumb;
+    if (r.artist) nd.imageAttr = r.artist;
+    if (r.license) nd.imageLicense = r.license;
+    pinned++;
+  }
+  if (pinned) console.log('enrichment · canon_id-pinned images applied:', pinned);
 
   // Canonical places: distinguish same-named places that sit in different locations by region
   // (e.g. "Dibon" in Moab vs the one in Judah). Rough lat/lon boxes for the biblical world.
