@@ -271,7 +271,7 @@ function scoreBars(scores){
       return name+'<div class="sbar bipolar"'+dt+'><span class="mid"></span><i style="left:'+left+'%;width:'+w+'%;background:'+col+'"></i></div><div class="sval" style="color:'+col+'"'+dt+'>'+vs+'</div>';}
     return name+'<div class="sbar"'+dt+'><i style="left:0;width:'+Math.round(v*100)+'%;background:'+SCOL[d]+'"></i></div><div class="sval"'+dt+'>'+v.toFixed(2)+'</div>';
   }).join('');
-  return '<h3 class="muted" style="margin-top:16px">Trust Graph</h3><div class="scores">'+rows+'</div>';
+  return '<h3 class="muted" style="margin-top:16px">Character Profile</h3><div class="scores">'+rows+'</div>';
 }
 
 // ── hash routing: every view is a URL route so browser back/forward works ──
@@ -306,7 +306,7 @@ const SVG_TREE='<svg viewBox="0 0 200 92">'+['M100 18 L50 50','M100 18 L100 50',
 const SVG_EGO=(()=>{const p=[[0,-34,'#0e7490'],[32,-18,'#b45309'],[37,8,'#1a8a4f'],[20,32,'#9333ea'],[-20,32,'#c0392b'],[-37,8,'#0d9488'],[-32,-18,'#2563eb']];return '<svg viewBox="0 0 200 92"><g transform="translate(100,46)">'+p.map(x=>'<line x1="0" y1="0" x2="'+x[0]+'" y2="'+x[1]+'" stroke="#dbe2ec"/>').join('')+p.map(x=>'<circle cx="'+x[0]+'" cy="'+x[1]+'" r="5" fill="'+x[2]+'"/>').join('')+'<circle r="10" fill="#2f6df0"/></g></svg>';})();
 const SVG_SEARCH='<svg viewBox="0 0 200 92"><rect x="28" y="34" width="118" height="24" rx="12" fill="#fff" stroke="#cbd5e1"/><text x="42" y="50" font-size="11" fill="#9aa7b6">Jesus…</text><circle cx="160" cy="46" r="11" fill="none" stroke="#2f6df0" stroke-width="3"/><line x1="168" y1="54" x2="178" y2="64" stroke="#2f6df0" stroke-width="3"/></svg>';
 async function home(){
-  const TILES=[['geo','Map','1,758 geolocated places · activities · time animation',SVG_MAP],['timeline','Timeline','4200 BC – 90 AD · lifespans + activities',SVG_TL],['oikos','Oikos','Relationship rings · family · household · network',SVG_RING],['generations','Generations','Descent · discipleship · church plants',SVG_TREE],['graph','Trust Graph','Entity relationships · trust signals',SVG_EGO],['explore','Explore','Search 6,800+ entities · read the verses',SVG_SEARCH]];
+  const TILES=[['geo','Map','1,758 geolocated places · activities · time animation',SVG_MAP],['timeline','Timeline','4200 BC – 90 AD · lifespans + activities',SVG_TL],['oikos','Oikos','Relationship rings · family · household · network',SVG_RING],['generations','Generations','Descent · discipleship · church plants',SVG_TREE],['graph','Trust Graph','Entity relationships · character signals',SVG_EGO],['explore','Explore','Search 6,800+ entities · read the verses',SVG_SEARCH]];
   V.innerHTML='<div class="gw-hero"><h2>Explore the Bible as a living graph</h2><p class="lead">People, places, events, relationships — and the verses behind them — across all 66 books.</p>'+
    '<input id="hq" class="gw-search-in" placeholder="Search people, places, events… (e.g. Jesus, Jerusalem, Exodus)"/>'+
    '<div class="gchips" id="hkf" style="margin-top:10px"></div><div id="hres"></div></div>'+
@@ -431,8 +431,8 @@ async function overview(){
    '<div class="card"><h3 class="muted">PROV-O classification of Bible objects</h3><div class="bar">'+
    d.prov.map(r=>'<div style="flex:'+r.n+';background:'+(provColors[r.prov_class]||'#888')+'">'+r.prov_class.replace('prov:','')+' '+r.n+'</div>').join('')+'</div>'+
    '<div class="hint">'+d.kinds.map(k=>dot(k.kind)+' '+k.kind+' '+k.n).join(' &nbsp; ')+'</div>'+
-   '<div class="hint">trust signals: '+(d.signals||[]).map(s=>'<span class="chip" style="'+(s.polarity==='positive'?'background:#e7f6ee;color:#1a8a4f':s.polarity==='negative'?'background:#fdeceA;color:#c0392b':'background:#fbf0e6;color:#b45309')+'">'+s.polarity+' '+s.n+'</span>').join(' ')+' &nbsp;·&nbsp; temporal: 525 dated nodes (OWL-Time)</div></div>'+
-   (d.inheritance?'<div class="card"><h3 class="muted" style="margin-top:0">Inheritance · canonical portraits · trust signals</h3>'+
+   '<div class="hint">character signals: '+(d.signals||[]).map(s=>'<span class="chip" style="'+(s.polarity==='positive'?'background:#e7f6ee;color:#1a8a4f':s.polarity==='negative'?'background:#fdeceA;color:#c0392b':'background:#fbf0e6;color:#b45309')+'">'+s.polarity+' '+s.n+'</span>').join(' ')+' &nbsp;·&nbsp; temporal: 525 dated nodes (OWL-Time)</div></div>'+
+   (d.inheritance?'<div class="card"><h3 class="muted" style="margin-top:0">Inheritance · canonical portraits · character signals</h3>'+
     '<div class="hint" style="margin-bottom:10px">A query for <span class="mono">prov:Agent</span> resolves <b style="color:var(--ink)">'+d.inheritance.viaClosure.toLocaleString()+'</b> instances across its <b>'+d.inheritance.subclasses+'</b> subclasses (people <i>and</i> organizations) via the stored subclass closure — a naive exact-class match returns just <b>'+d.inheritance.naiveExact+'</b>. <a class="link" onclick="document.querySelector(\\'[data-t=classes]\\').click()">explore inheritance →</a></div>'+
     '<div class="grid">'+(d.scores||[]).map(s=>'<div class="stat"><div class="n">'+s.avg+'</div><div class="l">'+(SDIM[s.dimension]||s.dimension)+' · avg<br><span class="muted">'+s.n.toLocaleString()+' scored</span></div></div>').join('')+'</div>'+
     '<div class="hint"><b>'+(d.withImage||0)+'</b> canonical entities carry a portrait image.</div>'+
@@ -452,12 +452,12 @@ function tagAlign(a){
   if(a==='unaligned')return '<span class="chip tag-un">unaligned</span>';
   return '<span class="chip">'+esc(a)+'</span>';
 }
-let expKind='',expSort='',expTrust='',expPage=0,expSub='',expSubdim='';
+let expKind='person',expSort='',expTrust='',expPage=0,expSub='',expSubdim='';
 const DSORTC={wisdom:'#7c5cff',faithfulness:'#2563eb',courage:'#0d9488',truthfulness:'#0e7490',repentance:'#b45309'};
 function tind(r){let h='';
   if(r.dimval!=null&&DSORTC[expSort]){const v=+r.dimval,c=DSORTC[expSort];h+='<span class="tbadge" title="'+esc(expSort)+' signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'+':'')+v.toFixed(2)+' '+esc(expSort)+'</span>';}
-  if(r.moral!=null){const v=+r.moral,c=v>0.15?'#1a8a4f':v<-0.15?'#c0392b':'#b45309';h+='<span class="tbadge" title="righteousness trust signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'＋':v<0?'－':'~')+Math.abs(v).toFixed(2)+'</span>';}
-  if(r.nsig>0)h+='<span class="muted" style="font-size:11px" title="'+r.nsig+' trust signals">◴ '+r.nsig+'</span>';
+  if(r.moral!=null){const v=+r.moral,c=v>0.15?'#1a8a4f':v<-0.15?'#c0392b':'#b45309';h+='<span class="tbadge" title="righteousness character signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'＋':v<0?'－':'~')+Math.abs(v).toFixed(2)+'</span>';}
+  if(r.nsig>0)h+='<span class="muted" style="font-size:11px" title="'+r.nsig+' character signals">◴ '+r.nsig+'</span>';
   return h?'<span class="trow">'+h+'</span>':'';}
 async function explore(){
   V.innerHTML='<div class="card"><input id="q" placeholder="Search by name or alias… (e.g. Peter, David, Jerusalem, Exodus)"/>'+
@@ -603,7 +603,7 @@ async function drawGraph(){
   s+='<g class="gnode gcenter" data-id="'+center+'">'+ccirc+badge(cx,cy,28,cn.sig)+clab+'</g></svg>';
   const tline=cn.tStart!=null?' · '+ordYr(cn.tStart)+(cn.tEnd!=null&&cn.tEnd!==cn.tStart?'–'+ordYr(cn.tEnd):''):'';
   let chips='';FORD.forEach(f=>{const on=!gFilters[f];chips+='<span class="gchip'+(on?' on':'')+'" data-fam="'+f+'"'+(on?' style="background:'+SECT[f].color+';color:#fff;border-color:'+SECT[f].color+'"':'')+'>'+SECT[f].label+'</span>';});
-  const legend='<div class="glegend">'+[['person','person'],['organization','org'],['event','event'],['place','place'],['role','role']].map(k=>dot(k[0])+k[1]).join(' ')+' &nbsp;·&nbsp; ◇ event ▽ place ⬡ role ☐ org &nbsp;·&nbsp; <span style="color:#1a8a4f">＋</span>/<span style="color:#c0392b">－</span> trust signal</div>';
+  const legend='<div class="glegend">'+[['person','person'],['organization','org'],['event','event'],['place','place'],['role','role']].map(k=>dot(k[0])+k[1]).join(' ')+' &nbsp;·&nbsp; ◇ event ▽ place ⬡ role ☐ org &nbsp;·&nbsp; <span style="color:#1a8a4f">＋</span>/<span style="color:#c0392b">－</span> character signal</div>';
   wrap.innerHTML='<div class="gbread"><b>'+dot(cn.kind)+esc(cn.label)+'</b> <span class="muted">'+cn.kind+tline+' · '+d.edges.length+' relationships</span> · <a class="link" data-details="1">details ↗</a></div><div class="gchips">'+chips+'</div>'+s+legend+'<div class="ghint">Hover a node to isolate its relationship · click a node to recenter · click a cluster pill to expand · toggle a family above to filter.</div>';
   const svg=document.getElementById('gsvg'),tip=document.getElementById('gtip');
   wrap.querySelectorAll('.gnode').forEach(g=>{const id=g.dataset.id;
