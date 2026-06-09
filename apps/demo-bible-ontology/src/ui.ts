@@ -479,7 +479,7 @@ async function explore(){
     if(d.results.length===1&&expPage===0)renderNode(d.results[0].id);else{const det=document.getElementById('detail');if(det)det.innerHTML='';}
   };
   const SORTS=[['','Relevance'],['wisdom','Wisest'],['courage','Most courageous'],['faithfulness','Most faithful'],['truthfulness','Most truthful'],['repentance','Most repentant'],['signals','Most signals']];
-  const TRUSTS=[['','Any'],['pos','Righteous'],['neg','Wicked'],['signals','Has signals']];
+  const TRUSTS=[['','All'],['pos','More'],['neg','Less']];
   const drawCtl=()=>{const showT=(expKind==='person'||expKind==='organization');
     document.getElementById('tctl').innerHTML=showT?('<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('')):'';
     document.getElementById('tctl2').innerHTML=showT?('<span class="muted" style="font-size:11px;margin-right:3px">righteousness</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('')):'';
