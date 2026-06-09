@@ -484,11 +484,11 @@ async function explore(){
     if(d.results.length===1&&expPage===0)renderNode(d.results[0].id);else{const det=document.getElementById('detail');if(det)det.innerHTML='';}
   };
   const SORTS=[['','Relevance'],['wisdom','Wisest'],['courage','Most courageous'],['faithfulness','Most faithful'],['truthfulness','Most truthful'],['repentance','Most repentant'],['signals','Most signals']];
-  const TRUSTS=[['','Any'],['pos','Positive'],['neg','Negative'],['signals','Has signals']];
+  const TRUSTS=[['','Any'],['pos','Righteous'],['neg','Wicked'],['signals','Has signals']];
   const drawCtl=()=>{document.getElementById('tctl').innerHTML=
     '<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('');
     document.getElementById('tctl2').innerHTML=
-    '<span class="muted" style="font-size:11px;margin-right:3px">trust</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('');
+    '<span class="muted" style="font-size:11px;margin-right:3px">righteousness</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('');
     document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;expPage=0;drawCtl();run();});
     document.querySelectorAll('#tctl2 [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;expPage=0;drawCtl();run();});};
   drawCtl();
