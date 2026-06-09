@@ -205,16 +205,15 @@ let tab='overview';
 
 // ── entity portraits: source image + a consistent app-style render; admin-configurable ──
 const IMG_KEY='ont.imgMode';
-const imgMode=()=>localStorage.getItem(IMG_KEY)||'both';   // 'both' | 'original' | 'styled'
+const imgMode=()=>'original';   // app-style render retired — show the source image only, unprocessed
 const styledSrc=(n)=>n.image_styled_url||n.image_thumb;     // generative backfill, else CSS-styled source
 function portrait(n){
   if(!n||!n.image_thumb)return '';
-  const m=imgMode();
   detImgFull=n.image_url||n.image_thumb;
+  const local=String(n.image_url||'').indexOf('/img/')===0;
   const cap=[n.image_license,n.image_attr].filter(Boolean).map(esc).join(' · ');
-  const orig='<div class="portrait"><div class="tag">source</div><figure><img loading="lazy" src="'+esc(n.image_thumb)+'" alt="'+esc(n.label)+'" onclick="openImg(detImgFull)" onmouseenter="imgHover(this.src,event)" onmousemove="imgHoverMove(event)" onmouseleave="imgHoverOut()" style="cursor:zoom-in" title="hover to preview · click for full"/><figcaption>'+(cap||'Wikimedia')+'<br>via Wikimedia Commons</figcaption></figure></div>';
-  const sty='<div class="portrait styled"><div class="tag">app style</div><figure><div class="frame"><img loading="lazy" src="'+esc(styledSrc(n))+'" alt="'+esc(n.label)+'"/></div><figcaption>consistent render'+(n.image_styled_url?'':' (derived)')+'</figcaption></figure></div>';
-  return '<div class="portrait-wrap">'+(m==='original'?orig:m==='styled'?sty:orig+sty)+'</div>';
+  const fcap=local?(cap||'Illustrative rendering'):((cap?cap+'<br>':'')+'via Wikimedia Commons');
+  return '<div class="portrait-wrap"><div class="portrait"><div class="tag">source</div><figure><img loading="lazy" src="'+esc(n.image_thumb)+'" alt="'+esc(n.label)+'" onclick="openImg(detImgFull)" onmouseenter="imgHover(this.src,event)" onmousemove="imgHoverMove(event)" onmouseleave="imgHoverOut()" style="cursor:zoom-in" title="hover to preview · click for full"/><figcaption>'+fcap+'</figcaption></figure></div></div>';
 }
 // canonical-id confidence: how sure we are the data on this node is bound to the right canonical id.
 const confColors=(v)=>v>=0.9?['#1a8a4f','#e7f6ee']:v>=0.7?['#b45309','#fbf0e6']:['#c0392b','#fdeceA'];
@@ -259,7 +258,7 @@ function provHtml(sources,origin){
   const list=(sources||[]).map(s=>'<span class="src" title="'+esc(s.name)+(s.src_ref?' · '+esc(s.src_ref):'')+(s.confidence!=null?' · attestation '+s.confidence:'')+'"><a class="link" href="'+esc(s.url)+'" target="_blank" rel="noopener">'+esc(s.abbrev||s.source_id)+'</a> <span class="muted">'+esc(s.license||'')+'</span></span>').join('');
   return '<div class="prov"><span class="muted">attested by:</span> '+list+'</div>';
 }
-const SDIM={moral:'Good ↔ Evil',wisdom:'Wise ↔ Foolish',faithfulness:'Faithful ↔ Faithless',courage:'Courage',truthfulness:'Truthful ↔ Deceptive',repentance:'Repentant ↔ Hardened',graph_trust:'Graph trust',scriptural_trust:'Scriptural trust',historical_trust:'Historical trust',source_trust:'Source corroboration'};
+const SDIM={moral:'Righteousness',wisdom:'Wise ↔ Foolish',faithfulness:'Faithful ↔ Faithless',courage:'Courage',truthfulness:'Truthful ↔ Deceptive',repentance:'Repentant ↔ Hardened',graph_trust:'Graph trust',scriptural_trust:'Scriptural trust',historical_trust:'Historical trust',source_trust:'Source corroboration'};
 const SCOL={courage:'#0d9488',graph_trust:'#2563eb',scriptural_trust:'#0e7490',historical_trust:'#b45309',source_trust:'#7c3aed'};
 const BIPCOL={moral:'#1a8a4f',wisdom:'#7c5cff',faithfulness:'#2563eb',truthfulness:'#0e7490',repentance:'#b45309'};
 function scoreBars(scores){
@@ -440,7 +439,7 @@ async function overview(){
    (d.inheritance?'<div class="card"><h3 class="muted" style="margin-top:0">Inheritance · canonical portraits · trust signals</h3>'+
     '<div class="hint" style="margin-bottom:10px">A query for <span class="mono">prov:Agent</span> resolves <b style="color:var(--ink)">'+d.inheritance.viaClosure.toLocaleString()+'</b> instances across its <b>'+d.inheritance.subclasses+'</b> subclasses (people <i>and</i> organizations) via the stored subclass closure — a naive exact-class match returns just <b>'+d.inheritance.naiveExact+'</b>. <a class="link" onclick="document.querySelector(\\'[data-t=classes]\\').click()">explore inheritance →</a></div>'+
     '<div class="grid">'+(d.scores||[]).map(s=>'<div class="stat"><div class="n">'+s.avg+'</div><div class="l">'+(SDIM[s.dimension]||s.dimension)+' · avg<br><span class="muted">'+s.n.toLocaleString()+' scored</span></div></div>').join('')+'</div>'+
-    '<div class="hint"><b>'+(d.withImage||0)+'</b> canonical entities carry a portrait (Wikimedia source + consistent app-style render). <a class="link" onclick="document.querySelector(\\'[data-t=admin]\\').click()">image settings →</a></div>'+
+    '<div class="hint"><b>'+(d.withImage||0)+'</b> canonical entities carry a portrait image.</div>'+
     (d.integrity?'<div class="hint" style="margin-top:10px">canonical-id confidence: '+bandChips(d.integrity)+' &nbsp;<a class="link" onclick="document.querySelector(\\'[data-t=admin]\\').click()">review matches →</a><br><span class="muted">native source ids are rock-solid (1.0); brought-in data (Wikidata/images) is scored by match strength so suspect bindings stay visible.</span></div>':'')+'</div>':'')+
    (d.sourceCoverage&&d.sourceCoverage.length?'<div class="card"><h3 class="muted" style="margin-top:0">Multi-source A-box · provenance &amp; corroboration</h3>'+
     '<div class="hint" style="margin-bottom:8px"><b>'+(d.coverage?.xrefs||0).toLocaleString()+'</b> cross-references · <b>'+(d.coverage?.forms||0).toLocaleString()+'</b> original-language forms · <b>'+(d.coverage?.attestations||0).toLocaleString()+'</b> source assertions (DOLCE+DnS <span class="mono">dns:Assertion</span>). Each external dataset is reconciled to a canonical id with a recorded match confidence + SKOS relation; independent agreeing assertions feed the <b>source corroboration</b> trust signal (<span class="mono">gc:SourceAssessment</span>).</div>'+
@@ -461,7 +460,7 @@ let expKind='',expSort='',expTrust='',expPage=0,expSub='',expSubdim='';
 const DSORTC={wisdom:'#7c5cff',faithfulness:'#2563eb',courage:'#0d9488',truthfulness:'#0e7490',repentance:'#b45309'};
 function tind(r){let h='';
   if(r.dimval!=null&&DSORTC[expSort]){const v=+r.dimval,c=DSORTC[expSort];h+='<span class="tbadge" title="'+esc(expSort)+' signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'+':'')+v.toFixed(2)+' '+esc(expSort)+'</span>';}
-  if(r.moral!=null){const v=+r.moral,c=v>0.15?'#1a8a4f':v<-0.15?'#c0392b':'#b45309';h+='<span class="tbadge" title="good ↔ evil trust signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'＋':v<0?'－':'~')+Math.abs(v).toFixed(2)+'</span>';}
+  if(r.moral!=null){const v=+r.moral,c=v>0.15?'#1a8a4f':v<-0.15?'#c0392b':'#b45309';h+='<span class="tbadge" title="righteousness trust signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'＋':v<0?'－':'~')+Math.abs(v).toFixed(2)+'</span>';}
   if(r.nsig>0)h+='<span class="muted" style="font-size:11px" title="'+r.nsig+' trust signals">◴ '+r.nsig+'</span>';
   return h?'<span class="trow">'+h+'</span>':'';}
 async function explore(){
