@@ -56,6 +56,7 @@ declareTool({ name: 'find_entities' }, VAULT_CLS);
 declareTool({ name: 'get_trust_signals' }, VAULT_CLS);
 declareTool({ name: 'submit_feedback' }, VAULT_CLS);
 declareTool({ name: 'graph_query' }, VAULT_CLS);
+declareTool({ name: 'get_passage' }, VAULT_CLS);
 
 // Phase-1 trust profile derived from the resolved trust context (the trusted
 // issuer is the dev EOA or the on-chain issuer SA). A descriptor is a POLICY
@@ -538,6 +539,27 @@ app.post('/tools/graph_query', async (c) => {
   const d = await ontFetch(c.env, path);
   audit('vault.graph_query', 'success', path.split('?')[0] ?? path, {});
   return c.json(d);
+});
+
+// get_passage — verse TEXT from the canonical BSB corpus (this Worker's D1), returning a
+// readable, chapter-clamped window around the cited verse. The single source of verse text.
+app.post('/tools/get_passage', async (c) => {
+  const gate = policyGate('get_passage', VAULT_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  const b = await c.req.json<{ osis?: string }>().catch(() => ({}) as { osis?: string });
+  const osis = String(b.osis ?? '').trim();
+  if (!osis) return c.json({ ok: false, error: 'osis required' }, 400);
+  if (!c.env.DB) return c.json({ ok: false, error: 'corpus unavailable' }, 503);
+  const ed = 'bsb';
+  const hot = await c.env.DB.prepare('SELECT leaf_index AS li FROM verses WHERE edition=? AND osis=?').bind(ed, osis).first<{ li: number }>();
+  if (!hot) return c.json({ ok: false, error: 'verse not found', osis }, 404);
+  const ch = osis.split('.').slice(0, 2).join('.');
+  const cb = await c.env.DB.prepare('SELECT min(leaf_index) lo, max(leaf_index) hi FROM verses WHERE edition=? AND osis LIKE ?').bind(ed, `${ch}.%`).first<{ lo: number; hi: number }>();
+  const start = Math.max(cb?.lo ?? hot.li, hot.li - 5);
+  const end = Math.min(cb?.hi ?? hot.li, hot.li + 5);
+  const verses = (await c.env.DB.prepare('SELECT osis, text FROM verses WHERE edition=? AND leaf_index BETWEEN ? AND ? ORDER BY leaf_index').bind(ed, start, end).all<{ osis: string; text: string }>()).results;
+  audit('vault.get_passage', 'success', osis, { count: verses.length });
+  return c.json({ ok: true, osis, edition: ed, verses });
 });
 
 // Class tree (Global Church Ontology inheritance) — public.

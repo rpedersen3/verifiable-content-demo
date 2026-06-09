@@ -8,7 +8,7 @@ import { UI } from './ui.js';
 interface D1 {
   prepare(q: string): { bind(...a: unknown[]): { first<T = unknown>(): Promise<T | null>; all<T = unknown>(): Promise<{ results: T[] }>; run(): Promise<unknown> }; all<T = unknown>(): Promise<{ results: T[] }> };
 }
-type Env = { DB: D1; ANTHROPIC_API_KEY?: string; ANALYZE_MODEL?: string };
+type Env = { DB: D1 };
 const app = new Hono<{ Bindings: Env }>();
 const rows = <T,>(db: D1, q: string, ...b: unknown[]) => db.prepare(q).bind(...b).all<T>().then((r) => r.results);
 // Transitive subclasses (+ self) of a class, from the precomputed closure — the heart of
@@ -231,26 +231,8 @@ app.get('/api/graph', async (c) => {
   return c.json({ ok: true, center, nodes: [...nodes.values()], edges });
 });
 
-// Verse passage — the clicked verse plus its surrounding logically-grouped verses (BSB paragraph),
-// guaranteed a readable minimum window, clamped to the book. Returns verse text to read in a popup.
-app.get('/api/passage', async (c) => {
-  const osis = (c.req.query('osis') ?? '').trim();
-  if (!osis) return c.json({ ok: false, error: 'osis required' }, 400);
-  const ed = 'bsb';
-  const v = await c.env.DB.prepare('SELECT leaf_index AS li, osis FROM verses WHERE edition=? AND osis=?').bind(ed, osis).first<{ li: number; osis: string }>();
-  if (!v) return c.json({ ok: false, error: 'verse not found', osis }, 404);
-  const book = osis.split('.')[0];
-  const bk = await c.env.DB.prepare("SELECT min(leaf_index) lo, max(leaf_index) hi FROM verses WHERE edition=? AND osis LIKE ?").bind(ed, book + '.%').first<{ lo: number; hi: number }>();
-  const ps = await c.env.DB.prepare('SELECT max(start_idx) s FROM paragraph WHERE start_idx<=?').bind(v.li).first<{ s: number | null }>();
-  const pe = await c.env.DB.prepare('SELECT min(start_idx) e FROM paragraph WHERE start_idx>?').bind(v.li).first<{ e: number | null }>();
-  let start = ps?.s ?? v.li;
-  let end = pe?.e != null ? pe.e - 1 : (bk?.hi ?? v.li);
-  if (end - start + 1 < 6) { start = Math.min(start, v.li - 3); end = Math.max(end, v.li + 3); } // ensure readable context
-  start = Math.max(start, bk?.lo ?? start); end = Math.min(end, bk?.hi ?? end);                 // stay within the book
-  if (end - start + 1 > 14) { start = Math.max(bk?.lo ?? 0, v.li - 7); end = Math.min(bk?.hi ?? end, v.li + 6); }
-  const verses = await rows<{ osis: string; text: string }>(c.env.DB, 'SELECT osis, text FROM verses WHERE edition=? AND leaf_index BETWEEN ? AND ? ORDER BY leaf_index', ed, start, end);
-  return c.json({ ok: true, osis, edition: ed, verses });
-});
+// (Verse text moved to the MCP corpus, served via the Scripture Agent's /passage — the single
+// source of verse text. This Worker no longer serves passage text.)
 
 // Generational lineage — descendants of a root person by generation (BFS over gc:hasChild).
 app.get('/api/lineage', async (c) => {
@@ -366,28 +348,8 @@ app.post('/api/feedback', async (c) => {
   return c.json({ ok: true });
 });
 
-// Ask the trust agent (Claude) to validate/challenge a signal against Scripture. Needs ANTHROPIC_API_KEY.
-app.post('/api/analyze', async (c) => {
-  const key = c.env.ANTHROPIC_API_KEY;
-  if (!key) return c.json({ ok: false, error: 'unconfigured', analysis: 'The trust agent is not configured yet. Set the ANTHROPIC_API_KEY secret on this worker (`wrangler secret put ANTHROPIC_API_KEY`) to enable live signal challenges.' });
-  const b = await c.req.json().catch(() => ({})) as Record<string, string>;
-  const label = String(b.subject_label ?? 'this entity').slice(0, 120);
-  const kind = String(b.sig_kind ?? 'signal').slice(0, 60);
-  const basis = String(b.basis ?? '').slice(0, 400);
-  const osis = String(b.osis ?? '').slice(0, 40);
-  const prompt = `You are a Scripture-grounded trust auditor for a Bible knowledge graph. Audit ONE trust signal, scoped STRICTLY to its cited verse and entity. The only question is: does THIS specific verse, read in its own context, support THIS specific signal for THIS specific entity?\n\nEntity: ${label}\nSignal (dimension/type): ${kind}\nSignal basis (the claim): "${basis}"\nCited verse (OSIS): ${osis || '(none)'}\n\nIn ≤200 words, markdown (short **bold** lead-ins + bullet points "- "; NO tables):\n- **Verse in context** — what ${osis || 'the cited verse'} actually says/recounts in its passage.\n- **Support check** — does that verse support this signal's claim for ${label}? Mark ✅ clearly supports / ⚠️ weak or partial / ❌ does not support, and say concretely why.\n- **Verdict** — is this signal VALID for this verse and this entity, and does its polarity/strength fit what the verse shows?\n- **Recommendation** — about THIS signal–verse–entity triple ONLY: keep as-is; tighten the wording so it matches what the verse actually says; or flag the citation as not supporting the claim so a curator can review it. Do NOT propose a different verse, and do NOT invent a different signal or claim.\nStay strictly on the cited verse — do NOT validate the claim using other passages, and do NOT recommend swapping in another verse. If the basis pins one individual's act on a whole group, note it.`;
-  try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: c.env.ANALYZE_MODEL || 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: prompt }] }),
-    });
-    if (!r.ok) return c.json({ ok: false, error: `agent ${r.status}`, analysis: `The trust agent returned an error (${r.status}). Check the API key / model.` });
-    const j = await r.json() as { content?: { text?: string }[] };
-    return c.json({ ok: true, analysis: j.content?.[0]?.text ?? '(no response)' });
-  } catch (e) {
-    return c.json({ ok: false, error: 'fetch failed', analysis: 'Could not reach the trust agent.' });
-  }
-});
+// Note: the trust-agent challenge (/analyze) and verse text (/passage) now live on the
+// Scripture Agent (a2a) + MCP vault — see apps/demo-bible-a2a. This Worker is the graph data
+// layer only (the MCP reaches it via the ONT service binding).
 
 export default app;

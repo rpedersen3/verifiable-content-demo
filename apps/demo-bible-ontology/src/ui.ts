@@ -407,7 +407,7 @@ async function openPassage(osis){
   const m=document.getElementById('vmodal');m.className='vmodal on';
   m.innerHTML='<div class="box"><span class="x" onclick="closePassage()">×</span><div class="ghint">loading '+esc(osis)+'…</div></div>';
   m.onclick=(e)=>{if(e.target===m)closePassage();};
-  let d;try{d=await api('/passage?osis='+encodeURIComponent(osis));}catch(e){d={ok:false};}
+  let d;try{d=await fetch(A2A_BASE+'/passage?osis='+encodeURIComponent(osis)).then(r=>r.json());}catch(e){d={ok:false};}
   const box=m.querySelector('.box');if(!box)return;
   if(!d.ok||!d.verses||!d.verses.length){box.innerHTML='<span class="x" onclick="closePassage()">×</span><div class="ghint">No text available for '+esc(osis)+'.</div>';return;}
   const head=prettyRef(d.verses[0].osis,d.verses[d.verses.length-1].osis);
@@ -446,7 +446,7 @@ function openSignalCourt(el){let p;try{p=JSON.parse(decodeURIComponent(el.datase
   loadSigFeedback();}
 function closeSigCourt(){const m=document.getElementById('sigcourt');if(m)m.style.display='none';}
 async function sigAnalyze(){if(!requireConnect('challenge this signal'))return;const o=document.getElementById('sc-out'),b=document.getElementById('sc-go');if(b)b.textContent='🤖 reviewing…';o.innerHTML='<div class="ghint" style="padding:10px">the trust agent is weighing the signal against Scripture…</div>';
-  let r;try{r=await fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subject_label:scSig.label,sig_kind:scSig.kind,basis:scSig.basis,osis:scSig.osis})}).then(x=>x.json());}catch(e){r={analysis:'Could not reach the trust agent.'};}
+  let r;try{r=await fetch(A2A_BASE+'/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subject_label:scSig.label,sig_kind:scSig.kind,basis:scSig.basis,osis:scSig.osis})}).then(x=>x.json());}catch(e){r={analysis:'Could not reach the trust agent.'};}
   const an=r.analysis||'(no analysis)';scAnalysis=an;const A=an.toUpperCase();
   scVerdict=(A.indexOf('INVALID')>=0||A.indexOf('DOES NOT SUPPORT')>=0||an.indexOf('❌')>=0)?'invalid':(A.indexOf('TIGHTEN')>=0||A.indexOf('ADJUST')>=0||an.indexOf('⚠️')>=0)?'adjust':'valid';
   if(b)b.textContent='🤖 Re-challenge';o.innerHTML='<div class="sc-analysis">'+mdLite(an)+'</div><div class="muted" style="font-size:11px;margin-top:5px">verdict captured: <b>'+scVerdict+'</b> — review/edit below and post it.</div>';

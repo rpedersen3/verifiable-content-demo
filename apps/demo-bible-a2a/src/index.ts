@@ -14,6 +14,8 @@ interface Env {
   MCP_URL?: string;
   VALIDATOR_URL?: string;
   AGENT_NAME?: string;
+  ANTHROPIC_API_KEY?: string;
+  ANALYZE_MODEL?: string;
   MCP?: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> };
   A2A_PUBLIC_ORIGIN?: string;
 }
@@ -81,6 +83,13 @@ app.get('/.well-known/agent-card.json', (c) => {
         tags: ['trust', 'feedback', 'verifiable-content', 'erc-8004'],
         examples: ['challenge God Moral 1Chr.11.14 — verse does not support the claim'],
       },
+      {
+        id: 'challenge-signal',
+        name: 'Challenge a trust signal',
+        description: 'Validate a trust signal against Scripture, scoped strictly to its cited verse + entity, returning a verse-in-context check, verdict, and recommendation.',
+        tags: ['trust', 'audit', 'scripture'],
+        examples: ['does 1Chr.11.14 support God being holy/just?'],
+      },
     ],
   });
 });
@@ -95,6 +104,34 @@ app.post('/entity', async (c) => { const b = await c.req.json().catch(() => ({})
 app.get('/class-tree', async (c) => c.json(await mcpGet(c.env, '/mcp/class_tree')));
 // Submit a signed feedback assertion (challenge/agreement) on a trust signal.
 app.post('/submit-feedback', async (c) => { const b = await c.req.json().catch(() => ({})); const res = await mcpPost(c.env, '/tools/submit_feedback', b); return c.json(res.body, res.status as 200); });
+// Challenge a trust signal — the agent validates it against Scripture (scoped strictly to the
+// cited verse + entity) and returns a verdict + recommendation. Needs ANTHROPIC_API_KEY.
+app.post('/analyze', async (c) => {
+  const key = c.env.ANTHROPIC_API_KEY;
+  if (!key) return c.json({ ok: false, error: 'unconfigured', analysis: 'The trust agent is not configured yet. Set the ANTHROPIC_API_KEY secret on the Scripture Agent (a2a) worker to enable live signal challenges.' });
+  const b = await c.req.json().catch(() => ({})) as Record<string, string>;
+  const label = String(b.subject_label ?? 'this entity').slice(0, 120);
+  const kind = String(b.sig_kind ?? 'signal').slice(0, 60);
+  const basis = String(b.basis ?? '').slice(0, 400);
+  const osis = String(b.osis ?? '').slice(0, 40);
+  const prompt = `You are a Scripture-grounded trust auditor for a Bible knowledge graph. Audit ONE trust signal, scoped STRICTLY to its cited verse and entity. The only question is: does THIS specific verse, read in its own context, support THIS specific signal for THIS specific entity?\n\nEntity: ${label}\nSignal (dimension/type): ${kind}\nSignal basis (the claim): "${basis}"\nCited verse (OSIS): ${osis || '(none)'}\n\nIn ≤200 words, markdown (short **bold** lead-ins + bullet points "- "; NO tables):\n- **Verse in context** — what ${osis || 'the cited verse'} actually says/recounts in its passage.\n- **Support check** — does that verse support this signal's claim for ${label}? Mark ✅ clearly supports / ⚠️ weak or partial / ❌ does not support, and say concretely why.\n- **Verdict** — is this signal VALID for this verse and this entity, and does its polarity/strength fit what the verse shows?\n- **Recommendation** — about THIS signal–verse–entity triple ONLY: keep as-is; tighten the wording so it matches what the verse actually says; or flag the citation as not supporting the claim so a curator can review it. Do NOT propose a different verse, and do NOT invent a different signal or claim.\nStay strictly on the cited verse — do NOT validate the claim using other passages, and do NOT recommend swapping in another verse. If the basis pins one individual's act on a whole group, note it.`;
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: c.env.ANALYZE_MODEL || 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!r.ok) return c.json({ ok: false, error: `agent ${r.status}`, analysis: `The trust agent returned an error (${r.status}). Check the API key / model.` });
+    const j = await r.json() as { content?: { text?: string }[] };
+    return c.json({ ok: true, analysis: j.content?.[0]?.text ?? '(no response)' });
+  } catch {
+    return c.json({ ok: false, error: 'fetch failed', analysis: 'Could not reach the trust agent.' });
+  }
+});
+
+// Verse text — from the canonical BSB corpus in the MCP (the single source of verse text).
+app.get('/passage', async (c) => { const osis = c.req.query('osis') ?? ''; const res = await mcpPost(c.env, '/tools/get_passage', { osis }); return c.json(res.body, res.status as 200); });
+
 // Vault read gateway — all knowledge-graph reads (entities, signals, relationships, verses,
 // classes) flow through the agent → vault, so clients never call the data Worker directly.
 // e.g. GET /vault/node/David  ·  GET /vault/search?q=David&kind=person
