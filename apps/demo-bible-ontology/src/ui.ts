@@ -96,6 +96,9 @@ svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10p
 .imodal{display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.86);align-items:center;justify-content:center;padding:18px;cursor:zoom-out}
 .imodal img{max-width:96vw;max-height:94vh;border-radius:8px;box-shadow:0 12px 50px rgba(0,0,0,.6)}
 .ihover{display:none;position:fixed;z-index:5000;pointer-events:none;border:2px solid #fff;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.45);overflow:hidden;background:#000}
+.mappulse{width:54px;height:54px;border-radius:50%;border:3px solid #ff5a36;pointer-events:none;box-sizing:border-box}
+.mappulse::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:3px solid #ff5a36;animation:mpulse 1.5s ease-out infinite}
+@keyframes mpulse{0%{transform:scale(.55);opacity:1}100%{transform:scale(1.5);opacity:0}}
 .ihover img{display:block;max-width:560px;max-height:400px}
 .vmodal.on{display:flex}
 .vmodal .box{background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:82vh;overflow:auto;padding:18px 22px;box-shadow:0 14px 44px rgba(20,30,50,.32)}
@@ -710,12 +713,17 @@ async function geo(){
   const peopleG=L.layerGroup();pItems.forEach(i=>peopleG.addLayer(i.m));
   placeG.addTo(map);evG.addTo(map);
   // map search → zoom to a place/activity/person by name
+  let hlMarker=null;
   const allGeo=[...d.places,...d.events,...d.people];
   const sbox=document.createElement('div');sbox.className='map-search';
   sbox.innerHTML='<input id="mapq" placeholder="Find on map… (e.g. Jeruel, Bethel)"/><div id="mapres"></div>';
   document.getElementById('map').appendChild(sbox);
   const mapq=sbox.querySelector('#mapq'),mapres=sbox.querySelector('#mapres');
-  const goTo=(id)=>{const mk=markerById[id];if(!mk||!isFinite(mk.lat))return;if(!map.hasLayer(mk.m))mk.m.addTo(map);map.flyTo([mk.lat,mk.lon],11);mk.m.openPopup();mapres.innerHTML='';mapq.value=mk.label;};
+  const goTo=(id)=>{const mk=markerById[id];if(!mk||!isFinite(mk.lat))return;if(!map.hasLayer(mk.m))mk.m.addTo(map);
+    if(hlMarker)map.removeLayer(hlMarker);
+    hlMarker=L.marker([mk.lat,mk.lon],{icon:L.divIcon({className:'',html:'<div class="mappulse"></div>',iconSize:[54,54],iconAnchor:[27,27]}),zIndexOffset:5000,interactive:false}).addTo(map);
+    if(mk.m.setZIndexOffset)mk.m.setZIndexOffset(6000);else if(mk.m.bringToFront)mk.m.bringToFront();
+    map.flyTo([mk.lat,mk.lon],11);mk.m.openPopup();mapres.innerHTML='';mapq.value=mk.label;};
   const runMap=()=>{const t=mapq.value.trim().toLowerCase();if(t.length<2){mapres.innerHTML='';return;}
     const hits=allGeo.filter(n=>(n.label||'').toLowerCase().includes(t)&&markerById[n.id]).slice(0,8);
     mapres.innerHTML=hits.length?'<ul class="list">'+hits.map(h=>'<li data-id="'+esc(h.id)+'">'+dot(h.kind||'place')+esc(h.label)+(h.place?' <span class="muted">'+esc(h.place)+'</span>':'')+'</li>').join('')+'</ul>':'<div class="ghint" style="padding:6px 10px">No mapped match for “'+esc(mapq.value)+'”.</div>';
