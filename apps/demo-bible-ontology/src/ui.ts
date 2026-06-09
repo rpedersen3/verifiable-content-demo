@@ -107,6 +107,12 @@ svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10p
 .ihover img{display:block;max-width:560px;max-height:400px}
 .sigq{cursor:pointer;font-size:12px;margin-left:5px;opacity:.45;user-select:none}.sigq:hover{opacity:1}
 .scmodal{display:none;position:fixed;inset:0;z-index:4500;background:rgba(20,30,50,.5);align-items:flex-start;justify-content:center;padding:38px 16px;overflow:auto}
+.cgmodal{display:none;position:fixed;inset:0;z-index:4800;background:rgba(20,30,50,.55);align-items:center;justify-content:center;padding:20px}
+.cg-card{background:#fff;border-radius:14px;max-width:400px;width:100%;padding:28px 26px;box-shadow:0 24px 70px rgba(0,0,0,.4);text-align:center}
+.cg-globe{font-size:40px;line-height:1}
+.cg-go{display:block;width:100%;background:var(--accent);color:#fff;border:0;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px}
+.cg-go:hover{filter:brightness(1.08)}
+.cg-back{background:transparent;border:0;color:var(--muted);font-size:13px;cursor:pointer;padding:6px}
 .sc-card{background:#fff;border-radius:12px;max-width:560px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:8px}
 .sc-claim{background:#f6f8fc;border-left:3px solid var(--accent);border-radius:6px;padding:9px 12px;font-size:14px;margin:4px 0}
 .sc-analysis{background:#fbfcfe;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.55;margin-top:8px}
@@ -208,6 +214,7 @@ svg#tsvg{display:block;background:#fbfcfe}
 <div id="imgmodal" class="imodal" onclick="closeImg()"><img id="imgmodalImg" alt=""/></div>
 <div id="imghover" class="ihover"><img id="imghoverImg" alt=""/></div>
 <div id="sigcourt" class="scmodal" onclick="if(event.target===this)closeSigCourt()"><div class="sc-card" id="sc-body"></div></div>
+<div id="connectGate" class="cgmodal" onclick="if(event.target===this)closeConnectGate()"><div class="cg-card" id="cg-body"></div></div>
 </div>
 <script>
 const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b',interaction:'#db2777',speechact:'#db2777',plan:'#0891b2',step:'#14b8a6'};
@@ -326,7 +333,7 @@ function authOriginFor(name){const l=nameLabel(name);return l?('https://'+l+'.'+
 function isAllowedIssuer(origin){try{const u=new URL(origin);if(u.protocol!=='https:'&&u.hostname!=='localhost'&&u.hostname!=='127.0.0.1')return false;if(u.pathname!=='/'&&u.pathname!=='')return false;if(u.search||u.hash)return false;const h=u.hostname;return h===CONNECT_DOMAIN||h.endsWith('.'+CONNECT_DOMAIN)||h==='localhost'||h==='127.0.0.1';}catch(e){return false;}}
 async function connectStart(name){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(name);
   sessionStorage.setItem('sa.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin,name:name||''}));
-  const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
+  const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
 async function verifyIdToken(authOrigin,idToken,expectedNonce){if(!isAllowedIssuer(authOrigin))throw new Error('issuer not allowed');
   const parts=idToken.split('.');if(parts.length!==3)throw new Error('id_token malformed');
   const header=decodeSeg(parts[0]),claims=decodeSeg(parts[1]);
@@ -351,8 +358,18 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
     localStorage.setItem('sa.session',JSON.stringify(session));sessionStorage.removeItem('sa.pending');return true;
   }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));sessionStorage.removeItem('sa.pending');return false;}}
 function disconnect(){session=null;localStorage.removeItem('sa.session');renderConnect();}
-function promptConnect(){const n=prompt('Connect with your Impact name (e.g. alice.impact) — leave blank to sign up:','');if(n===null)return;connectStart(n.trim());}
-function requireConnect(action){if(isConnected())return true;if(confirm('Connect to '+action+'? You sign in with your Impact identity.'))promptConnect();return false;}
+function closeConnectGate(){const m=document.getElementById('connectGate');if(m)m.style.display='none';}
+function openConnectGate(reason){const m=document.getElementById('connectGate');if(!m)return;
+  document.getElementById('cg-body').innerHTML=
+   '<div class="cg-globe">🌐</div>'+
+   '<h2 style="margin:6px 0 2px">Connect with Global.Church</h2>'+
+   '<p class="muted" style="font-size:13px;line-height:1.5;margin:0 0 4px">Sign in through your Global.Church home. Bible Explorer only receives the access you approve, and your contact details stay private until you accept a connection.'+(reason?'<br><br>Connect to <b>'+esc(reason)+'</b>.':'')+'</p>'+
+   '<div class="muted" style="font-size:11px;margin-bottom:14px">One identity · roles are just views</div>'+
+   '<button class="cg-go" onclick="closeConnectGate();connectStart(\\'\\')">🌐 Continue with Global.Church</button>'+
+   '<button class="cg-back" onclick="closeConnectGate()">← Back</button>';
+  m.style.display='flex';}
+function promptConnect(){openConnectGate('');}
+function requireConnect(action){if(isConnected())return true;openConnectGate(action);return false;}
 function renderConnect(){const el=document.getElementById('connectBtn');if(!el)return;el.innerHTML=isConnected()?'<span class="muted" style="font-size:12px">● '+esc(session.name||(session.sub||'').slice(0,12))+'</span><button class="map-basbtn" style="border:1px solid var(--line);border-radius:8px" onclick="disconnect()">Disconnect</button>':'<button class="map-basbtn on" style="border:1px solid var(--accent);border-radius:8px" onclick="promptConnect()">Connect</button>';}
 loadSession();renderConnect();connectCallback().then(ok=>{if(ok)renderConnect();});
 
