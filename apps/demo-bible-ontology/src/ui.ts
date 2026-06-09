@@ -4,6 +4,8 @@ export const UI = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <title>Bible Explorer</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"/>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <style>
 :root{--bg:#f6f8fb;--card:#fff;--ink:#1f2733;--muted:#6b7785;--line:#e4e9f0;--accent:#2f6df0;--ok:#1a8a4f;--no:#c0392b;--warn:#b45309;--mono:ui-monospace,Menlo,monospace}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
@@ -676,78 +678,111 @@ let geoMap=null,geoTimer=null;
 async function geo(){
   V.innerHTML='<div class="card"><div class="sec-head">Map</div>'+
    '<div class="gchips" id="glayers"></div>'+
-   '<div class="hint" style="margin:6px 0 8px"><span style="color:#c47d2e">▲</span> Regions (general areas like the Negev) are <b>off by default</b> — toggle the <b>Regions</b> chip to show them.</div>'+
-   '<div id="map" style="height:520px;border:1px solid var(--line);border-radius:10px;z-index:0"></div>'+
+   '<div class="hint" style="margin:6px 0 8px"><span style="color:#c47d2e">▲</span> Regions are <b>off by default</b> — toggle <b>Regions</b>. Tap <b>⛰ 3D</b> to tilt into the terrain; right-drag (or ctrl-drag) to rotate &amp; pitch.</div>'+
+   '<div id="map" style="height:540px;border:1px solid var(--line);border-radius:10px;z-index:0;position:relative;overflow:hidden"></div>'+
    '<div id="gtime" style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div></div>';
   const mapEl=document.getElementById('map');
-  if(!window.L){mapEl.innerHTML='<div class="ghint" style="padding:24px">Map library could not load (offline?). The same data is in Explore / Timeline.</div>';return;}
+  if(!window.maplibregl){mapEl.innerHTML='<div class="ghint" style="padding:24px">3D map library could not load (offline?). The same data is in Explore / Timeline.</div>';return;}
   const d=await api('/geo'+(bookFilter?'?book='+bookFilter:''));
-  const map=L.map('map',{scrollWheelZoom:true}).setView([31.8,35.2],6);geoMap=map;
-  // English-labelled basemaps (Esri renders English/Latin city + water-body names); switchable
-  const esriTopo=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:17,attribution:'Tiles &copy; Esri'});
-  const esriStreet=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:17,attribution:'Tiles &copy; Esri'});
-  const esriImagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:17,attribution:'Tiles &copy; Esri'});
-  const osmStd=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'});
-  const cartoClean=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:18,subdomains:'abcd',attribution:'&copy; OpenStreetMap &copy; CARTO'});
-  esriStreet.addTo(map);   // default: full street map with English city + water labels
-  const BASEMAPS=[['Streets',esriStreet],['Topo',esriTopo],['Satellite',esriImagery],['Minimal',cartoClean]];
-  let activeBase=esriStreet;
-  const bctl=document.createElement('div');bctl.className='map-basectl';
-  bctl.innerHTML=BASEMAPS.map((b,i)=>'<button class="map-basbtn'+(i===0?' on':'')+'" data-i="'+i+'">'+b[0]+'</button>').join('');
-  document.getElementById('map').appendChild(bctl);
-  bctl.querySelectorAll('.map-basbtn').forEach((btn,i)=>btn.onclick=()=>{map.removeLayer(activeBase);activeBase=BASEMAPS[i][1];activeBase.addTo(map);bctl.querySelectorAll('.map-basbtn').forEach((b,j)=>b.classList.toggle('on',j===i));});
-  const sigC=(n,def)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':def;
-  const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);if(!r.length)return '';const more=(n.v||0)>r.length?' <span style="font:11px ui-monospace,monospace;color:#8a96a3">…+'+((n.v||0)-r.length)+'</span>':'';return '<div style="margin-top:5px">'+r.map(o=>{const bk=bookFilter&&String(o).indexOf(bookFilter+'.')===0;return '<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:'+(bk?'#fff3c4':'#eef2fb')+';color:'+(bk?'#7a5c00':'#3a4a63')+';border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none;'+(bk?'font-weight:700':'')+'">'+esc(o)+'</a>';}).join('')+more+'</div>';};
   d.places.forEach(p=>{if(p.imgFull||p.img)geoImgFull[p.id]=p.imgFull||p.img;});
+  const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);if(!r.length)return '';const more=(n.v||0)>r.length?' <span style="font:11px ui-monospace,monospace;color:#8a96a3">…+'+((n.v||0)-r.length)+'</span>':'';return '<div style="margin-top:5px">'+r.map(o=>{const bk=bookFilter&&String(o).indexOf(bookFilter+'.')===0;return '<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:'+(bk?'#fff3c4':'#eef2fb')+';color:'+(bk?'#7a5c00':'#3a4a63')+';border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none;'+(bk?'font-weight:700':'')+'">'+esc(o)+'</a>';}).join('')+more+'</div>';};
   const pimg=(n)=>n.img?'<img src="'+esc(n.img)+'" onclick="openImgFor(\\''+n.id+'\\')" onmouseenter="imgHover(this.src,event)" onmousemove="imgHoverMove(event)" onmouseleave="imgHoverOut()" title="hover to preview · click for full" style="width:100%;max-width:280px;border-radius:6px;margin-bottom:6px;cursor:zoom-in;display:block"/>':'';
   const pop=(n,ex)=>pimg(n)+'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
-  const imgIcon=(url)=>L.divIcon({className:'imgmk',iconSize:[30,30],iconAnchor:[15,15],html:'<div style="width:30px;height:30px;border-radius:50%;border:2px solid #2f6df0;background:#fff url('+esc(url)+') center/cover;box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>'});
-  const hoverImg=(m,p)=>{if(!p.img)return;m.on('mouseover',e=>imgHover(p.img,e.originalEvent));m.on('mousemove',e=>imgHoverMove(e.originalEvent));m.on('mouseout',imgHoverOut);m.on('popupopen',imgHoverOut);};
-  const placeG=L.layerGroup();
-  const markerById={},regionG=L.layerGroup();
-  const triIcon=L.divIcon({className:'reg-tri',html:'<i></i>',iconSize:[16,15],iconAnchor:[8,8]});
-  d.places.forEach(p=>{const isR=p.region;const m=isR?L.marker([p.lat,p.lon],{icon:triIcon}):p.img?L.marker([p.lat,p.lon],{icon:imgIcon(p.img),zIndexOffset:1000}):L.circleMarker([p.lat,p.lon],{radius:Math.min(9,3+Math.sqrt(p.v||1)),color:'#7c8696',weight:1,fillColor:'#aab4c2',fillOpacity:.5});m.bindPopup(pop(p,(isR?'<br><span class="muted">▲ region · general area (approx.)</span>':'')+(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses'));m.bindTooltip(p.label);hoverImg(m,p);(isR?regionG:placeG).addLayer(m);markerById[p.id]={m,lat:p.lat,lon:p.lon,label:p.label};});
-  const evItems=d.events.map(e=>{const lab=e.label+(e.place?' · '+e.place:'');const m=L.circleMarker([e.lat,e.lon],{radius:Math.min(11,4+Math.sqrt(e.v||1)),color:'#fff',weight:1,fillColor:sigC(e,'#0e7490'),fillOpacity:.9});m.bindPopup(pop({...e,label:lab},'<br><span style="color:#6b7785">at '+esc(e.place||'')+'</span>'));m.bindTooltip(lab);markerById[e.id+':'+(e.place||'')]={m,lat:e.lat,lon:e.lon,label:lab};return{m,t:e.tStart};});
-  const evG=L.layerGroup();evItems.forEach(i=>evG.addLayer(i.m));
-  const pItems=d.people.map(pe=>{const m=L.circleMarker([pe.lat,pe.lon],{radius:6,color:'#fff',weight:1,fillColor:sigC(pe,'#2563eb'),fillOpacity:.9});m.bindPopup(pop(pe,'<br><span style="color:#6b7785">b. '+esc(pe.place||'')+'</span>'));m.bindTooltip(pe.label);markerById[pe.id]={m,lat:pe.lat,lon:pe.lon,label:pe.label};return{m,t0:pe.tStart,t1:pe.tEnd!=null?pe.tEnd:pe.tStart};});
-  const peopleG=L.layerGroup();pItems.forEach(i=>peopleG.addLayer(i.m));
-  placeG.addTo(map);evG.addTo(map);
-  // map search → zoom to a place/activity/person by name
-  let hlMarker=null;
-  const allGeo=[...d.places,...d.events,...d.people];
-  const sbox=document.createElement('div');sbox.className='map-search';
-  sbox.innerHTML='<input id="mapq" placeholder="Find on map… (e.g. Jeruel, Bethel)"/><div id="mapres"></div>';
-  document.getElementById('map').appendChild(sbox);
-  const mapq=sbox.querySelector('#mapq'),mapres=sbox.querySelector('#mapres');
-  const goTo=(id)=>{const mk=markerById[id];if(!mk||!isFinite(mk.lat))return;if(!map.hasLayer(mk.m))mk.m.addTo(map);
-    if(hlMarker)map.removeLayer(hlMarker);
-    hlMarker=L.marker([mk.lat,mk.lon],{icon:L.divIcon({className:'',html:'<div class="mappulse"></div>',iconSize:[54,54],iconAnchor:[27,27]}),zIndexOffset:5000,interactive:false}).addTo(map);
-    if(mk.m.setZIndexOffset)mk.m.setZIndexOffset(6000);else if(mk.m.bringToFront)mk.m.bringToFront();
-    map.flyTo([mk.lat,mk.lon],11);mk.m.openPopup();mapres.innerHTML='';mapq.value=mk.label;};
-  const runMap=()=>{const t=mapq.value.trim().toLowerCase();if(t.length<2){mapres.innerHTML='';return;}
-    const hits=allGeo.filter(n=>(n.label||'').toLowerCase().includes(t)&&markerById[n.id]).slice(0,8);
-    mapres.innerHTML=hits.length?'<ul class="list">'+hits.map(h=>'<li data-id="'+esc(h.id)+'">'+dot(h.kind||'place')+esc(h.label)+(h.place?' <span class="muted">'+esc(h.place)+'</span>':'')+'</li>').join('')+'</ul>':'<div class="ghint" style="padding:6px 10px">No mapped match for “'+esc(mapq.value)+'”.</div>';
-    mapres.querySelectorAll('[data-id]').forEach(li=>li.onclick=()=>goTo(li.dataset.id));};
-  let mt;mapq.oninput=()=>{clearTimeout(mt);mt=setTimeout(runMap,150);};
-  mapq.onkeydown=(e)=>{if(e.key==='Enter'){const f=mapres.querySelector('[data-id]');if(f)goTo(f.dataset.id);}};
-  const layers={Places:placeG,Activities:evG,People:peopleG,Regions:regionG},on={Places:true,Activities:true,People:false,Regions:false};
-  const nReg=d.places.filter(p=>p.region).length,cnt={Places:d.places.length-nReg,Activities:d.events.length,People:d.people.length,Regions:nReg};
-  const lchip=(k)=>'<span class="gchip'+(on[k]?' on':'')+'" data-l="'+k+'"'+(on[k]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+k+' ('+cnt[k]+')</span>';
-  document.getElementById('glayers').innerHTML=Object.keys(layers).map(lchip).join('');
-  document.querySelectorAll('#glayers [data-l]').forEach(ch=>ch.onclick=()=>{const k=ch.dataset.l;on[k]=!on[k];if(on[k]){layers[k].addTo(map);ch.style.cssText='background:var(--accent);color:#fff;border-color:var(--accent)';}else{map.removeLayer(layers[k]);ch.style.cssText='';}ch.classList.toggle('on',on[k]);applyYear();});
-  const yrs=[...evItems.map(i=>i.t),...pItems.map(i=>i.t0)].filter(y=>y!=null);
-  const minY=Math.min(...yrs),maxY=Math.max(...yrs);let cur=maxY;
-  document.getElementById('gtime').innerHTML='<button id="gplay" class="gchip">▶ play</button><input type="range" id="gyr" min="'+minY+'" max="'+maxY+'" value="'+maxY+'" style="flex:1;min-width:200px"><span id="gyl" class="mono" style="min-width:74px;font-weight:700"></span><label class="hint" style="display:flex;gap:5px;align-items:center;margin:0"><input type="checkbox" id="gcum" checked> cumulative</label>';
-  const yr=document.getElementById('gyr'),yl=document.getElementById('gyl'),cum=document.getElementById('gcum');
-  function applyYear(){cur=+yr.value;yl.textContent=ordY(cur);const c=cum.checked;
-    evItems.forEach(i=>{const vis=c?i.t<=cur:Math.abs(i.t-cur)<=40;i.m.setStyle({opacity:vis?1:0,fillOpacity:vis?.9:0});});
-    pItems.forEach(i=>{const vis=c?i.t0<=cur:(cur>=i.t0&&cur<=i.t1);i.m.setStyle({opacity:vis?1:0,fillOpacity:vis?.9:0});});}
-  yr.oninput=applyYear;cum.onchange=applyYear;
-  document.getElementById('gplay').onclick=function(){
-    if(geoTimer){clearInterval(geoTimer);geoTimer=null;this.textContent='▶ play';return;}
-    this.textContent='⏸ pause';const step=Math.max(1,Math.round((maxY-minY)/120));if(cur>=maxY)cur=minY;
-    geoTimer=setInterval(()=>{cur+=step;if(cur>=maxY){cur=maxY;yr.value=cur;applyYear();clearInterval(geoTimer);geoTimer=null;const b=document.getElementById('gplay');if(b)b.textContent='▶ play';return;}yr.value=cur;applyYear();},120);};
-  applyYear();setTimeout(()=>{try{map.invalidateSize();}catch(e){}},120);
+  const ESRI=(s)=>'https://server.arcgisonline.com/ArcGIS/rest/services/'+s+'/MapServer/tile/{z}/{y}/{x}';
+  const style={version:8,sources:{
+    topo:{type:'raster',tiles:[ESRI('World_Topo_Map')],tileSize:256,maxzoom:17,attribution:'Tiles &copy; Esri'},
+    streets:{type:'raster',tiles:[ESRI('World_Street_Map')],tileSize:256,maxzoom:17,attribution:'Tiles &copy; Esri'},
+    sat:{type:'raster',tiles:[ESRI('World_Imagery')],tileSize:256,maxzoom:17,attribution:'Tiles &copy; Esri'},
+    dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],tileSize:256,encoding:'terrarium',maxzoom:14,attribution:'Terrain: AWS Terrain Tiles'}
+  },layers:[
+    {id:'b-streets',type:'raster',source:'streets',layout:{visibility:'none'}},
+    {id:'b-topo',type:'raster',source:'topo'},
+    {id:'b-sat',type:'raster',source:'sat',layout:{visibility:'none'}},
+    {id:'hill',type:'hillshade',source:'dem',layout:{visibility:'none'},paint:{'hillshade-exaggeration':0.45}}
+  ]};
+  const map=new maplibregl.Map({container:'map',style:style,center:[35.2,31.8],zoom:6,maxPitch:80,attributionControl:false});geoMap=map;
+  map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
+  map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-left');
+  map.on('load',()=>{
+    const fc=(a)=>({type:'FeatureCollection',features:a});
+    const ft=(lon,lat,props)=>({type:'Feature',geometry:{type:'Point',coordinates:[lon,lat]},properties:props});
+    const sigColor=['match',['get','sig'],'positive','#1a8a4f','negative','#c0392b','mixed','#b45309','#0e7490'];
+    const sigColorP=['match',['get','sig'],'positive','#1a8a4f','negative','#c0392b','mixed','#b45309','#2563eb'];
+    const pf=d.places.filter(p=>!p.region&&!p.img&&isFinite(p.lat)).map(p=>ft(p.lon,p.lat,{id:p.id,label:p.label,disambig:p.disambig||'',v:p.v||0,refs:p.refs||''}));
+    const rf=d.places.filter(p=>p.region&&isFinite(p.lat)).map(p=>ft(p.lon,p.lat,{id:p.id,label:p.label,disambig:p.disambig||'',v:p.v||0,refs:p.refs||''}));
+    const ef=d.events.filter(e=>isFinite(e.lat)).map(e=>ft(e.lon,e.lat,{id:e.id+':'+(e.place||''),label:e.label+(e.place?' · '+e.place:''),place:e.place||'',v:e.v||0,refs:e.refs||'',year:e.tStart==null?99999:e.tStart,sig:e.sig||''}));
+    const ppf=d.people.filter(pe=>isFinite(pe.lat)).map(pe=>ft(pe.lon,pe.lat,{id:pe.id,label:pe.label,place:pe.place||'',refs:pe.refs||'',t0:pe.tStart==null?99999:pe.tStart,t1:(pe.tEnd!=null?pe.tEnd:pe.tStart)==null?99999:(pe.tEnd!=null?pe.tEnd:pe.tStart),sig:pe.sig||''}));
+    map.addSource('places',{type:'geojson',data:fc(pf)});
+    map.addSource('regions',{type:'geojson',data:fc(rf)});
+    map.addSource('events',{type:'geojson',data:fc(ef)});
+    map.addSource('people',{type:'geojson',data:fc(ppf)});
+    map.addLayer({id:'places',type:'circle',source:'places',paint:{'circle-radius':['min',9,['+',3,['sqrt',['max',1,['get','v']]]]],'circle-color':'#aab4c2','circle-stroke-color':'#7c8696','circle-stroke-width':1,'circle-opacity':0.9}});
+    map.addLayer({id:'regions',type:'circle',source:'regions',layout:{visibility:'none'},paint:{'circle-radius':6,'circle-color':'#e8a44d','circle-stroke-color':'#c47d2e','circle-stroke-width':1.5,'circle-opacity':0.85}});
+    map.addLayer({id:'events',type:'circle',source:'events',paint:{'circle-radius':['min',11,['+',4,['sqrt',['max',1,['get','v']]]]],'circle-color':sigColor,'circle-stroke-color':'#fff','circle-stroke-width':1,'circle-opacity':0.95}});
+    map.addLayer({id:'people',type:'circle',source:'people',layout:{visibility:'none'},paint:{'circle-radius':6,'circle-color':sigColorP,'circle-stroke-color':'#fff','circle-stroke-width':1,'circle-opacity':0.95}});
+    const popup=new maplibregl.Popup({maxWidth:'300px'});
+    const hov=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:8,className:'mlhov'});
+    const show=(c,n,ex)=>popup.setLngLat(c).setHTML(pop(n,ex)).addTo(map);
+    const locById={};
+    const wire=(layer,exFn)=>{
+      map.on('mouseenter',layer,()=>map.getCanvas().style.cursor='pointer');
+      map.on('mouseleave',layer,()=>{map.getCanvas().style.cursor='';hov.remove();});
+      map.on('mousemove',layer,e=>{const f=e.features[0];hov.setLngLat(f.geometry.coordinates).setHTML('<b>'+esc(f.properties.label)+'</b>').addTo(map);});
+      map.on('click',layer,e=>{const f=e.features[0],pr=f.properties;hov.remove();show(f.geometry.coordinates,{id:pr.id,label:pr.label,refs:pr.refs,v:pr.v,img:null},exFn(pr));});
+    };
+    wire('places',pr=>(pr.disambig?'<br><span style="color:#6b7785">'+esc(pr.disambig)+'</span>':'')+'<br>'+pr.v+' verses');
+    wire('regions',pr=>'<br><span class="muted">▲ region · general area (approx.)</span>'+(pr.disambig?'<br><span style="color:#6b7785">'+esc(pr.disambig)+'</span>':'')+'<br>'+pr.v+' verses');
+    wire('events',pr=>'<br><span style="color:#6b7785">at '+esc(pr.place||'')+'</span>');
+    wire('people',pr=>'<br><span style="color:#6b7785">b. '+esc(pr.place||'')+'</span>');
+    const regOf=(f,ex)=>locById[f.properties.id]={lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],label:f.properties.label,show:()=>show(f.geometry.coordinates,{id:f.properties.id,label:f.properties.label,refs:f.properties.refs,v:f.properties.v,img:null},ex(f.properties))};
+    pf.forEach(f=>regOf(f,pr=>(pr.disambig?'<br><span style="color:#6b7785">'+esc(pr.disambig)+'</span>':'')+'<br>'+pr.v+' verses'));
+    rf.forEach(f=>regOf(f,pr=>'<br><span class="muted">▲ region</span><br>'+pr.v+' verses'));
+    ef.forEach(f=>regOf(f,pr=>'<br><span style="color:#6b7785">at '+esc(pr.place||'')+'</span>'));
+    ppf.forEach(f=>regOf(f,pr=>'<br><span style="color:#6b7785">b. '+esc(pr.place||'')+'</span>'));
+    const imgEls={};
+    d.places.filter(p=>p.img&&!p.region&&isFinite(p.lat)).forEach(p=>{
+      const el=document.createElement('div');el.style.cssText='width:30px;height:30px;border-radius:50%;border:2px solid #2f6df0;background:#fff url('+p.img+') center/cover;box-shadow:0 1px 5px rgba(0,0,0,.4);cursor:pointer';
+      el.onmouseenter=e=>imgHover(p.img,e);el.onmousemove=e=>imgHoverMove(e);el.onmouseleave=imgHoverOut;
+      const showThis=()=>{imgHoverOut();show([p.lon,p.lat],{id:p.id,label:p.label,refs:p.refs,v:p.v,img:p.img},(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses');};
+      el.onclick=showThis;
+      new maplibregl.Marker({element:el}).setLngLat([p.lon,p.lat]).addTo(map);
+      imgEls[p.id]=el;locById[p.id]={lon:p.lon,lat:p.lat,label:p.label,show:showThis};
+    });
+    const layers={Places:['places'],Activities:['events'],People:['people'],Regions:['regions']};
+    const on={Places:true,Activities:true,People:false,Regions:false};
+    const nReg=rf.length,cnt={Places:pf.length+Object.keys(imgEls).length,Activities:ef.length,People:ppf.length,Regions:nReg};
+    const lchip=(k)=>'<span class="gchip'+(on[k]?' on':'')+'" data-l="'+k+'"'+(on[k]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+k+' ('+cnt[k]+')</span>';
+    document.getElementById('glayers').innerHTML=Object.keys(layers).map(lchip).join('');
+    const setVis=(k)=>{layers[k].forEach(l=>map.setLayoutProperty(l,'visibility',on[k]?'visible':'none'));if(k==='Places')Object.values(imgEls).forEach(el=>el.style.display=on[k]?'':'none');};
+    document.querySelectorAll('#glayers [data-l]').forEach(ch=>ch.onclick=()=>{const k=ch.dataset.l;on[k]=!on[k];setVis(k);ch.style.cssText=on[k]?'background:var(--accent);color:#fff;border-color:var(--accent)':'';ch.classList.toggle('on',on[k]);});
+    const bctl=document.createElement('div');bctl.className='map-basectl';
+    const BASES=[['Streets','b-streets'],['Topo','b-topo'],['Satellite','b-sat']];
+    bctl.innerHTML=BASES.map((b,i)=>'<button class="map-basbtn'+(i===1?' on':'')+'" data-b="'+i+'">'+b[0]+'</button>').join('')+'<button class="map-basbtn" id="btn3d" title="tilt into 3D terrain" style="margin-left:3px;border-left:1px solid var(--line);padding-left:11px">⛰ 3D</button>';
+    mapEl.appendChild(bctl);
+    bctl.querySelectorAll('[data-b]').forEach((btn,i)=>btn.onclick=()=>{BASES.forEach((b,j)=>map.setLayoutProperty(b[1],'visibility',i===j?'visible':'none'));bctl.querySelectorAll('[data-b]').forEach((x,j)=>x.classList.toggle('on',i===j));});
+    let is3D=false;document.getElementById('btn3d').onclick=function(){is3D=!is3D;if(is3D){map.setTerrain({source:'dem',exaggeration:1.5});map.setLayoutProperty('hill','visibility','visible');map.easeTo({pitch:62,duration:900});}else{map.setTerrain(null);map.setLayoutProperty('hill','visibility','none');map.easeTo({pitch:0,bearing:0,duration:900});}this.classList.toggle('on',is3D);};
+    let hlMk=null;
+    const allGeo=[...d.places,...d.events,...d.people];
+    const sbox=document.createElement('div');sbox.className='map-search';sbox.innerHTML='<input id="mapq" placeholder="Find on map… (e.g. Jeruel, Bethel)"/><div id="mapres"></div>';mapEl.appendChild(sbox);
+    const mapq=sbox.querySelector('#mapq'),mapres=sbox.querySelector('#mapres');
+    const goTo=(id)=>{const lc=locById[id];if(!lc)return;if(hlMk)hlMk.remove();const el=document.createElement('div');el.innerHTML='<div class="mappulse"></div>';el.style.pointerEvents='none';hlMk=new maplibregl.Marker({element:el}).setLngLat([lc.lon,lc.lat]).addTo(map);map.flyTo({center:[lc.lon,lc.lat],zoom:11,duration:1200});setTimeout(()=>{try{lc.show();}catch(e){}},800);mapres.innerHTML='';mapq.value=lc.label;};
+    const runMap=()=>{const t=mapq.value.trim().toLowerCase();if(t.length<2){mapres.innerHTML='';return;}const hits=allGeo.filter(n=>(n.label||'').toLowerCase().includes(t)&&locById[n.id]).slice(0,8);mapres.innerHTML=hits.length?'<ul class="list">'+hits.map(h=>'<li data-id="'+esc(h.id)+'">'+dot(h.kind||'place')+esc(h.label)+(h.place?' <span class="muted">'+esc(h.place)+'</span>':'')+'</li>').join('')+'</ul>':'<div class="ghint" style="padding:6px 10px">No mapped match for “'+esc(mapq.value)+'”.</div>';mapres.querySelectorAll('[data-id]').forEach(li=>li.onclick=()=>goTo(li.dataset.id));};
+    let mt;mapq.oninput=()=>{clearTimeout(mt);mt=setTimeout(runMap,150);};
+    mapq.onkeydown=(e)=>{if(e.key==='Enter'){const f=mapres.querySelector('[data-id]');if(f)goTo(f.dataset.id);}};
+    const yrs=[...ef.map(f=>f.properties.year),...ppf.map(f=>f.properties.t0)].filter(y=>y!=null&&y<90000);
+    if(yrs.length){
+      const minY=Math.min(...yrs),maxY=Math.max(...yrs);let cur=maxY;
+      document.getElementById('gtime').innerHTML='<button id="gplay" class="gchip">▶ play</button><input type="range" id="gyr" min="'+minY+'" max="'+maxY+'" value="'+maxY+'" style="flex:1;min-width:200px"><span id="gyl" class="mono" style="min-width:74px;font-weight:700"></span><label class="hint" style="display:flex;gap:5px;align-items:center;margin:0"><input type="checkbox" id="gcum" checked> cumulative</label>';
+      const yr=document.getElementById('gyr'),yl=document.getElementById('gyl'),cum=document.getElementById('gcum');
+      const applyYear=()=>{cur=+yr.value;yl.textContent=ordY(cur);const c=cum.checked;
+        map.setFilter('events',c?['<=',['get','year'],cur]:['<=',['abs',['-',['get','year'],cur]],40]);
+        map.setFilter('people',c?['<=',['get','t0'],cur]:['all',['<=',['get','t0'],cur],['>=',['get','t1'],cur]]);};
+      yr.oninput=applyYear;cum.onchange=applyYear;
+      document.getElementById('gplay').onclick=function(){if(geoTimer){clearInterval(geoTimer);geoTimer=null;this.textContent='▶ play';return;}this.textContent='⏸ pause';const step=Math.max(1,Math.round((maxY-minY)/120));if(cur>=maxY)cur=minY;geoTimer=setInterval(()=>{cur+=step;if(cur>=maxY){cur=maxY;yr.value=cur;applyYear();clearInterval(geoTimer);geoTimer=null;const b=document.getElementById('gplay');if(b)b.textContent='▶ play';return;}yr.value=cur;applyYear();},120);};
+      applyYear();
+    }
+    setTimeout(()=>{try{map.resize();}catch(e){}},150);
+  });
 }
 // ── Oikos circles: concentric relationship rings out from a person ──
 let oikosCenter=null,oikosOrgs=false,oikosLabel='';
