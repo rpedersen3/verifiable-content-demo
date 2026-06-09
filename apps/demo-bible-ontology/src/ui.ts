@@ -618,7 +618,7 @@ async function drawGraph(){
 }
 // ── Timeline: people lifespans (bars) + activities (markers) on a BC/AD axis ──
 let tlFrom=-4200,tlTo=120;
-const TL_ERAS=[['Full sweep',-4200,120],['Patriarchs',-2100,-1400],['Exodus & Conquest',-1600,-1150],['Judges & Monarchy',-1250,-560],['Exile & Return',-620,-380],['New Testament',-12,90],['Life of Jesus',-7,36]];
+const TL_ERAS=[['Full sweep',-4200,120],['Patriarchs',-2100,-1400],['Exodus & Conquest',-1600,-1150],['Judges & Monarchy',-1250,-560],['Exile & Return',-620,-380],['New Testament',-12,90]];
 function tlZoom(f){const c=(tlFrom+tlTo)/2,half=Math.max(8,(tlTo-tlFrom)/2*f);tlFrom=Math.max(-4300,Math.round(c-half));tlTo=Math.min(160,Math.round(c+half));drawTimeline();}
 function tlPan(frac){const span=tlTo-tlFrom,d=Math.round(span*frac);if(tlFrom+d<-4300||tlTo+d>160)return;tlFrom+=d;tlTo+=d;drawTimeline();}
 const ordY=(y)=>y==null?'':('c. '+Math.abs(y)+(y<0?' BC':' AD'));
@@ -626,14 +626,9 @@ async function timeline(){
   V.innerHTML='<div class="card"><div class="sec-head">Timeline · people &amp; activities</div>'+
    '<div class="hint" style="margin:0 0 8px">Dates are scholarly estimates (Theographic) — the Bible states no calendar dates.</div>'+
    '<div class="gchips" id="teras"></div>'+
-   '<div class="gchips" style="margin-top:4px"><span class="gchip" id="tzin">＋ zoom in</span><span class="gchip" id="tzout">－ zoom out</span><span class="gchip" id="tpanl">◀ earlier</span><span class="gchip" id="tpanr">later ▶</span></div>'+
    '<div id="twrap"></div></div><div id="ttip" class="gtip"></div>';
   document.getElementById('teras').innerHTML=TL_ERAS.map((e,i)=>'<span class="gchip" data-i="'+i+'">'+esc(e[0])+'</span>').join('');
   document.querySelectorAll('#teras [data-i]').forEach(ch=>ch.onclick=()=>{const e=TL_ERAS[ch.dataset.i];tlFrom=e[1];tlTo=e[2];tlMark(ch);drawTimeline();});
-  document.getElementById('tzin').onclick=()=>{tlMark(null);tlZoom(0.5);};
-  document.getElementById('tzout').onclick=()=>{tlMark(null);tlZoom(2);};
-  document.getElementById('tpanl').onclick=()=>{tlMark(null);tlPan(-0.4);};
-  document.getElementById('tpanr').onclick=()=>{tlMark(null);tlPan(0.4);};
   tlMark(document.querySelector('#teras [data-i]'));
   drawTimeline();
 }
