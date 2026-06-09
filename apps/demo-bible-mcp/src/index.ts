@@ -33,7 +33,10 @@ import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import type { Hex } from 'viem';
 
-type Env = McpEnv & { DB?: D1Like };
+type Env = McpEnv & { DB?: D1Like; ONT?: { fetch: (url: string, init?: RequestInit) => Promise<Response> }; ONT_URL?: string };
+// Vault data source: the Bible ontology worker (entities, relationships, verses,
+// trust signals, class tree). Service binding in prod; public URL in dev.
+const ontFetch = (env: Env, path: string) => (env.ONT ? env.ONT.fetch(`https://ont${path}`) : fetch(`${env.ONT_URL ?? 'https://demo-bible-ontology-production.richardpedersen3.workers.dev'}${path}`)).then((r) => r.json() as Promise<Record<string, unknown>>);
 
 const app = new Hono<{ Bindings: Env }>();
 app.use('*', cors());
@@ -44,6 +47,11 @@ const VERIFY_CLS: ToolClassification = { '@sa-tool': 'service-only', '@sa-auth':
 declareTool({ name: 'resolve' }, RESOLVE_CLS);
 declareTool({ name: 'get_passage_text' }, TEXT_CLS);
 declareTool({ name: 'verify_citation' }, VERIFY_CLS);
+// Scripture-Agent vault tools (read the ontology graph; trust signals are signed VCs).
+const VAULT_CLS: ToolClassification = { '@sa-tool': 'service-only', '@sa-auth': 'service-hmac', '@sa-risk-tier': 'low' };
+declareTool({ name: 'get_entity' }, VAULT_CLS);
+declareTool({ name: 'find_entities' }, VAULT_CLS);
+declareTool({ name: 'get_trust_signals' }, VAULT_CLS);
 
 // Phase-1 trust profile derived from the resolved trust context (the trusted
 // issuer is the dev EOA or the on-chain issuer SA). A descriptor is a POLICY
@@ -407,6 +415,73 @@ app.post('/tools/verify_citation', async (c) => {
   const matches = expected.toLowerCase() === body.commitment.toLowerCase();
   audit('content.citation.verify', matches ? 'success' : 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, matches });
   return c.json({ ok: true, matches, expected });
+});
+
+// ── Scripture-Agent vault: the Bible ontology graph (entities, relationships,
+// verses, trust signals, class tree), served as policy-gated, audited MCP tools.
+// Trust signals are returned as a SIGNED Verifiable Credential. ──
+async function resolveEntityId(env: Env, body: { id?: string; q?: string; kind?: string }): Promise<{ id?: string; label?: string }> {
+  if (body.id) return { id: body.id };
+  if (!body.q) return {};
+  const d = await ontFetch(env, `/api/search?q=${encodeURIComponent(body.q)}${body.kind ? `&kind=${encodeURIComponent(body.kind)}` : ''}`);
+  const r = (d.results as { id: string; label: string }[] | undefined)?.[0];
+  return r ? { id: r.id, label: r.label } : {};
+}
+
+app.post('/tools/find_entities', async (c) => {
+  const gate = policyGate('find_entities', VAULT_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  const b = await c.req.json<{ q?: string; kind?: string; book?: string }>().catch(() => ({}) as { q?: string; kind?: string; book?: string });
+  if (!b.q && !b.kind && !b.book) return c.json({ ok: false, error: 'q, kind, or book required' }, 400);
+  const qs = [b.q ? `q=${encodeURIComponent(b.q)}` : '', b.kind ? `kind=${encodeURIComponent(b.kind)}` : '', b.book ? `book=${encodeURIComponent(b.book)}` : ''].filter(Boolean).join('&');
+  const d = await ontFetch(c.env, `/api/search?${qs}`);
+  const results = (d.results as Record<string, unknown>[] | undefined) ?? [];
+  audit('vault.find_entities', 'success', b.q ?? b.kind ?? b.book ?? '', { count: results.length });
+  return c.json({ ok: true, results: results.map((r) => ({ id: r.id, label: r.label, kind: r.kind, disambig: r.disambig, verses: r.verses })) });
+});
+
+app.post('/tools/get_entity', async (c) => {
+  const gate = policyGate('get_entity', VAULT_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  const b = await c.req.json<{ id?: string; q?: string; kind?: string }>().catch(() => ({}) as { id?: string; q?: string; kind?: string });
+  const { id } = await resolveEntityId(c.env, b);
+  if (!id) return c.json({ ok: false, error: 'entity not found' }, 404);
+  const d = await ontFetch(c.env, `/api/node/${encodeURIComponent(id)}`);
+  if (!d.ok) return c.json({ ok: false, error: 'not found' }, 404);
+  const n = (d.node ?? {}) as Record<string, unknown>;
+  audit('vault.get_entity', 'success', id, { label: String(n.label ?? '') });
+  return c.json({ ok: true, entity: { id: n.id, label: n.label, kind: n.kind, disambig: n.disambig }, classChain: d.classChain, relationships: { out: d.out, in: d.in }, verseCount: d.verseCount, verses: d.verses, signals: d.signals, scores: d.scores });
+});
+
+app.post('/tools/get_trust_signals', async (c) => {
+  const gate = policyGate('get_trust_signals', VAULT_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  const b = await c.req.json<{ id?: string; q?: string; kind?: string }>().catch(() => ({}) as { id?: string; q?: string; kind?: string });
+  const { id } = await resolveEntityId(c.env, b);
+  if (!id) return c.json({ ok: false, error: 'entity not found' }, 404);
+  const d = await ontFetch(c.env, `/api/node/${encodeURIComponent(id)}`);
+  if (!d.ok) return c.json({ ok: false, error: 'not found' }, 404);
+  const n = (d.node ?? {}) as Record<string, unknown>;
+  const dimensions = ((d.scores as Record<string, unknown>[] | undefined) ?? []).map((s) => ({ dimension: s.dimension, value: s.value, basis: s.basis, verse: (s as { osis?: string }).osis ?? null }));
+  const actions = ((d.signals as Record<string, unknown>[] | undefined) ?? []).map((s) => ({ polarity: s.polarity, basis: s.basis, verse: s.osis }));
+  const trust = await resolveTrust(c.env);
+  const nowMs = Date.now();
+  const unsigned: UnsignedCredential<{ id: string; label: string; dimensions: unknown[]; actions: unknown[] }> = {
+    '@context': VC_CONTEXTS,
+    type: ['VerifiableCredential', 'TrustProfileCredential'],
+    issuer: 'did:ap:scripture-agent',
+    validFrom: new Date(nowMs - 60_000).toISOString(),
+    credentialSubject: { id, label: String(n.label ?? ''), dimensions, actions },
+  };
+  const credential = await signCredential(unsigned, trust.credentialSigner);
+  audit('vault.get_trust_signals', 'success', id, { label: String(n.label ?? ''), dimensions: dimensions.length, actions: actions.length });
+  return c.json({ ok: true, entity: { id, label: n.label, kind: n.kind }, dimensions, actions, credential });
+});
+
+// Class tree (Global Church Ontology inheritance) — public.
+app.get('/mcp/class_tree', async (c) => {
+  const d = await ontFetch(c.env, '/api/classes');
+  return c.json({ ok: true, classes: d.classes ?? [] });
 });
 
 export default app;

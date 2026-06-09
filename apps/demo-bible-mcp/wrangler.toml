@@ -15,12 +15,14 @@ local_protocol = "http"
 
 [vars]
 SCHEME_ID = "bible-verse"
+ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 
 [env.production]
 workers_dev = true
 
 [env.production.vars]
 SCHEME_ID = "bible-verse"
+ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 
 # Durable full-BSB corpus (verses + precomputed corpusRoot + leaf commitments).
 # The Worker reads from D1 and rebuilds nothing on cold start.
@@ -28,3 +30,9 @@ SCHEME_ID = "bible-verse"
 binding = "DB"
 database_name = "demo-bible-bsb"
 database_id = "25fcf315-c1d8-45ae-aa41-16bf21697d20"
+
+# Vault data source: the Bible ontology graph (entities, relationships, verses,
+# trust signals, class tree). Worker-to-Worker via a service binding.
+[[env.production.services]]
+binding = "ONT"
+service = "demo-bible-ontology-production"
