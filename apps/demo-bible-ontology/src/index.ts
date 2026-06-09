@@ -64,12 +64,14 @@ app.get('/api/search', async (c) => {
   const group = KIND_GROUPS[kind];
   const sort = (c.req.query('sort') ?? '').trim();
   const trust = (c.req.query('trust') ?? '').trim();
-  if (!q && !group && !trust) return c.json({ ok: true, results: [] });
+  const book = (c.req.query('book') ?? '').trim().replace(/[^A-Za-z0-9]/g, '');
+  if (!q && !group && !trust && !book) return c.json({ ok: true, results: [] });
   const MORAL = "(SELECT value FROM score WHERE subject_id=node.id AND dimension='moral')";
   const NSIG = "(SELECT count(*) FROM signal WHERE subject_id=node.id)";
   const where: string[] = []; const args: unknown[] = [];
   if (q) { where.push('(label LIKE ? OR aka LIKE ?)'); args.push(`%${q}%`, `%${q.toLowerCase()}%`); }
   if (group) { where.push(`kind IN (${group.map(() => '?').join(',')})`); args.push(...group); }
+  if (book) { where.push('id IN (SELECT node_id FROM node_verse WHERE osis LIKE ?)'); args.push(`${book}.%`); }
   const sub = (c.req.query('sub') ?? '').trim();
   const subdim = (c.req.query('subdim') ?? '').trim();
   if (sub) {

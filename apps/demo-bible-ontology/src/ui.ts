@@ -12,6 +12,7 @@ export const UI = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 .brand-name{font-size:22px;font-weight:800;color:var(--ink);cursor:pointer;letter-spacing:-.01em}
 .brand-name:hover{color:var(--accent)}
 .brand-sub{font-size:12px;color:var(--muted)}
+.book-sel{margin-left:auto;align-self:center;font:13px system-ui;padding:5px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);cursor:pointer;max-width:180px}
 nav{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--line)}
 nav button{background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:7px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .1s,color .1s,border-color .1s}
 nav button:hover{background:#eef2fb;color:var(--accent);border-color:#d0dbf5}
@@ -162,7 +163,7 @@ svg#tsvg{display:block;background:#fbfcfe}
 .tnode{cursor:pointer}.tnode:hover rect,.tnode:hover polygon{fill-opacity:1;stroke:#1f2733;stroke-width:1.2}
 .tnode:hover text{font-weight:600}
 </style></head><body><div class="wrap">
-<div class="site-header"><span class="brand-name" onclick="nav('home')" title="Home">Bible Explorer</span><span class="brand-sub" id="brandsub"></span></div>
+<div class="site-header"><span class="brand-name" onclick="nav('home')" title="Home">Bible Explorer</span><span class="brand-sub" id="brandsub"></span><select id="bookSel" class="book-sel" title="Filter the Explore list by book"></select></div>
 <nav>
  <button data-t="home" class="on">Home</button>
  <button data-t="explore">Explore</button>
@@ -279,6 +280,12 @@ function applyHash(){
 }
 window.addEventListener('hashchange',applyHash);
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>nav(b.dataset.t));
+
+// ── Bible book filter (header) — filters the Explore list by book→verse→entity ──
+let bookFilter='',exploreRun=null;
+const BOOKS=[['Gen','Genesis'],['Exod','Exodus'],['Lev','Leviticus'],['Num','Numbers'],['Deut','Deuteronomy'],['Josh','Joshua'],['Judg','Judges'],['Ruth','Ruth'],['1Sam','1 Samuel'],['2Sam','2 Samuel'],['1Kgs','1 Kings'],['2Kgs','2 Kings'],['1Chr','1 Chronicles'],['2Chr','2 Chronicles'],['Ezra','Ezra'],['Neh','Nehemiah'],['Esth','Esther'],['Job','Job'],['Ps','Psalms'],['Prov','Proverbs'],['Eccl','Ecclesiastes'],['Song','Song of Solomon'],['Isa','Isaiah'],['Jer','Jeremiah'],['Lam','Lamentations'],['Ezek','Ezekiel'],['Dan','Daniel'],['Hos','Hosea'],['Joel','Joel'],['Amos','Amos'],['Obad','Obadiah'],['Jonah','Jonah'],['Mic','Micah'],['Nah','Nahum'],['Hab','Habakkuk'],['Zeph','Zephaniah'],['Hag','Haggai'],['Zech','Zechariah'],['Mal','Malachi'],['Matt','Matthew'],['Mark','Mark'],['Luke','Luke'],['John','John'],['Acts','Acts'],['Rom','Romans'],['1Cor','1 Corinthians'],['2Cor','2 Corinthians'],['Gal','Galatians'],['Eph','Ephesians'],['Phil','Philippians'],['Col','Colossians'],['1Thess','1 Thessalonians'],['2Thess','2 Thessalonians'],['1Tim','1 Timothy'],['2Tim','2 Timothy'],['Titus','Titus'],['Phlm','Philemon'],['Heb','Hebrews'],['Jas','James'],['1Pet','1 Peter'],['2Pet','2 Peter'],['1John','1 John'],['2John','2 John'],['3John','3 John'],['Jude','Jude'],['Rev','Revelation']];
+(function(){const sel=document.getElementById('bookSel');if(!sel)return;sel.innerHTML='<option value="">All books</option>'+BOOKS.map(b=>'<option value="'+b[0]+'">'+b[1]+'</option>').join('');
+  sel.onchange=()=>{bookFilter=sel.value;if(tab==='explore'){if(exploreRun)exploreRun();}else nav('explore');};})();
 
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
@@ -442,8 +449,8 @@ async function explore(){
    '<div id="res"></div></div><div id="detail"></div>';
   const q=document.getElementById('q');q.focus();
   const run=async(pick)=>{const term=q.value.trim();const res=document.getElementById('res');
-    if(term.length<2&&!expKind&&!expTrust){res.innerHTML='';const det=document.getElementById('detail');if(det)det.innerHTML='';return;}
-    const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):'')+(expSub?'&sub='+encodeURIComponent(expSub)+'&subdim='+expSubdim:'')+(expSort?'&sort='+expSort:'')+(expTrust?'&trust='+expTrust:'')+'&page='+expPage);
+    if(term.length<2&&!expKind&&!expTrust&&!bookFilter){res.innerHTML='';const det=document.getElementById('detail');if(det)det.innerHTML='';return;}
+    const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):'')+(expSub?'&sub='+encodeURIComponent(expSub)+'&subdim='+expSubdim:'')+(expSort?'&sort='+expSort:'')+(expTrust?'&trust='+expTrust:'')+(bookFilter?'&book='+bookFilter:'')+'&page='+expPage);
     const list=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b>'+tind(r)+' '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind||expTrust?' for this filter':'')+'.</div>';
     const pager=(d.more||expPage>0)?'<div class="gchips" style="margin-top:10px;align-items:center">'+(expPage>0?'<span class="gchip mini" id="pprev">← Prev</span>':'')+'<span class="muted" style="font-size:11px;margin:0 7px">page '+(expPage+1)+'</span>'+(d.more?'<span class="gchip mini" id="pnext">Next →</span>':'')+'</div>':'';
     res.innerHTML=list+pager;
@@ -472,8 +479,9 @@ async function explore(){
     sf.innerHTML='<span class="muted" style="font-size:11px;margin-right:3px">type</span>'+'<span class="gchip mini'+(expSub===''?' on':'')+'" data-sub="">All</span>'+d.subs.map(s=>'<span class="gchip mini'+(expSub===s.val?' on':'')+'" data-sub="'+esc(s.val)+'">'+esc(subLabel(s.label))+' <span class="'+(expSub===s.val?'':'muted')+'">'+s.n+'</span></span>').join('');
     sf.querySelectorAll('[data-sub]').forEach(ch=>ch.onclick=()=>{expSub=expSub===ch.dataset.sub?'':ch.dataset.sub;expPage=0;loadSubs();run();});}
   drawChips();if(expKind)loadSubs();
+  exploreRun=run;
   let timer;q.oninput=()=>{clearTimeout(timer);expPage=0;timer=setTimeout(run,180);};
-  if(expKind||expTrust)run();
+  if(expKind||expTrust||bookFilter)run();
 }
 function showNode(id){nav('node/'+id);}
 function showNodeTab(id){nav('node/'+id);}
