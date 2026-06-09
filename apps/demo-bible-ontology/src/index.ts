@@ -114,6 +114,17 @@ app.get('/api/subtypes', async (c) => {
   return c.json({ ok: true, dim: 'class', subs });
 });
 
+// Per-kind entity counts for a book (book→verse→entity) — drives the counts on the kind chips.
+app.get('/api/bookfacets', async (c) => {
+  const book = (c.req.query('book') ?? '').trim().replace(/[^A-Za-z0-9]/g, '');
+  if (!book) return c.json({ ok: true, facets: {} });
+  const rk = await rows<{ kind: string; n: number }>(c.env.DB, 'SELECT kind, count(*) n FROM node WHERE id IN (SELECT node_id FROM node_verse WHERE osis LIKE ?) GROUP BY kind', `${book}.%`);
+  const map: Record<string, string> = { person: 'person', organization: 'organization', place: 'place', deity: 'deity', event: 'activity', interaction: 'activity', speechact: 'activity', plan: 'activity', role: 'concept', concept: 'concept', skill: 'concept', responsibility: 'concept' };
+  const f: Record<string, number> = { '': 0, person: 0, organization: 0, activity: 0, place: 0, deity: 0, concept: 0 };
+  for (const r of rk) { const g = map[r.kind]; if (g) { f[g] += r.n; f[''] += r.n; } }
+  return c.json({ ok: true, facets: f });
+});
+
 // Inheritance-aware class browser — instances of a class AND all its subclasses, across every
 // ontology layer. e.g. ?curie=prov:Agent returns persons + organizations; ?curie=dul:Object even more.
 app.get('/api/class', async (c) => {

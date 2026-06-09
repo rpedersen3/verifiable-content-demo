@@ -91,6 +91,7 @@ svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10p
 .leaflet-tooltip.maplabel:before{display:none;border:0}
 /* verse passage popup */
 .verses span{cursor:pointer}.verses span:hover{background:#dbe6fb}
+.verses span.bk{background:#fff3c4;color:#7a5c00;font-weight:700;box-shadow:inset 0 0 0 1px #e3b829}.verses span.bk:hover{background:#ffe89a}
 .vmodal{display:none;position:fixed;inset:0;z-index:3000;background:rgba(20,30,50,.45);align-items:center;justify-content:center;padding:20px}
 .vmodal.on{display:flex}
 .vmodal .box{background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:82vh;overflow:auto;padding:18px 22px;box-shadow:0 14px 44px rgba(20,30,50,.32)}
@@ -282,10 +283,11 @@ window.addEventListener('hashchange',applyHash);
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>nav(b.dataset.t));
 
 // ── Bible book filter (header) — filters the Explore list by book→verse→entity ──
-let bookFilter='',exploreRun=null;
+let bookFilter='',exploreRun=null,bookFacets={},redrawChips=null;
+async function loadFacets(){if(!bookFilter){bookFacets={};}else{const d=await api('/bookfacets?book='+bookFilter);bookFacets=d.facets||{};}if(redrawChips)redrawChips();}
 const BOOKS=[['Gen','Genesis'],['Exod','Exodus'],['Lev','Leviticus'],['Num','Numbers'],['Deut','Deuteronomy'],['Josh','Joshua'],['Judg','Judges'],['Ruth','Ruth'],['1Sam','1 Samuel'],['2Sam','2 Samuel'],['1Kgs','1 Kings'],['2Kgs','2 Kings'],['1Chr','1 Chronicles'],['2Chr','2 Chronicles'],['Ezra','Ezra'],['Neh','Nehemiah'],['Esth','Esther'],['Job','Job'],['Ps','Psalms'],['Prov','Proverbs'],['Eccl','Ecclesiastes'],['Song','Song of Solomon'],['Isa','Isaiah'],['Jer','Jeremiah'],['Lam','Lamentations'],['Ezek','Ezekiel'],['Dan','Daniel'],['Hos','Hosea'],['Joel','Joel'],['Amos','Amos'],['Obad','Obadiah'],['Jonah','Jonah'],['Mic','Micah'],['Nah','Nahum'],['Hab','Habakkuk'],['Zeph','Zephaniah'],['Hag','Haggai'],['Zech','Zechariah'],['Mal','Malachi'],['Matt','Matthew'],['Mark','Mark'],['Luke','Luke'],['John','John'],['Acts','Acts'],['Rom','Romans'],['1Cor','1 Corinthians'],['2Cor','2 Corinthians'],['Gal','Galatians'],['Eph','Ephesians'],['Phil','Philippians'],['Col','Colossians'],['1Thess','1 Thessalonians'],['2Thess','2 Thessalonians'],['1Tim','1 Timothy'],['2Tim','2 Timothy'],['Titus','Titus'],['Phlm','Philemon'],['Heb','Hebrews'],['Jas','James'],['1Pet','1 Peter'],['2Pet','2 Peter'],['1John','1 John'],['2John','2 John'],['3John','3 John'],['Jude','Jude'],['Rev','Revelation']];
 (function(){const sel=document.getElementById('bookSel');if(!sel)return;sel.innerHTML='<option value="">All books</option>'+BOOKS.map(b=>'<option value="'+b[0]+'">'+b[1]+'</option>').join('');
-  sel.onchange=()=>{bookFilter=sel.value;if(tab==='explore'){if(exploreRun)exploreRun();}else nav('explore');};})();
+  sel.onchange=async()=>{bookFilter=sel.value;await loadFacets();if(tab==='explore'){if(exploreRun)exploreRun();}else nav('explore');};})();
 
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
@@ -471,14 +473,15 @@ async function explore(){
   const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
   const FKC={'':'#64748b',person:KC.person,organization:KC.organization,activity:KC.event,place:KC.place,deity:KC.deity,concept:KC.concept};
   const kc=document.getElementById('kfil');
-  const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0];return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;q.value='';expPage=0;expSub='';expSubdim='';expSort='';expTrust='';drawChips();drawCtl();loadSubs();run();});};
+  const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0],cnt=bookFilter&&bookFacets[k[0]]!=null?' <span class="'+(on?'':'muted')+'" style="font-size:11px">'+bookFacets[k[0]]+'</span>':'';return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+cnt+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;q.value='';expPage=0;expSub='';expSubdim='';expSort='';expTrust='';drawChips();drawCtl();loadSubs();run();});};
+  redrawChips=drawChips;
   const subLabel=(s)=>String(s).replace(/^[a-z]+:/,'');
   async function loadSubs(){const sf=document.getElementById('subfil');if(!sf)return;if(!expKind){sf.innerHTML='';return;}
     const d=await api('/subtypes?kind='+encodeURIComponent(expKind));expSubdim=d.dim||'';
     if(!d.subs||d.subs.length<2){sf.innerHTML='';return;}
     sf.innerHTML='<span class="muted" style="font-size:11px;margin-right:3px">type</span>'+'<span class="gchip mini'+(expSub===''?' on':'')+'" data-sub="">All</span>'+d.subs.map(s=>'<span class="gchip mini'+(expSub===s.val?' on':'')+'" data-sub="'+esc(s.val)+'">'+esc(subLabel(s.label))+' <span class="'+(expSub===s.val?'':'muted')+'">'+s.n+'</span></span>').join('');
     sf.querySelectorAll('[data-sub]').forEach(ch=>ch.onclick=()=>{expSub=expSub===ch.dataset.sub?'':ch.dataset.sub;expPage=0;loadSubs();run();});}
-  drawChips();if(expKind)loadSubs();
+  drawChips();if(expKind)loadSubs();if(bookFilter)loadFacets();
   exploreRun=run;
   let timer;q.oninput=()=>{clearTimeout(timer);expPage=0;timer=setTimeout(run,180);};
   if(expKind||expTrust||bookFilter)run();
@@ -502,7 +505,7 @@ async function renderNode(id){
    '<div>'+cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join('')+'</div>'+temporal+geo+sigs+scoreBars(d.scores)+
    (d.out.length?'<h3 class="muted" style="margin-top:16px">relationships</h3>'+grp(d.out,'out'):'')+
    (d.in.length?grp(d.in,'in'):'')+
-   '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses <span style="font-weight:400;text-transform:none">· click to read'+((()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.verseMatch==='name'?' · matched by name (approximate)':'';})())+'</span></h3><div class="verses">'+d.verses.map(v=>'<span class="vref" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
+   '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses <span style="font-weight:400;text-transform:none">· click to read'+((()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.verseMatch==='name'?' · matched by name (approximate)':'';})())+'</span></h3><div class="verses">'+d.verses.map(v=>'<span class="vref'+(bookFilter&&String(v).indexOf(bookFilter+'.')===0?' bk':'')+'" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
    provHtml(d.sources,n.origin_source)+
    '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ trust graph</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="oikosFor(\\''+n.id+'\\')">→ oikos circles</a>':'')+' &nbsp;·&nbsp; <a class="link" onclick="nav(\\'generations/'+n.id+'\\')">→ generations</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="genMovementFor(\\''+n.id+'\\')">→ movement (plants &amp; disciples)</a>':'')+'</div></div>';
   const htip=document.getElementById('htip');
