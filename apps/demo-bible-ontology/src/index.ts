@@ -4,7 +4,6 @@
 // Ontology against PROV-O and real Bible usage. Verse-linked throughout.
 import { Hono } from 'hono';
 import { UI } from './ui.js';
-import { PLACE_IMG } from './images.js';
 
 interface D1 {
   prepare(q: string): { bind(...a: unknown[]): { first<T = unknown>(): Promise<T | null>; all<T = unknown>(): Promise<{ results: T[] }> }; all<T = unknown>(): Promise<{ results: T[] }> };
@@ -25,18 +24,7 @@ const instanceWhere = (classes: string[]) => {
 };
 
 app.get('/', (c) => { c.header('Cache-Control', 'no-cache, must-revalidate'); return c.html(UI); });
-
-// Illustrative place images served from the worker bundle (avoids large data URIs in D1).
-// /img/<place>.jpg = full · /img/<place>-thumb.jpg = thumbnail.
-app.get('/img/:name', (c) => {
-  const raw = c.req.param('name').replace(/\.jpe?g$/i, '');
-  const thumb = raw.endsWith('-thumb');
-  const e = PLACE_IMG[raw.replace(/-thumb$/, '')];
-  if (!e) return c.text('not found', 404);
-  const b64 = thumb ? e.thumb : e.full;
-  const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
-  return new Response(bytes, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=31536000, immutable' } });
-});
+// Illustrative place images (/img/*.jpg) are served as static assets from ./public (see wrangler.toml).
 app.get('/health', (c) => c.json({ ok: true, service: 'demo-bible-ontology' }));
 
 // Overview — totals, PROV-O class counts, GCO→PROV-O alignment tally.

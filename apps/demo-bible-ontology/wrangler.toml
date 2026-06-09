@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-05-19"
 compatibility_flags = ["nodejs_compat"]
 
+# Static assets (illustrative place images at /img/*) — served off the worker bundle.
+[assets]
+directory = "./public"
+
 [dev]
 port = 8795
 
@@ -13,6 +17,9 @@ database_id = "334f9f7d-f32a-48f2-b088-ff4d33295b89"
 
 [env.production]
 workers_dev = true
+
+[env.production.assets]
+directory = "./public"
 
 [[env.production.d1_databases]]
 binding = "DB"
