@@ -545,7 +545,7 @@ async function renderNode(id){
 }
 let graphCenter=null,gFilters={},gExpand={};
 function graphFor(id){nav('graph/'+id);}
-function famOf(rel){const m={'gc:hasParent':'family','gc:hasChild':'family','gc:hasSibling':'family','gc:hasPartner':'family','gc:hasRelative':'family','gc:companionOf':'role','org:memberOf':'org','org:hasMember':'org','org:member':'org','org:organization':'org','org:role':'org','prov:wasAssociatedWith':'events','gc:holdsRole':'role','aps:hasSkill':'role','gc:bornAt':'place','gc:diedAt':'place','gc:authoredBy':'events','gc:addressedTo':'events','gc:hasSpeaker':'events','gc:hasAddressee':'events','gc:spokeTo':'events','dul:hasLocation':'place','pplan:isStepOfPlan':'events','pplan:isPrecededBy':'events','pplan:correspondsToStep':'events','dul:defines':'events','gc:prescribes':'events','gc:fulfills':'events'};return m[rel]||'role';}
+function famOf(rel){const m={'gc:hasParent':'family','gc:hasChild':'family','gc:hasSibling':'family','gc:hasPartner':'family','gc:hasRelative':'family','gc:companionOf':'role','gc:memberOf':'org','gc:hasMember':'org','gc:member':'org','gc:organization':'org','gc:membershipRole':'org','prov:wasAssociatedWith':'events','gc:holdsRole':'role','aps:hasSkill':'role','gc:bornAt':'place','gc:diedAt':'place','gc:authoredBy':'events','gc:addressedTo':'events','gc:hasSpeaker':'events','gc:hasAddressee':'events','gc:spokeTo':'events','dul:hasLocation':'place','pplan:isStepOfPlan':'events','pplan:isPrecededBy':'events','pplan:correspondsToStep':'events','dul:defines':'events','gc:prescribes':'events','gc:fulfills':'events'};return m[rel]||'role';}
 const SECT={family:{label:'Family',color:'#e87c3e',a:[0,60],th:10},role:{label:'Role/Skill',color:'#0d9488',a:[60,120],th:8},events:{label:'Events',color:'#0e7490',a:[120,210],th:4},place:{label:'Places',color:'#b45309',a:[210,270],th:99},org:{label:'Organization',color:'#9333ea',a:[270,360],th:6}};
 const FORD=['family','role','events','place','org'];
 const sigCol={positive:'#1a8a4f',negative:'#c0392b',mixed:'#b45309'};
@@ -785,7 +785,7 @@ async function geo(){
 // ── Oikos circles: concentric relationship rings out from a person ──
 let oikosCenter=null,oikosOrgs=false,oikosLabel='';
 const RING=[{label:'Family (oikos)',color:'#e87c3e',r:120},{label:'Household & kin',color:'#0d9488',r:212},{label:'Network & conversations',color:'#9333ea',r:300}];
-function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner|hasRelative/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|org:member|org:organization|org:role|companionOf/.test(rel))return 1;return 2;}
+function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner|hasRelative/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|gc:member|gc:organization|gc:membershipRole|companionOf/.test(rel))return 1;return 2;}
 async function oikos(){
   V.innerHTML='<div class="card"><div id="ocrumb"></div><div class="sec-head">Oikos · relationship circles</div>'+
    '<div class="combo"><input id="oq" autocomplete="off" placeholder="Center on a person… (click to choose)"/><div id="ores" class="combo-menu"></div></div>'+
@@ -835,7 +835,7 @@ async function drawOikos(){
 }
 // ── Generational map: descent tree (parent→child by generation) + org derivation ──
 let genRoot=null,genRels='gc:hasChild';
-const GEN_LENS=[['gc:hasChild','Descent (parent→child)'],['gc:discipled,gc:planted','Discipleship & church plants'],['gc:gaveRiseTo,org:hasSubOrganization,gc:grewOutOf,gc:planted,gc:discipled','Organizations (what grew out of what)']];
+const GEN_LENS=[['gc:hasChild','Descent (parent→child)'],['gc:discipled,gc:planted','Discipleship & church plants'],['gc:gaveRiseTo,gc:hasSubOrganization,gc:grewOutOf,gc:planted,gc:discipled','Organizations (what grew out of what)']];
 async function generations(){
   V.innerHTML='<div class="card"><div class="sec-head">Generations · lineage · discipleship · movements</div>'+
    '<div class="gchips" id="glens"></div>'+

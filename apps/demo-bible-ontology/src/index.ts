@@ -1,5 +1,5 @@
 // Bible ontology explorer API + SPA. A PROV-O graph (Agent/Activity/Entity) of the
-// Bible — from the Theographic Bible Metadata (CC-BY-SA) — layered under DUL, W3C ORG,
+// Bible — from the Theographic Bible Metadata (CC-BY-SA) — layered under DUL,
 // GeoSPARQL, aps: skills and gc: lower vocab, used to VALIDATE the Global Church
 // Ontology against PROV-O and real Bible usage. Verse-linked throughout.
 import { Hono } from 'hono';
@@ -76,7 +76,7 @@ app.get('/api/search', async (c) => {
   const sub = (c.req.query('sub') ?? '').trim();
   const subdim = (c.req.query('subdim') ?? '').trim();
   if (sub) {
-    if (subdim === 'role') { where.push("id IN (SELECT e.src FROM edge e JOIN node r ON r.id=e.dst WHERE e.rel IN('gc:holdsRole','org:role') AND r.label=?)"); args.push(sub); }
+    if (subdim === 'role') { where.push("id IN (SELECT e.src FROM edge e JOIN node r ON r.id=e.dst WHERE e.rel IN('gc:holdsRole','gc:membershipRole') AND r.label=?)"); args.push(sub); }
     else if (subdim === 'ftype') { where.push("json_extract(meta,'$.featureType')=?"); args.push(sub); }
     else { where.push('gc_class=?'); args.push(sub); }
   }
@@ -103,7 +103,7 @@ app.get('/api/subtypes', async (c) => {
   const group = KIND_GROUPS[kind];
   if (!group) return c.json({ ok: true, dim: '', subs: [] });
   if (kind === 'person') {
-    const subs = await rows(c.env.DB, "SELECT r.label val, r.label label, count(DISTINCT e.src) n FROM edge e JOIN node r ON r.id=e.dst JOIN node p ON p.id=e.src WHERE e.rel IN('gc:holdsRole','org:role') AND p.kind='person' GROUP BY r.label ORDER BY n DESC LIMIT 24");
+    const subs = await rows(c.env.DB, "SELECT r.label val, r.label label, count(DISTINCT e.src) n FROM edge e JOIN node r ON r.id=e.dst JOIN node p ON p.id=e.src WHERE e.rel IN('gc:holdsRole','gc:membershipRole') AND p.kind='person' GROUP BY r.label ORDER BY n DESC LIMIT 24");
     return c.json({ ok: true, dim: 'role', subs });
   }
   if (kind === 'place') {
@@ -183,7 +183,7 @@ app.get('/api/node/:id', async (c) => {
     rows(c.env.DB, 'SELECT ns.source_id, s.name, s.abbrev, s.url, s.license, ns.src_ref, ns.confidence FROM node_source ns JOIN source s ON s.source_id=ns.source_id WHERE ns.node_id=? ORDER BY ns.confidence DESC', id),
   ]);
   // Full inheritance chain from the node's most-specific class up to the root (root → leaf),
-  // so an org shows prov:Organization → org:Organization → org:FormalOrganization → gc:Nation
+  // so an org shows prov:Organization → gc:Nation
   // instead of a flat set of facets.
   const nd = node as Record<string, unknown>;
   const leaf = (nd.gc_class || nd.aps_class || nd.org_class || nd.geo_class || nd.dul_class || nd.prov_class) as string | null;
@@ -204,8 +204,8 @@ app.get('/api/graph', async (c) => {
   const center = c.req.query('center');
   if (!center) return c.json({ ok: false, error: 'center required' }, 400);
   type NRow = { rel: string; id: string; label: string; kind: string; tStart: number | null; tEnd: number | null; img: string | null };
-  // Exclude reified org:Membership nodes (a W3C ORG implementation detail — the direct
-  // person→org:memberOf edge already conveys membership) and the giant genealogy container.
+  // Exclude reified membership nodes (an implementation detail — the direct
+  // person→gc:memberOf edge already conveys membership) and the giant genealogy container.
   const HIDE = "n.kind!='membership' AND COALESCE(n.gc_class,'')!='gc:Genealogy'";
   const out = await rows<NRow>(c.env.DB, `SELECT e.rel, e.dst id, n.label, n.kind, n.t_start tStart, n.t_end tEnd, n.image_thumb img FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=? AND ${HIDE} LIMIT 250`, center);
   const inc = await rows<NRow>(c.env.DB, `SELECT e.rel, e.src id, n.label, n.kind, n.t_start tStart, n.t_end tEnd, n.image_thumb img FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? AND ${HIDE} LIMIT 250`, center);
@@ -259,7 +259,7 @@ app.get('/api/lineage', async (c) => {
   const maxDepth = Math.min(7, Math.max(1, parseInt(c.req.query('depth') ?? '5', 10)));
   const rootNode = await c.env.DB.prepare('SELECT id,canon_id,label,kind,image_thumb,t_start tStart,t_end tEnd FROM node WHERE id=?').bind(root).first();
   if (!rootNode) return c.json({ ok: false, error: 'not found' }, 404);
-  const relsAllowed = new Set(['gc:hasChild', 'gc:discipled', 'gc:planted', 'gc:gaveRiseTo', 'org:hasSubOrganization', 'gc:grewOutOf']);
+  const relsAllowed = new Set(['gc:hasChild', 'gc:discipled', 'gc:planted', 'gc:gaveRiseTo', 'gc:hasSubOrganization', 'gc:grewOutOf']);
   const rels = (c.req.query('rels') ?? 'gc:hasChild').split(',').map((s) => s.trim()).filter((r) => relsAllowed.has(r));
   const relList = rels.length ? rels : ['gc:hasChild'];
   const visited = new Set([root]); let frontier = [root]; const levels = [[rootNode]]; const edges: { from: string; to: string }[] = [];
@@ -281,9 +281,9 @@ app.get('/api/orgs', async (c) => {
   const orgs = await rows(c.env.DB, `SELECT o.id,o.canon_id,o.label,o.gc_class,
     (SELECT e.dst FROM edge e WHERE e.src=o.id AND e.rel='gc:grewOutOf' LIMIT 1) founderId,
     (SELECT n.label FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=o.id AND e.rel='gc:grewOutOf' LIMIT 1) founder,
-    (SELECT e.dst FROM edge e WHERE e.src=o.id AND e.rel='org:subOrganizationOf' LIMIT 1) parentId,
-    (SELECT n.label FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=o.id AND e.rel='org:subOrganizationOf' LIMIT 1) parentOrg,
-    (SELECT count(*) FROM edge e WHERE e.dst=o.id AND e.rel='org:memberOf') members
+    (SELECT e.dst FROM edge e WHERE e.src=o.id AND e.rel='gc:subOrganizationOf' LIMIT 1) parentId,
+    (SELECT n.label FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=o.id AND e.rel='gc:subOrganizationOf' LIMIT 1) parentOrg,
+    (SELECT count(*) FROM edge e WHERE e.dst=o.id AND e.rel='gc:memberOf') members
     FROM node o WHERE o.kind='organization' ORDER BY members DESC`);
   return c.json({ ok: true, orgs });
 });

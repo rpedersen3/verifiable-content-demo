@@ -203,12 +203,12 @@ const PROPS = [
   ['dul:hasParticipant', 'has participant', 'dul', 'dul:Event', 'dul:Object', 'dul:isParticipantIn'],
   ['dul:hasLocation', 'has location', 'dul', 'dul:Entity', 'dul:Place', null],
   ['dul:hasRole', 'has role', 'dul', 'dul:Object', 'dul:Role', null],
-  ['org:memberOf', 'member of', 'org', 'prov:Agent', 'org:Organization', 'org:hasMember'],
-  ['org:hasMembership', 'has membership', 'org', 'prov:Agent', 'org:Membership', null],
-  ['org:member', 'member', 'org', 'org:Membership', 'prov:Agent', null],
-  ['org:organization', 'organization', 'org', 'org:Membership', 'org:Organization', null],
-  ['org:role', 'role', 'org', 'org:Membership', 'org:Role', null],
-  ['org:subOrganizationOf', 'sub-organization of', 'org', 'org:Organization', 'org:Organization', null],
+  ['gc:memberOf', 'member of', 'org', 'prov:Agent', 'prov:Organization', 'gc:hasMember'],
+  ['gc:hasMembership', 'has membership', 'org', 'prov:Agent', 'dul:Situation', null],
+  ['gc:member', 'member', 'org', 'dul:Situation', 'prov:Agent', null],
+  ['gc:organization', 'organization', 'org', 'dul:Situation', 'prov:Organization', null],
+  ['gc:membershipRole', 'role', 'org', 'dul:Situation', 'gc:Role', null],
+  ['gc:subOrganizationOf', 'sub-organization of', 'org', 'prov:Organization', 'prov:Organization', null],
   ['geo:hasGeometry', 'has geometry', 'geo', 'geo:Feature', 'geo:Geometry', null],
   ['aps:hasSkill', 'has skill', 'aps', 'prov:Agent', 'aps:Skill', null],
   ['gc:hasParent', 'has parent', 'gc', 'gc:Person', 'gc:Person', 'gc:hasChild'],
@@ -220,8 +220,8 @@ const PROPS = [
   ['gc:bornAt', 'born at', 'gc', 'gc:Person', 'gc:Place', null],
   ['gc:diedAt', 'died at', 'gc', 'gc:Person', 'gc:Place', null],
   ['gc:participatedIn', 'participated in', 'gc', 'prov:Agent', 'prov:Activity', 'prov:wasAssociatedWith'],
-  ['gc:holdsRole', 'holds role', 'gc', 'gc:Person', 'org:Role', null],
-  ['gc:hasResponsibility', 'has responsibility', 'gc', 'org:Role', 'gc:Responsibility', null],
+  ['gc:holdsRole', 'holds role', 'gc', 'gc:Person', 'gc:Role', null],
+  ['gc:hasResponsibility', 'has responsibility', 'gc', 'gc:Role', 'gc:Responsibility', null],
   ['gc:attestedIn', 'attested in', 'gc', 'dul:Entity', 'prov:Entity', null], // node → verse
   // DnS situation/assertion relations
   ['dul:satisfies', 'satisfies', 'dns', 'dul:Situation', 'dul:Description', null],
@@ -255,7 +255,7 @@ const PROPS = [
   // generational / derivation — what an organization grew out of (founder, antecedent group)
   ['gc:grewOutOf', 'grew out of', 'gc', 'prov:Organization', 'prov:Agent', 'gc:gaveRiseTo'],
   ['gc:gaveRiseTo', 'gave rise to', 'gc', 'prov:Agent', 'prov:Organization', 'gc:grewOutOf'],
-  ['org:hasSubOrganization', 'has sub-organization', 'org', 'org:Organization', 'org:Organization', 'org:subOrganizationOf'],
+  ['gc:hasSubOrganization', 'has sub-organization', 'org', 'prov:Organization', 'prov:Organization', 'gc:subOrganizationOf'],
   // spiritual generations — discipleship / mentorship + church planting (movements grow from people)
   ['gc:discipled', 'discipled', 'gc', 'prov:Agent', 'prov:Agent', 'gc:discipleOf'],
   ['gc:planted', 'planted', 'gc', 'prov:Agent', 'gc:AgentiveEkklesia', 'gc:plantedBy'],
@@ -298,11 +298,11 @@ const PERSON_ROLE = {
 };
 // org name → (org class, role its members hold)
 function classifyOrg(name) {
-  if (/^Tribe of/i.test(name)) return ['gc:Tribe', 'org:OrganizationalUnit', name.includes('Levi') ? 'Levite' : null];
-  if (/^Nation of/i.test(name)) return ['gc:Nation', 'org:FormalOrganization', null];
-  if (/Apostles/i.test(name)) return ['gc:ApostolicBody', 'gc:AgentiveEkklesia', 'Apostle'];
-  if (/(Line|Genealogy|Ancestry) of/i.test(name)) return ['gc:Genealogy', 'org:OrganizationalUnit', null];
-  return ['gc:Community', 'org:Organization', null];
+  if (/^Tribe of/i.test(name)) return ['gc:Tribe', null, name.includes('Levi') ? 'Levite' : null];
+  if (/^Nation of/i.test(name)) return ['gc:Nation', null, null];
+  if (/Apostles/i.test(name)) return ['gc:ApostolicBody', null, 'Apostle'];
+  if (/(Line|Genealogy|Ancestry) of/i.test(name)) return ['gc:Genealogy', null, null];
+  return ['gc:Community', null, null];
 }
 
 function main() {
@@ -350,9 +350,9 @@ function main() {
   for (const g of groups) {
     const name = g.fields.groupName ?? 'Group';
     const [gc, orgClass, memberRole] = classifyOrg(name);
-    addNode({ id: g.id, canonId: slugify(name), label: name, kind: 'organization', disambig: (orgClass || 'org:Organization').split(':')[1], prov: 'prov:Organization', dul: 'dul:Organization', gc, aps: null, orgClass, extra: {} });
+    addNode({ id: g.id, canonId: slugify(name), label: name, kind: 'organization', disambig: (gc || 'gc:Community').split(':')[1], prov: 'prov:Organization', dul: 'dul:Organization', gc, aps: null, orgClass, extra: {} });
     if (memberRole) orgRoleOfMember.set(g.id, memberRole);
-    for (const m of g.fields.members ?? []) addEdge(g.id, 'org:hasMember', m); // resolved after people loaded
+    for (const m of g.fields.members ?? []) addEdge(g.id, 'gc:hasMember', m); // resolved after people loaded
   }
 
   // people → prov:Agent (+ role/skill/membership)
@@ -366,13 +366,13 @@ function main() {
     const memberRole = orgRoleOfMember.get(g.id);
     for (const m of g.fields.members ?? []) {
       if (!known.has(m)) continue;
-      addEdge(m, 'org:memberOf', g.id);
+      addEdge(m, 'gc:memberOf', g.id);
       const mid = `mem:${g.id}:${m}`;
       addNode({ id: mid, label: 'membership', kind: 'membership', prov: null, dul: 'dul:Situation', gc: null, aps: null, extra: {} });
-      addEdge(mid, 'org:member', m);
-      addEdge(mid, 'org:organization', g.id);
+      addEdge(mid, 'gc:member', m);
+      addEdge(mid, 'gc:organization', g.id);
       if (memberRole) {
-        addEdge(mid, 'org:role', `role:${memberRole}`);
+        addEdge(mid, 'gc:membershipRole', `role:${memberRole}`);
         addEdge(m, 'gc:holdsRole', `role:${memberRole}`, g.id);
         const sk = ROLE_DEF[memberRole]?.[0];
         if (sk) addEdge(m, 'aps:hasSkill', `skill:${sk}`);
@@ -491,7 +491,7 @@ function main() {
     const name = g.fields.groupName ?? '';
     const m = name.match(/^(?:Tribe|Nation|House|Line|Genealogy|Sons|Children|Descendants) of (.+)$/i);
     if (m) { const founder = pickMax(peopleByKey.get(norm(m[1]))); if (founder && founder !== g.id) { addEdge(g.id, 'gc:grewOutOf', founder); addEdge(founder, 'gc:gaveRiseTo', g.id); derived++; } }
-    if (nationId && /^Tribe of /i.test(name) && g.id !== nationId) { addEdge(g.id, 'org:subOrganizationOf', nationId); addEdge(nationId, 'org:hasSubOrganization', g.id); }
+    if (nationId && /^Tribe of /i.test(name) && g.id !== nationId) { addEdge(g.id, 'gc:subOrganizationOf', nationId); addEdge(nationId, 'gc:hasSubOrganization', g.id); }
   }
   console.log('org derivation edges:', derived);
 
@@ -759,7 +759,7 @@ function main() {
         const oss = versesByNode.get(n.id); if (!oss || !oss.length) continue;
         const blob = oss.map((o) => textOf.get(o) || '').join(' ');
         for (const g of nationGent) {
-          if (blob.includes(`${fname} the ${g.gent}`)) { addEdge(n.id, 'org:memberOf', g.id); addEdge(g.id, 'org:hasMember', n.id); memb++; break; }
+          if (blob.includes(`${fname} the ${g.gent}`)) { addEdge(n.id, 'gc:memberOf', g.id); addEdge(g.id, 'gc:hasMember', n.id); memb++; break; }
         }
       }
       console.log('nation membership · linked', memb, 'people to their nation by gentilic in Scripture');
