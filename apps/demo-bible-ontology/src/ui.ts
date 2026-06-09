@@ -700,7 +700,8 @@ async function geo(){
     {id:'b-sat',type:'raster',source:'sat',layout:{visibility:'none'}},
     {id:'hill',type:'hillshade',source:'dem',layout:{visibility:'none'},paint:{'hillshade-exaggeration':0.45}}
   ]};
-  const map=new maplibregl.Map({container:'map',style:style,center:[35.2,31.8],zoom:6,maxPitch:80,attributionControl:false});geoMap=map;
+  const map=new maplibregl.Map({container:'map',style:style,center:[35.2,31.8],zoom:6,maxZoom:15,maxPitch:72,attributionControl:false});geoMap=map;
+  map.on('error',()=>{});  // swallow intermittent tile-fetch resets so they can't crash the camera
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
   map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-left');
   map.on('load',()=>{
@@ -758,7 +759,7 @@ async function geo(){
     bctl.innerHTML=BASES.map((b,i)=>'<button class="map-basbtn'+(i===1?' on':'')+'" data-b="'+i+'">'+b[0]+'</button>').join('')+'<button class="map-basbtn" id="btn3d" title="tilt into 3D terrain" style="margin-left:3px;border-left:1px solid var(--line);padding-left:11px">⛰ 3D</button>';
     mapEl.appendChild(bctl);
     bctl.querySelectorAll('[data-b]').forEach((btn,i)=>btn.onclick=()=>{BASES.forEach((b,j)=>map.setLayoutProperty(b[1],'visibility',i===j?'visible':'none'));bctl.querySelectorAll('[data-b]').forEach((x,j)=>x.classList.toggle('on',i===j));});
-    let is3D=false;document.getElementById('btn3d').onclick=function(){is3D=!is3D;if(is3D){map.setTerrain({source:'dem',exaggeration:1.5});map.setLayoutProperty('hill','visibility','visible');map.easeTo({pitch:62,duration:900});}else{map.setTerrain(null);map.setLayoutProperty('hill','visibility','none');map.easeTo({pitch:0,bearing:0,duration:900});}this.classList.toggle('on',is3D);};
+    let is3D=false;document.getElementById('btn3d').onclick=function(){is3D=!is3D;if(is3D){map.setTerrain({source:'dem',exaggeration:1.3});map.setLayoutProperty('hill','visibility','visible');map.easeTo({pitch:55,duration:900});}else{map.setTerrain(null);map.setLayoutProperty('hill','visibility','none');map.easeTo({pitch:0,bearing:0,duration:900});}this.classList.toggle('on',is3D);};
     let hlMk=null;
     const allGeo=[...d.places,...d.events,...d.people];
     const sbox=document.createElement('div');sbox.className='map-search';sbox.innerHTML='<input id="mapq" placeholder="Find on map… (e.g. Jeruel, Bethel)"/><div id="mapres"></div>';mapEl.appendChild(sbox);
