@@ -70,6 +70,13 @@ app.get('/api/search', async (c) => {
   const where: string[] = []; const args: unknown[] = [];
   if (q) { where.push('(label LIKE ? OR aka LIKE ?)'); args.push(`%${q}%`, `%${q.toLowerCase()}%`); }
   if (group) { where.push(`kind IN (${group.map(() => '?').join(',')})`); args.push(...group); }
+  const sub = (c.req.query('sub') ?? '').trim();
+  const subdim = (c.req.query('subdim') ?? '').trim();
+  if (sub) {
+    if (subdim === 'role') { where.push("id IN (SELECT e.src FROM edge e JOIN node r ON r.id=e.dst WHERE e.rel IN('gc:holdsRole','org:role') AND r.label=?)"); args.push(sub); }
+    else if (subdim === 'ftype') { where.push("json_extract(meta,'$.featureType')=?"); args.push(sub); }
+    else { where.push('gc_class=?'); args.push(sub); }
+  }
   if (trust === 'pos') where.push(`${MORAL} > 0.2`);
   else if (trust === 'neg') where.push(`${MORAL} < -0.2`);
   else if (trust === 'signals') where.push(`${NSIG} > 0`);
@@ -84,6 +91,25 @@ app.get('/api/search', async (c) => {
   const r = await rows(c.env.DB, `SELECT id,canon_id,label,kind,disambig,aka,prov_class,gc_class,canon_confidence,image_thumb,${MORAL} moral,${NSIG} nsig${dimSel} FROM node WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ${PER + 1} OFFSET ${off}`, ...args);
   const more = r.length > PER;
   return c.json({ ok: true, results: r.slice(0, PER), page, more });
+});
+
+// Second-level subtypes for a kind (drill-down): people → roles, places → feature type,
+// everything else → gc_class. Each {val, label, n}; the matching `subdim` is returned.
+app.get('/api/subtypes', async (c) => {
+  const kind = (c.req.query('kind') ?? '').trim();
+  const group = KIND_GROUPS[kind];
+  if (!group) return c.json({ ok: true, dim: '', subs: [] });
+  if (kind === 'person') {
+    const subs = await rows(c.env.DB, "SELECT r.label val, r.label label, count(DISTINCT e.src) n FROM edge e JOIN node r ON r.id=e.dst JOIN node p ON p.id=e.src WHERE e.rel IN('gc:holdsRole','org:role') AND p.kind='person' GROUP BY r.label ORDER BY n DESC LIMIT 24");
+    return c.json({ ok: true, dim: 'role', subs });
+  }
+  if (kind === 'place') {
+    const subs = await rows(c.env.DB, "SELECT json_extract(meta,'$.featureType') val, json_extract(meta,'$.featureType') label, count(*) n FROM node WHERE kind='place' AND json_extract(meta,'$.featureType') IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 24");
+    return c.json({ ok: true, dim: 'ftype', subs });
+  }
+  const inK = group.map(() => '?').join(',');
+  const subs = await rows(c.env.DB, `SELECT gc_class val, gc_class label, count(*) n FROM node WHERE kind IN (${inK}) AND gc_class IS NOT NULL GROUP BY gc_class ORDER BY n DESC LIMIT 24`, ...group);
+  return c.json({ ok: true, dim: 'class', subs });
 });
 
 // Inheritance-aware class browser — instances of a class AND all its subclasses, across every

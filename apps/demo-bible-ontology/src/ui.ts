@@ -427,7 +427,7 @@ function tagAlign(a){
   if(a==='unaligned')return '<span class="chip tag-un">unaligned</span>';
   return '<span class="chip">'+esc(a)+'</span>';
 }
-let expKind='',expSort='',expTrust='',expPage=0;
+let expKind='',expSort='',expTrust='',expPage=0,expSub='',expSubdim='';
 const DSORTC={wisdom:'#7c5cff',faithfulness:'#2563eb',courage:'#0d9488',truthfulness:'#0e7490',repentance:'#b45309'};
 function tind(r){let h='';
   if(r.dimval!=null&&DSORTC[expSort]){const v=+r.dimval,c=DSORTC[expSort];h+='<span class="tbadge" title="'+esc(expSort)+' signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'+':'')+v.toFixed(2)+' '+esc(expSort)+'</span>';}
@@ -437,12 +437,13 @@ function tind(r){let h='';
 async function explore(){
   V.innerHTML='<div class="card"><input id="q" placeholder="Search by name or alias… (e.g. Peter, David, Jerusalem, Exodus)"/>'+
    '<div class="gchips" id="kfil" style="margin-top:10px"></div>'+
+   '<div class="gchips" id="subfil" style="margin-top:6px;align-items:center"></div>'+
    '<div class="gchips" id="tctl" style="margin-top:6px;align-items:center"></div>'+
    '<div id="res"></div></div><div id="detail"></div>';
   const q=document.getElementById('q');q.focus();
   const run=async(pick)=>{const term=q.value.trim();const res=document.getElementById('res');
     if(term.length<2&&!expKind&&!expTrust){res.innerHTML='';const det=document.getElementById('detail');if(det)det.innerHTML='';return;}
-    const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):'')+(expSort?'&sort='+expSort:'')+(expTrust?'&trust='+expTrust:'')+'&page='+expPage);
+    const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):'')+(expSub?'&sub='+encodeURIComponent(expSub)+'&subdim='+expSubdim:'')+(expSort?'&sort='+expSort:'')+(expTrust?'&trust='+expTrust:'')+'&page='+expPage);
     const list=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b>'+tind(r)+' '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind||expTrust?' for this filter':'')+'.</div>';
     const pager=(d.more||expPage>0)?'<div class="gchips" style="margin-top:10px;align-items:center">'+(expPage>0?'<span class="gchip mini" id="pprev">← Prev</span>':'')+'<span class="muted" style="font-size:11px;margin:0 7px">page '+(expPage+1)+'</span>'+(d.more?'<span class="gchip mini" id="pnext">Next →</span>':'')+'</div>':'';
     res.innerHTML=list+pager;
@@ -462,8 +463,14 @@ async function explore(){
   const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
   const FKC={'':'#64748b',person:KC.person,organization:KC.organization,activity:KC.event,place:KC.place,deity:KC.deity,concept:KC.concept};
   const kc=document.getElementById('kfil');
-  const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0];return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;q.value='';expPage=0;drawChips();run();});};
-  drawChips();
+  const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0];return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;q.value='';expPage=0;expSub='';expSubdim='';drawChips();loadSubs();run();});};
+  const subLabel=(s)=>String(s).replace(/^[a-z]+:/,'');
+  async function loadSubs(){const sf=document.getElementById('subfil');if(!sf)return;if(!expKind){sf.innerHTML='';return;}
+    const d=await api('/subtypes?kind='+encodeURIComponent(expKind));expSubdim=d.dim||'';
+    if(!d.subs||d.subs.length<2){sf.innerHTML='';return;}
+    sf.innerHTML='<span class="muted" style="font-size:11px;margin-right:3px">type</span>'+d.subs.map(s=>'<span class="gchip mini'+(expSub===s.val?' on':'')+'" data-sub="'+esc(s.val)+'">'+esc(subLabel(s.label))+' <span class="'+(expSub===s.val?'':'muted')+'">'+s.n+'</span></span>').join('');
+    sf.querySelectorAll('[data-sub]').forEach(ch=>ch.onclick=()=>{expSub=expSub===ch.dataset.sub?'':ch.dataset.sub;expPage=0;loadSubs();run();});}
+  drawChips();if(expKind)loadSubs();
   let timer;q.oninput=()=>{clearTimeout(timer);expPage=0;timer=setTimeout(run,180);};
   if(expKind||expTrust)run();
 }
