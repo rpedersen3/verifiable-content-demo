@@ -375,7 +375,7 @@ app.post('/api/analyze', async (c) => {
   const kind = String(b.sig_kind ?? 'signal').slice(0, 60);
   const basis = String(b.basis ?? '').slice(0, 400);
   const osis = String(b.osis ?? '').slice(0, 40);
-  const prompt = `You are a Scripture-grounded trust auditor for a Bible knowledge graph. Validate ONE trust signal and say whether it is correct.\n\nEntity: ${label}\nSignal dimension/type: ${kind}\nStated basis: "${basis}"\nCited verse (OSIS): ${osis || '(none)'}\n\nIn ≤220 words, markdown:\n1. Restate what the signal claims.\n2. Check each factual claim against Scripture (cite book chapter:verse). Mark ✅/⚠️/❌.\n3. Confirm the cited verse actually supports the claim.\n4. Verdict: is the signal correct, and would you keep the polarity/rating or adjust it (and why)?\nBe precise, fair, and concrete. If the basis pins one individual's sin on a whole group, flag it.`;
+  const prompt = `You are a Scripture-grounded trust auditor for a Bible knowledge graph. Validate ONE trust signal and say whether it is correct.\n\nEntity: ${label}\nSignal dimension/type: ${kind}\nStated basis: "${basis}"\nCited verse (OSIS): ${osis || '(none)'}\n\nIn ≤220 words, markdown:\n1. Restate what the signal claims.\n2. Check each factual claim against Scripture (cite book chapter:verse). Mark ✅/⚠️/❌.\n3. Confirm the cited verse actually supports the claim.\n4. Verdict: is the signal correct, and would you keep the polarity/rating or adjust it (and why)?\nBe precise, fair, and concrete. If the basis pins one individual's sin on a whole group, flag it. Use short **bold** lead-ins and bullet points (- ) — do NOT use markdown tables.`;
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
