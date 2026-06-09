@@ -261,7 +261,7 @@ function scoreBars(scores){
   if(!scores||!scores.length)return '';
   const byD={};scores.forEach(s=>byD[s.dimension]=s);
   const bip=(d)=>BIPCOL[d]!=null;
-  const rows=['moral','wisdom','faithfulness','courage','truthfulness','repentance','graph_trust','historical_trust'].filter(d=>byD[d]).map(d=>{const s=byD[d];const v=+s.value;
+  const rows=['moral','wisdom','faithfulness','courage','truthfulness','repentance','historical_trust'].filter(d=>byD[d]).map(d=>{const s=byD[d];const v=+s.value;
     const kind=/curated/.test(s.method||'')?'curated':'computed';
     const vs=bip(d)?(v>0?'+':'')+v.toFixed(2):v.toFixed(2);
     const tip=('<b>'+SDIM[d]+'</b> &nbsp;'+vs+'<br><span style="color:#8a96a3;text-transform:uppercase;font-size:10px">'+kind+' · '+esc(s.method||'')+'</span><br>'+esc(s.basis||'(no basis recorded)')).replace(/"/g,'&quot;');
