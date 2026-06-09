@@ -54,6 +54,8 @@ nav button.nav-util.on{background:#eef2fb;color:var(--accent);border-color:var(-
 .map-search input:focus{border-color:var(--accent)}
 .map-search #mapres{background:#fff;border:1px solid var(--line);border-radius:8px;margin-top:4px;box-shadow:0 4px 14px rgba(20,30,50,.14);max-height:240px;overflow:auto}
 .map-search ul.list{margin:0}.map-search ul.list li{padding:6px 10px;font-size:13px}
+.mlhov .maplibregl-popup-content{padding:7px 8px 6px;border-radius:8px;box-shadow:0 5px 16px rgba(20,30,50,.2)}
+.mlhov .maplibregl-popup-tip{display:none}
 .reg-tri i{display:block;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:14px solid #c47d2e;opacity:.8}
 .combo{position:relative;max-width:400px}
 .combo>input{width:100%;padding-right:30px}
@@ -674,12 +676,12 @@ async function drawTimeline(){
     g.addEventListener('click',()=>showNodeTab(g.dataset.id));});
 }
 // ── Geospatial map (Leaflet) with time animation ──
-let geoMap=null,geoTimer=null;
+let geoMap=null,geoTimer=null,geoShow=null;
 async function geo(){
-  V.innerHTML='<div class="card"><div class="sec-head">Map</div>'+
-   '<div class="gchips" id="glayers"></div>'+
-   '<div class="hint" style="margin:6px 0 8px"><span style="color:#c47d2e">▲</span> Regions are <b>off by default</b> — toggle <b>Regions</b>. Tap <b>⛰ 3D</b> to tilt into the terrain; right-drag (or ctrl-drag) to rotate &amp; pitch.</div>'+
-   '<div id="map" style="height:540px;border:1px solid var(--line);border-radius:10px;z-index:0;position:relative;overflow:hidden"></div>'+
+  V.innerHTML='<div class="card">'+
+   '<div class="gchips" id="glayers" style="margin-bottom:5px"></div>'+
+   '<div class="hint" style="margin:0 0 5px;font-size:11px"><span style="color:#c47d2e">▲</span> Regions off by default · <b>⛰ 3D</b> tilts into terrain · right-drag to rotate &amp; pitch</div>'+
+   '<div id="map" style="height:560px;border:1px solid var(--line);border-radius:10px;z-index:0;position:relative;overflow:hidden"></div>'+
    '<div id="gtime" style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div></div>';
   const mapEl=document.getElementById('map');
   if(!window.maplibregl){mapEl.innerHTML='<div class="ghint" style="padding:24px">3D map library could not load (offline?). The same data is in Explore / Timeline.</div>';return;}
@@ -708,7 +710,7 @@ async function geo(){
     const ft=(lon,lat,props)=>({type:'Feature',geometry:{type:'Point',coordinates:[lon,lat]},properties:props});
     const sigColor=['match',['get','sig'],'positive','#1a8a4f','negative','#c0392b','mixed','#b45309','#0e7490'];
     const sigColorP=['match',['get','sig'],'positive','#1a8a4f','negative','#c0392b','mixed','#b45309','#2563eb'];
-    const pf=d.places.filter(p=>!p.region&&!p.img&&isFinite(p.lat)).map(p=>ft(p.lon,p.lat,{id:p.id,label:p.label,disambig:p.disambig||'',v:p.v||0,refs:p.refs||''}));
+    const pf=d.places.filter(p=>!p.region&&isFinite(p.lat)).map(p=>ft(p.lon,p.lat,{id:p.id,label:p.label,disambig:p.disambig||'',v:p.v||0,refs:p.refs||'',img:p.img||'',hasimg:p.img?1:0}));
     const rf=d.places.filter(p=>p.region&&isFinite(p.lat)).map(p=>ft(p.lon,p.lat,{id:p.id,label:p.label,disambig:p.disambig||'',v:p.v||0,refs:p.refs||''}));
     const ef=d.events.filter(e=>isFinite(e.lat)).map(e=>ft(e.lon,e.lat,{id:e.id+':'+(e.place||''),label:e.label+(e.place?' · '+e.place:''),place:e.place||'',v:e.v||0,refs:e.refs||'',year:e.tStart==null?99999:e.tStart,sig:e.sig||''}));
     const ppf=d.people.filter(pe=>isFinite(pe.lat)).map(pe=>ft(pe.lon,pe.lat,{id:pe.id,label:pe.label,place:pe.place||'',refs:pe.refs||'',t0:pe.tStart==null?99999:pe.tStart,t1:(pe.tEnd!=null?pe.tEnd:pe.tStart)==null?99999:(pe.tEnd!=null?pe.tEnd:pe.tStart),sig:pe.sig||''}));
@@ -716,44 +718,42 @@ async function geo(){
     map.addSource('regions',{type:'geojson',data:fc(rf)});
     map.addSource('events',{type:'geojson',data:fc(ef)});
     map.addSource('people',{type:'geojson',data:fc(ppf)});
-    map.addLayer({id:'places',type:'circle',source:'places',paint:{'circle-radius':['min',9,['+',3,['sqrt',['max',1,['get','v']]]]],'circle-color':'#aab4c2','circle-stroke-color':'#7c8696','circle-stroke-width':1,'circle-opacity':0.9}});
+    map.addLayer({id:'places',type:'circle',source:'places',paint:{'circle-radius':['+',['min',9,['+',3,['sqrt',['max',1,['get','v']]]]],['*',2,['get','hasimg']]],'circle-color':['case',['==',['get','hasimg'],1],'#cfe0ff','#aab4c2'],'circle-stroke-color':['case',['==',['get','hasimg'],1],'#2f6df0','#7c8696'],'circle-stroke-width':['case',['==',['get','hasimg'],1],2,1],'circle-opacity':0.92}});
     map.addLayer({id:'regions',type:'circle',source:'regions',layout:{visibility:'none'},paint:{'circle-radius':6,'circle-color':'#e8a44d','circle-stroke-color':'#c47d2e','circle-stroke-width':1.5,'circle-opacity':0.85}});
     map.addLayer({id:'events',type:'circle',source:'events',paint:{'circle-radius':['min',11,['+',4,['sqrt',['max',1,['get','v']]]]],'circle-color':sigColor,'circle-stroke-color':'#fff','circle-stroke-width':1,'circle-opacity':0.95}});
     map.addLayer({id:'people',type:'circle',source:'people',layout:{visibility:'none'},paint:{'circle-radius':6,'circle-color':sigColorP,'circle-stroke-color':'#fff','circle-stroke-width':1,'circle-opacity':0.95}});
     const popup=new maplibregl.Popup({maxWidth:'300px'});
-    const hov=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:8,className:'mlhov'});
-    const show=(c,n,ex)=>popup.setLngLat(c).setHTML(pop(n,ex)).addTo(map);
+    const hov=new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12,className:'mlhov',maxWidth:'190px'});
     const locById={};
+    const show=(c,n,ex)=>{hov.remove();popup.setLngLat(c).setHTML(pop(n,ex)).addTo(map);};
+    geoShow=(id)=>{const lc=locById[id];if(lc)lc.show();};
+    let hovTimer=null,hovWired=false;
+    const showHov=(coords,pr)=>{clearTimeout(hovTimer);
+      const im=pr.img?'<img src="'+esc(pr.img)+'" onclick="geoShow(\\''+pr.id+'\\')" title="click for details" style="width:160px;height:90px;object-fit:cover;border-radius:5px;display:block;margin-bottom:4px;cursor:pointer"/>':'';
+      hov.setLngLat(coords).setHTML(im+'<b>'+esc(pr.label)+'</b>'+(pr.img?'<div class="muted" style="font-size:10px;margin-top:1px">click image for details</div>':'')).addTo(map);
+      if(!hovWired){const el=hov.getElement();if(el){hovWired=true;el.addEventListener('mouseenter',()=>clearTimeout(hovTimer));el.addEventListener('mouseleave',()=>hov.remove());}}};
+    const hideHov=()=>{hovTimer=setTimeout(()=>hov.remove(),240);};
     const wire=(layer,exFn)=>{
       map.on('mouseenter',layer,()=>map.getCanvas().style.cursor='pointer');
-      map.on('mouseleave',layer,()=>{map.getCanvas().style.cursor='';hov.remove();});
-      map.on('mousemove',layer,e=>{const f=e.features[0];hov.setLngLat(f.geometry.coordinates).setHTML('<b>'+esc(f.properties.label)+'</b>').addTo(map);});
-      map.on('click',layer,e=>{const f=e.features[0],pr=f.properties;hov.remove();show(f.geometry.coordinates,{id:pr.id,label:pr.label,refs:pr.refs,v:pr.v,img:null},exFn(pr));});
+      map.on('mouseleave',layer,()=>{map.getCanvas().style.cursor='';hideHov();});
+      map.on('mousemove',layer,e=>showHov(e.features[0].geometry.coordinates,e.features[0].properties));
+      map.on('click',layer,e=>{const f=e.features[0],pr=f.properties;show(f.geometry.coordinates,{id:pr.id,label:pr.label,refs:pr.refs,v:pr.v,img:pr.img||null},exFn(pr));});
     };
     wire('places',pr=>(pr.disambig?'<br><span style="color:#6b7785">'+esc(pr.disambig)+'</span>':'')+'<br>'+pr.v+' verses');
     wire('regions',pr=>'<br><span class="muted">▲ region · general area (approx.)</span>'+(pr.disambig?'<br><span style="color:#6b7785">'+esc(pr.disambig)+'</span>':'')+'<br>'+pr.v+' verses');
     wire('events',pr=>'<br><span style="color:#6b7785">at '+esc(pr.place||'')+'</span>');
     wire('people',pr=>'<br><span style="color:#6b7785">b. '+esc(pr.place||'')+'</span>');
-    const regOf=(f,ex)=>locById[f.properties.id]={lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],label:f.properties.label,show:()=>show(f.geometry.coordinates,{id:f.properties.id,label:f.properties.label,refs:f.properties.refs,v:f.properties.v,img:null},ex(f.properties))};
+    const regOf=(f,ex)=>locById[f.properties.id]={lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],label:f.properties.label,show:()=>show(f.geometry.coordinates,{id:f.properties.id,label:f.properties.label,refs:f.properties.refs,v:f.properties.v,img:f.properties.img||null},ex(f.properties))};
     pf.forEach(f=>regOf(f,pr=>(pr.disambig?'<br><span style="color:#6b7785">'+esc(pr.disambig)+'</span>':'')+'<br>'+pr.v+' verses'));
     rf.forEach(f=>regOf(f,pr=>'<br><span class="muted">▲ region</span><br>'+pr.v+' verses'));
     ef.forEach(f=>regOf(f,pr=>'<br><span style="color:#6b7785">at '+esc(pr.place||'')+'</span>'));
     ppf.forEach(f=>regOf(f,pr=>'<br><span style="color:#6b7785">b. '+esc(pr.place||'')+'</span>'));
-    const imgEls={};
-    d.places.filter(p=>p.img&&!p.region&&isFinite(p.lat)).forEach(p=>{
-      const el=document.createElement('div');el.style.cssText='width:30px;height:30px;border-radius:50%;border:2px solid #2f6df0;background:#fff url('+p.img+') center/cover;box-shadow:0 1px 5px rgba(0,0,0,.4);cursor:pointer';
-      el.onmouseenter=e=>imgHover(p.img,e);el.onmousemove=e=>imgHoverMove(e);el.onmouseleave=imgHoverOut;
-      const showThis=()=>{imgHoverOut();show([p.lon,p.lat],{id:p.id,label:p.label,refs:p.refs,v:p.v,img:p.img},(p.disambig?'<br><span style="color:#6b7785">'+esc(p.disambig)+'</span>':'')+'<br>'+(p.v||0)+' verses');};
-      el.onclick=showThis;
-      new maplibregl.Marker({element:el}).setLngLat([p.lon,p.lat]).addTo(map);
-      imgEls[p.id]=el;locById[p.id]={lon:p.lon,lat:p.lat,label:p.label,show:showThis};
-    });
     const layers={Places:['places'],Activities:['events'],People:['people'],Regions:['regions']};
     const on={Places:true,Activities:true,People:false,Regions:false};
-    const nReg=rf.length,cnt={Places:pf.length+Object.keys(imgEls).length,Activities:ef.length,People:ppf.length,Regions:nReg};
+    const nReg=rf.length,cnt={Places:pf.length,Activities:ef.length,People:ppf.length,Regions:nReg};
     const lchip=(k)=>'<span class="gchip'+(on[k]?' on':'')+'" data-l="'+k+'"'+(on[k]?' style="background:var(--accent);color:#fff;border-color:var(--accent)"':'')+'>'+k+' ('+cnt[k]+')</span>';
     document.getElementById('glayers').innerHTML=Object.keys(layers).map(lchip).join('');
-    const setVis=(k)=>{layers[k].forEach(l=>map.setLayoutProperty(l,'visibility',on[k]?'visible':'none'));if(k==='Places')Object.values(imgEls).forEach(el=>el.style.display=on[k]?'':'none');};
+    const setVis=(k)=>{layers[k].forEach(l=>map.setLayoutProperty(l,'visibility',on[k]?'visible':'none'));};
     document.querySelectorAll('#glayers [data-l]').forEach(ch=>ch.onclick=()=>{const k=ch.dataset.l;on[k]=!on[k];setVis(k);ch.style.cssText=on[k]?'background:var(--accent);color:#fff;border-color:var(--accent)':'';ch.classList.toggle('on',on[k]);});
     const bctl=document.createElement('div');bctl.className='map-basectl';
     const BASES=[['Streets','b-streets'],['Topo','b-topo'],['Satellite','b-sat']];
@@ -791,9 +791,9 @@ function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner|hasRelative/.t
 async function oikos(){
   V.innerHTML='<div class="card"><div class="sec-head">Oikos · relationship circles</div>'+
    '<div class="combo"><input id="oq" autocomplete="off" placeholder="Center on a person… (click to choose)"/><div id="ores" class="combo-menu"></div></div>'+
-   '<label class="hint" style="display:inline-flex;gap:5px;align-items:center;margin:10px 0 0"><input type="checkbox" id="oorg"'+(oikosOrgs?' checked':'')+'> include organizations (churches, tribes…)</label>'+
+   '<div style="margin:10px 0 2px"><button id="oorg" class="map-basbtn'+(oikosOrgs?' on':'')+'" style="border:1px solid var(--line);border-radius:8px">⛪ Include organizations (churches, tribes…)</button></div>'+
    '<div id="owrap"></div></div><div id="otip" class="gtip"></div>';
-  document.getElementById('oorg').onchange=(e)=>{oikosOrgs=e.target.checked;drawOikos();};
+  document.getElementById('oorg').onclick=function(){oikosOrgs=!oikosOrgs;this.classList.toggle('on',oikosOrgs);drawOikos();};
   const oq=document.getElementById('oq'),menu=document.getElementById('ores');let timer;
   const showMenu=async(term)=>{const d=await api('/search?q='+encodeURIComponent(term||'')+'&kind=person');const rs=(d.results||[]).filter(x=>x.kind==='person').slice(0,12);
     menu.innerHTML=rs.length?rs.map(x=>'<div class="combo-item" data-pick="'+x.id+'" data-lab="'+esc(x.label+(x.disambig?' · '+x.disambig:''))+'">'+dot('person')+'<b>'+esc(x.label)+'</b>'+(x.disambig?' <span class="muted">'+esc(x.disambig)+'</span>':'')+'</div>').join(''):'<div class="combo-empty">no people found</div>';
