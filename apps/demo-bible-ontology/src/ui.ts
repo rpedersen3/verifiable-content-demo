@@ -449,7 +449,7 @@ async function explore(){
     const pv=document.getElementById('pprev'),nx=document.getElementById('pnext');
     if(pv)pv.onclick=()=>{expPage=Math.max(0,expPage-1);run();};
     if(nx)nx.onclick=()=>{expPage++;run();};
-    const det=document.getElementById('detail');if(det)det.innerHTML='';
+    if(d.results.length===1&&expPage===0)renderNode(d.results[0].id);else{const det=document.getElementById('detail');if(det)det.innerHTML='';}
   };
   const SORTS=[['','Relevance'],['wisdom','Wisest'],['courage','Most courageous'],['faithfulness','Most faithful'],['truthfulness','Most truthful'],['repentance','Most repentant'],['signals','Most signals']];
   const TRUSTS=[['','Any'],['pos','Positive'],['neg','Negative'],['signals','Has signals']];
