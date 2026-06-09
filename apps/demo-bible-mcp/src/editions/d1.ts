@@ -11,7 +11,7 @@ import type { CorpusSigner } from './registry.js';
 
 export interface D1Like {
   prepare(q: string): {
-    bind(...a: unknown[]): { first<T = unknown>(): Promise<T | null>; all<T = unknown>(): Promise<{ results: T[] }> };
+    bind(...a: unknown[]): { first<T = unknown>(): Promise<T | null>; all<T = unknown>(): Promise<{ results: T[] }>; run(): Promise<unknown> };
   };
 }
 

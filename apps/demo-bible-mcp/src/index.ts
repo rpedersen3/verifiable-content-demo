@@ -317,8 +317,8 @@ app.post('/tools/get_passage_text', async (c) => {
   if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
 
   const body = await c.req
-    .json<{ reference?: string; edition?: string; entitlement?: Entitlement }>()
-    .catch(() => ({}) as { reference?: string; edition?: string; entitlement?: Entitlement });
+    .json<{ reference?: string; edition?: string; entitlement?: Entitlement; subject?: string }>()
+    .catch(() => ({}) as { reference?: string; edition?: string; entitlement?: Entitlement; subject?: string });
   if (!body.reference || !body.edition) return c.json({ ok: false, error: 'reference + edition required' }, 400);
 
   let parsed;
@@ -359,6 +359,21 @@ app.post('/tools/get_passage_text', async (c) => {
     audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: decision.reason ?? 'denied' });
     return c.json({ ok: false, error: 'access denied', detail: decision, accessPolicy: row.descriptor.accessPolicy }, 403);
   }
+  // Presenter-binding (finding #4): the caller's verified subject must be the entitlement subject —
+  // entitlements aren't transferable by copying. `subject` is the id_token sub the agent verified.
+  const entSubject = (body.entitlement?.credentialSubject as { id?: string } | undefined)?.id;
+  if (body.subject && entSubject && body.subject.toLowerCase() !== entSubject.toLowerCase()) {
+    audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: 'presenter mismatch' });
+    return c.json({ ok: false, error: 'entitlement not presented by its subject', accessPolicy: row.descriptor.accessPolicy }, 403);
+  }
+  // Online revocation (finding #8): the issuer's ledger must not have revoked this subject's grant.
+  if (c.env.DB && entSubject) {
+    const led = await c.env.DB.prepare('SELECT status FROM entitlements_issued WHERE subject=? AND edition=? ORDER BY id DESC LIMIT 1').bind(entSubject, body.edition).first<{ status: string }>();
+    if (led && led.status === 'revoked') {
+      audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: 'entitlement revoked' });
+      return c.json({ ok: false, error: 'entitlement revoked', accessPolicy: row.descriptor.accessPolicy }, 403);
+    }
+  }
 
   const text = corpus.entry.texts[row.osis]!;
   const commitmentOk = row.descriptor.commitment ? verifyCommitment(text, row.descriptor.commitment) : false;
@@ -372,8 +387,8 @@ app.post('/tools/get_passage_text', async (c) => {
 // earlier client-built, unsigned demo entitlement.
 app.post('/tools/issue_entitlement', async (c) => {
   const body = await c.req
-    .json<{ edition?: string; subject?: string; ttlSeconds?: number }>()
-    .catch(() => ({}) as { edition?: string; subject?: string; ttlSeconds?: number });
+    .json<{ edition?: string; subject?: string; ttlSeconds?: number; requestId?: number; issuedBySub?: string }>()
+    .catch(() => ({}) as { edition?: string; subject?: string; ttlSeconds?: number; requestId?: number; issuedBySub?: string });
   if (!body.edition) return c.json({ ok: false, error: 'edition required' }, 400);
   const trust = await resolveTrust(c.env);
   const corpus = (await getCorpora(trust)).get(body.edition);
@@ -393,8 +408,58 @@ app.post('/tools/issue_entitlement', async (c) => {
     credentialSubject: { id: subject, corpusRef: corpus.manifest.corpusRef, accessPolicy: corpus.manifest.accessPolicy },
   };
   const entitlement = await signCredential(unsigned, trust.credentialSigner);
+  // Issuer revocation + audit ledger (the CANONICAL held copy is the VC in the reader's vault).
+  if (c.env.DB) {
+    const now = new Date(nowMs).toISOString();
+    await c.env.DB.prepare('INSERT INTO entitlements_issued(request_id,edition,subject,issued_by_sub,entitlement,valid_until,status,created_at) VALUES(?,?,?,?,?,?,?,?)')
+      .bind(body.requestId ?? null, body.edition, subject, body.issuedBySub ?? null, JSON.stringify(entitlement), unsigned.validUntil ?? null, 'granted', now).run();
+    if (body.requestId) await c.env.DB.prepare("UPDATE entitlement_requests SET status='granted', decided_at=?, decided_by_sub=? WHERE id=?").bind(now, body.issuedBySub ?? null, body.requestId).run();
+  }
   audit('content.entitlement.issue', 'success', body.edition, { subject, issuer: corpus.manifest.issuer });
   return c.json({ ok: true, entitlement });
+});
+
+// request_entitlement — a reader asks for access (subject comes from a verified id_token upstream,
+// never typed). Captures the reader's delegation so the grant can be delivered to their vault.
+app.post('/tools/request_entitlement', async (c) => {
+  const b = await c.req.json<{ subject?: string; subjectName?: string; edition?: string; note?: string; readerDelegation?: unknown }>().catch(() => ({}) as Record<string, never>);
+  if (!b.subject || !b.edition) return c.json({ ok: false, error: 'subject and edition required' }, 400);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  const now = new Date().toISOString();
+  const r = await c.env.DB.prepare('INSERT INTO entitlement_requests(subject,subject_name,edition,note,status,reader_delegation,created_at) VALUES(?,?,?,?,?,?,?)')
+    .bind(b.subject, b.subjectName ?? null, b.edition, String(b.note ?? '').slice(0, 500), 'pending', b.readerDelegation ? JSON.stringify(b.readerDelegation) : null, now).run();
+  audit('content.entitlement.request', 'success', b.edition, { subject: b.subject });
+  return c.json({ ok: true, requestId: (r as { meta?: { last_row_id?: number } })?.meta?.last_row_id ?? null });
+});
+
+// list_entitlements — the reader's currently-granted entitlement VCs (the pull/pickup path).
+app.post('/tools/list_entitlements', async (c) => {
+  const b = await c.req.json<{ subject?: string }>().catch(() => ({}) as { subject?: string });
+  if (!b.subject) return c.json({ ok: false, error: 'subject required' }, 400);
+  if (!c.env.DB) return c.json({ ok: true, entitlements: [] });
+  const rows = (await c.env.DB.prepare("SELECT edition, entitlement, valid_until FROM entitlements_issued WHERE subject=? AND status='granted' ORDER BY id DESC").bind(b.subject).all<{ edition: string; entitlement: string; valid_until: string }>()).results;
+  return c.json({ ok: true, entitlements: rows.map((r) => ({ edition: r.edition, validUntil: r.valid_until, entitlement: JSON.parse(r.entitlement) })) });
+});
+
+// list_requests — the owner's approval queue (demo-corpus). Owner-gated upstream.
+app.post('/tools/list_requests', async (c) => {
+  const b = await c.req.json<{ status?: string }>().catch(() => ({}) as { status?: string });
+  if (!c.env.DB) return c.json({ ok: true, requests: [] });
+  const st = ['pending', 'granted', 'denied'].includes(String(b.status)) ? String(b.status) : 'pending';
+  const rows = (await c.env.DB.prepare('SELECT id, subject, subject_name, edition, note, status, created_at FROM entitlement_requests WHERE status=? ORDER BY id DESC LIMIT 200').bind(st).all()).results;
+  return c.json({ ok: true, requests: rows });
+});
+
+// revoke_entitlement — online revocation (gated reads re-check the ledger). Owner-gated upstream.
+app.post('/tools/revoke_entitlement', async (c) => {
+  const b = await c.req.json<{ id?: number; subject?: string; edition?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  let n = 0;
+  if (b.id) { await c.env.DB.prepare("UPDATE entitlements_issued SET status='revoked' WHERE id=?").bind(b.id).run(); n = 1; }
+  else if (b.subject && b.edition) { await c.env.DB.prepare("UPDATE entitlements_issued SET status='revoked' WHERE subject=? AND edition=? AND status='granted'").bind(b.subject, b.edition).run(); n = 1; }
+  else return c.json({ ok: false, error: 'id or (subject+edition) required' }, 400);
+  audit('content.entitlement.revoke', 'success', b.edition ?? String(b.id ?? ''), { subject: b.subject ?? '' });
+  return c.json({ ok: true, revoked: n });
 });
 
 // verify_citation — re-check a commitment against the descriptor for a locus.
