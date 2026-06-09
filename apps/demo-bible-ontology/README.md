@@ -4,6 +4,9 @@ A **PROV-O knowledge graph of the Bible** used to **validate the Global Church O
 against PROV-O and real Bible usage. Live:
 https://demo-bible-ontology-production.richardpedersen3.workers.dev
 
+See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the service architecture and the
+verse-read / feedback interaction diagrams.
+
 ## Ontology layers
 - **DUL** (upper) — Object / Event / Agent / Place / Role / Concept / Description / Situation
 - **DnS + BDI + DIKW** (upper) — Descriptions & Situations + Assertion; Belief-Desire-Intention;

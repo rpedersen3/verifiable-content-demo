@@ -177,6 +177,9 @@ img.mini.styled{filter:sepia(.6) saturate(1.25) contrast(1.06)}
 .sval{font:11px var(--mono);text-align:right}
 .admin label{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;border:1px solid var(--line);border-radius:9px;margin:7px 0;cursor:pointer}
 .admin label.on{border-color:var(--accent);background:#f4f8ff}
+.acct{border-collapse:collapse;width:100%;font-size:13px}
+.acct td{padding:5px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+.acct td:first-child{width:130px;text-transform:capitalize;white-space:nowrap}
 /* original-language forms + external ids + provenance */
 .forms{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .form{border:1px solid var(--line);border-radius:8px;padding:5px 11px;text-align:center}
@@ -220,6 +223,9 @@ svg#tsvg{display:block;background:#fbfcfe}
 const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b',interaction:'#db2777',speechact:'#db2777',plan:'#0891b2',step:'#14b8a6'};
 const V=document.getElementById('view');
 const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
+// The generic agenticprimitives relayer (per-agent PII vault) — reads the connected user's own
+// demo-mcp vault via the delegation their Global.Church home minted at sign-in.
+const DEMO_A2A_BASE='https://demo-a2a-production.richardpedersen3.workers.dev';
 // All knowledge-graph reads go through the Scripture Agent → MCP vault (not the data Worker directly).
 const api=(p)=>fetch(A2A_BASE+'/vault'+p).then(r=>r.json());
 const esc=(s)=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -356,7 +362,7 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
   try{const tr=await fetch((pend.authOrigin.endsWith('/')?pend.authOrigin.slice(0,-1):pend.authOrigin)+'/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant_type:'authorization_code',code,code_verifier:pend.verifier,client_id:CLIENT_ID,redirect_uri:location.origin+'/'})}).then(r=>r.json());
     if(!tr.id_token)throw new Error(tr.error||'no id_token returned');
     const claims=await verifyIdToken(pend.authOrigin,tr.id_token,pend.nonce);
-    session={idToken:tr.id_token,name:claims.agent_name||pend.name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp};
+    session={idToken:tr.id_token,delegation:tr.delegation||null,name:claims.agent_name||pend.name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp};
     localStorage.setItem('sa.session',JSON.stringify(session));sessionStorage.removeItem('sa.pending');return true;
   }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));sessionStorage.removeItem('sa.pending');return false;}}
 function disconnect(){session=null;localStorage.removeItem('sa.session');renderConnect();}
@@ -521,7 +527,10 @@ async function classQuery(curie){
 function admin(){
   const m=imgMode();
   const opt=(v,t,d)=>'<label class="'+(m===v?'on':'')+'" data-m="'+v+'"><input type="radio" name="im" '+(m===v?'checked':'')+'/><span><b>'+t+'</b><br><span class="muted">'+d+'</span></span></label>';
-  V.innerHTML='<div class="card admin"><h3 class="muted" style="margin-top:0">Admin · entity image display</h3>'+
+  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">My account · Global.Church vault</h3>'+
+   '<p class="hint">Your connected identity\\'s personal data, read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the scoped delegation your Global.Church home minted at sign-in (your app signs nothing). Note: the demo seeds <b>mock fixtures</b>, not real PII.</p>'+
+   '<div id="acctview"><div class="muted" style="font-size:13px">'+(isConnected()?'loading…':'Connect (top-right) to view your account.')+'</div></div></div>'+
+   '<div class="card admin"><h3 class="muted" style="margin-top:0">Admin · entity image display</h3>'+
    '<p class="hint">Every canonical person / place / event can carry two portraits: the <b>source</b> image (Wikimedia Commons, with attribution) and a <b>consistent app-style render</b>. The app style is currently derived from the source for a uniform look; a generative backfill can replace it per entity (the <span class="mono">image_styled_url</span> column).</p>'+
    opt('both','Show both','Source + app-style render side by side (default).')+
    opt('original','Original only','Unmodified Wikimedia Commons image.')+
@@ -536,6 +545,25 @@ function admin(){
   document.querySelectorAll('.admin label').forEach(l=>l.onclick=()=>{localStorage.setItem(IMG_KEY,l.dataset.m);admin();});
   const thr=document.getElementById('ithr');thr.onchange=()=>loadIntegrity(thr.value);
   loadIntegrity(thr.value);
+  loadAccount();
+}
+// Read the connected user's PII from THEIR demo-mcp vault, via the demo-a2a relayer, using the
+// delegation their Global.Church home minted at sign-in (re-presented; no extra signature).
+async function loadAccount(){
+  const el=document.getElementById('acctview');if(!el)return;
+  if(!isConnected()){el.innerHTML='<div class="muted" style="font-size:13px">Connect (top-right) to view your account.</div>';return;}
+  if(!session.delegation){el.innerHTML='<div class="muted" style="font-size:13px">Your session has no delegation — Disconnect &amp; Connect again to grant vault access.</div>';return;}
+  el.innerHTML='<div class="ghint" style="padding:8px">reading your vault…</div>';
+  try{
+    const cj=await fetch(DEMO_A2A_BASE+'/auth/csrf',{credentials:'include'}).then(r=>r.json());
+    const tok=cj.token||cj.csrfToken||cj.csrf||'';
+    const r=await fetch(DEMO_A2A_BASE+'/mcp/person/pii',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({delegation:session.delegation,requester:session.delegation.delegate})}).then(x=>x.json());
+    if(!r||!r.ok)throw new Error((r&&(r.detail||r.error))||'vault read failed');
+    const rec=r.record||{};const ks=Object.keys(rec);
+    el.innerHTML=(ks.length?'<table class="acct">'+ks.map(k=>'<tr><td class="muted">'+esc(k.split('_').join(' '))+'</td><td>'+esc(rec[k]==null?'—':String(rec[k]))+'</td></tr>').join('')+'</table>':'<div class="muted">No PII record.</div>')+
+      '<div class="hint" style="margin-top:6px">subject <b>'+esc(r.subject_name||'')+'</b> <span class="mono">'+esc((r.subject||'').slice(0,16))+'…</span> · served by <span class="mono">'+esc(r.served_by||'demo-mcp')+'</span> · via delegation '+esc((session.delegation.delegator||'').slice(0,10))+'…→'+esc((session.delegation.delegate||'').slice(0,10))+'…</div>';
+  }catch(e){el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read your vault: '+esc(e&&e.message?e.message:String(e))+'</div>'+
+    '<div class="hint" style="margin-top:5px">For this to work, the deployed <b>demo-a2a</b> must allow-list this app\\'s origin (<span class="mono">'+esc(location.origin)+'</span>) in its <span class="mono">ALLOWED_ORIGINS</span> (CSRF + CORS).</div>';}
 }
 async function loadIntegrity(max){
   const d=await api('/integrity?max='+encodeURIComponent(max));
