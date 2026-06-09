@@ -95,6 +95,8 @@ svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10p
 .vmodal{display:none;position:fixed;inset:0;z-index:3000;background:rgba(20,30,50,.45);align-items:center;justify-content:center;padding:20px}
 .imodal{display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.86);align-items:center;justify-content:center;padding:18px;cursor:zoom-out}
 .imodal img{max-width:96vw;max-height:94vh;border-radius:8px;box-shadow:0 12px 50px rgba(0,0,0,.6)}
+.ihover{display:none;position:fixed;z-index:5000;pointer-events:none;border:2px solid #fff;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.45);overflow:hidden;background:#000}
+.ihover img{display:block;max-width:560px;max-height:400px}
 .vmodal.on{display:flex}
 .vmodal .box{background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:82vh;overflow:auto;padding:18px 22px;box-shadow:0 14px 44px rgba(20,30,50,.32)}
 .vmodal h3{margin:0 0 2px;font-size:18px}
@@ -184,6 +186,7 @@ svg#tsvg{display:block;background:#fbfcfe}
 <div id="htip" class="gtip"></div>
 <div id="vmodal" class="vmodal"></div>
 <div id="imgmodal" class="imodal" onclick="closeImg()"><img id="imgmodalImg" alt=""/></div>
+<div id="imghover" class="ihover"><img id="imghoverImg" alt=""/></div>
 </div>
 <script>
 const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b',interaction:'#db2777',speechact:'#db2777',plan:'#0891b2',step:'#14b8a6'};
@@ -202,7 +205,7 @@ function portrait(n){
   const m=imgMode();
   detImgFull=n.image_url||n.image_thumb;
   const cap=[n.image_license,n.image_attr].filter(Boolean).map(esc).join(' · ');
-  const orig='<div class="portrait"><div class="tag">source</div><figure><img loading="lazy" src="'+esc(n.image_thumb)+'" alt="'+esc(n.label)+'" onclick="openImg(detImgFull)" style="cursor:zoom-in" title="click for full image"/><figcaption>'+(cap||'Wikimedia')+'<br>via Wikimedia Commons</figcaption></figure></div>';
+  const orig='<div class="portrait"><div class="tag">source</div><figure><img loading="lazy" src="'+esc(n.image_thumb)+'" alt="'+esc(n.label)+'" onclick="openImg(detImgFull)" onmouseenter="imgHover(this.src,event)" onmousemove="imgHoverMove(event)" onmouseleave="imgHoverOut()" style="cursor:zoom-in" title="hover to preview · click for full"/><figcaption>'+(cap||'Wikimedia')+'<br>via Wikimedia Commons</figcaption></figure></div>';
   const sty='<div class="portrait styled"><div class="tag">app style</div><figure><div class="frame"><img loading="lazy" src="'+esc(styledSrc(n))+'" alt="'+esc(n.label)+'"/></div><figcaption>consistent render'+(n.image_styled_url?'':' (derived)')+'</figcaption></figure></div>';
   return '<div class="portrait-wrap">'+(m==='original'?orig:m==='styled'?sty:orig+sty)+'</div>';
 }
@@ -338,6 +341,10 @@ let geoImgFull={},detImgFull='';
 function openImg(u){if(!u)return;const m=document.getElementById('imgmodal'),i=document.getElementById('imgmodalImg');if(!m||!i)return;i.src=u;m.style.display='flex';}
 function openImgFor(id){openImg(geoImgFull[id]);}
 function closeImg(){const m=document.getElementById('imgmodal');if(m)m.style.display='none';}
+function fullFromThumb(s){return s&&/\/img\/.+-thumb\.jpe?g$/i.test(s)?s.replace(/-thumb(\.jpe?g)$/i,'$1'):s;}
+function imgHover(src,ev){const m=document.getElementById('imghover'),i=document.getElementById('imghoverImg');if(!m||!i||!src)return;const f=fullFromThumb(src);if(i.getAttribute('src')!==f)i.src=f;m.style.display='block';imgHoverMove(ev);}
+function imgHoverMove(ev){const m=document.getElementById('imghover');if(!m||m.style.display!=='block')return;const x=ev.clientX,y=ev.clientY,w=580,h=420;let l=x+18,t=y+18;if(l+w>innerWidth)l=Math.max(8,x-w-18);if(t+h>innerHeight)t=Math.max(8,innerHeight-h-8);m.style.left=l+'px';m.style.top=t+'px';}
+function imgHoverOut(){const m=document.getElementById('imghover');if(m)m.style.display='none';}
 document.addEventListener('keydown',(e)=>{if(e.key==='Escape')closePassage();});
 
 async function render(){
@@ -461,7 +468,7 @@ async function explore(){
   const run=async(pick)=>{const term=q.value.trim();const res=document.getElementById('res');
     if(term.length<2&&!expKind&&!expTrust&&!bookFilter){res.innerHTML='';const det=document.getElementById('detail');if(det)det.innerHTML='';return;}
     const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):'')+(expSub?'&sub='+encodeURIComponent(expSub)+'&subdim='+expSubdim:'')+(expSort?'&sort='+expSort:'')+(expTrust?'&trust='+expTrust:'')+(bookFilter?'&book='+bookFilter:'')+'&page='+expPage);
-    const list=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b>'+tind(r)+' '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind||expTrust?' for this filter':'')+'.</div>';
+    const list=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'" onmouseenter="imgHover(this.src,event)" onmousemove="imgHoverMove(event)" onmouseleave="imgHoverOut()"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b>'+tind(r)+' '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind||expTrust?' for this filter':'')+'.</div>';
     const pager=(d.more||expPage>0)?'<div class="gchips" style="margin-top:10px;align-items:center">'+(expPage>0?'<span class="gchip mini" id="pprev">← Prev</span>':'')+'<span class="muted" style="font-size:11px;margin:0 7px">page '+(expPage+1)+'</span>'+(d.more?'<span class="gchip mini" id="pnext">Next →</span>':'')+'</div>':'';
     res.innerHTML=list+pager;
     const pv=document.getElementById('pprev'),nx=document.getElementById('pnext');
@@ -689,7 +696,7 @@ async function geo(){
   const sigC=(n,def)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':def;
   const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);if(!r.length)return '';const more=(n.v||0)>r.length?' <span style="font:11px ui-monospace,monospace;color:#8a96a3">…+'+((n.v||0)-r.length)+'</span>':'';return '<div style="margin-top:5px">'+r.map(o=>{const bk=bookFilter&&String(o).indexOf(bookFilter+'.')===0;return '<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:'+(bk?'#fff3c4':'#eef2fb')+';color:'+(bk?'#7a5c00':'#3a4a63')+';border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none;'+(bk?'font-weight:700':'')+'">'+esc(o)+'</a>';}).join('')+more+'</div>';};
   d.places.forEach(p=>{if(p.imgFull||p.img)geoImgFull[p.id]=p.imgFull||p.img;});
-  const pimg=(n)=>n.img?'<img src="'+esc(n.img)+'" onclick="openImgFor(\\''+n.id+'\\')" title="click for full image" style="width:100%;max-width:280px;border-radius:6px;margin-bottom:6px;cursor:zoom-in;display:block"/>':'';
+  const pimg=(n)=>n.img?'<img src="'+esc(n.img)+'" onclick="openImgFor(\\''+n.id+'\\')" onmouseenter="imgHover(this.src,event)" onmousemove="imgHoverMove(event)" onmouseleave="imgHoverOut()" title="hover to preview · click for full" style="width:100%;max-width:280px;border-radius:6px;margin-bottom:6px;cursor:zoom-in;display:block"/>':'';
   const pop=(n,ex)=>pimg(n)+'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
   const placeG=L.layerGroup();
   const markerById={},regionG=L.layerGroup();
