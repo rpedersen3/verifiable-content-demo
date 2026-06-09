@@ -182,8 +182,8 @@ svg#tsvg{display:block;background:#fbfcfe}
  <button data-t="geo">Map</button>
  <button data-t="timeline">Timeline</button>
  <button data-t="oikos">Oikos</button>
+ <button data-t="graph">Graph</button>
  <button data-t="generations">Generations</button>
- <button data-t="graph">Trust Graph</button>
  <span class="nav-sep"></span>
  <button data-t="classes" class="nav-util">Class Browser</button>
  <button data-t="validate" class="nav-util">Validate GCO</button>
