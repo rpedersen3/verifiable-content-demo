@@ -271,7 +271,7 @@ function scoreBars(scores){
       return name+'<div class="sbar bipolar"'+dt+'><span class="mid"></span><i style="left:'+left+'%;width:'+w+'%;background:'+col+'"></i></div><div class="sval" style="color:'+col+'"'+dt+'>'+vs+'</div>';}
     return name+'<div class="sbar"'+dt+'><i style="left:0;width:'+Math.round(v*100)+'%;background:'+SCOL[d]+'"></i></div><div class="sval"'+dt+'>'+v.toFixed(2)+'</div>';
   }).join('');
-  return '<h3 class="muted" style="margin-top:16px">trust signals</h3><div class="scores">'+rows+'</div>';
+  return '<h3 class="muted" style="margin-top:16px">Trust Graph</h3><div class="scores">'+rows+'</div>';
 }
 
 // ── hash routing: every view is a URL route so browser back/forward works ──
@@ -486,7 +486,7 @@ async function explore(){
     if(showT){document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;expPage=0;drawCtl();run();});
     document.querySelectorAll('#tctl2 [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;expPage=0;drawCtl();run();});}};
   drawCtl();
-  const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
+  const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['concept','Roles & concepts']];
   const FKC={'':'#64748b',person:KC.person,organization:KC.organization,activity:KC.event,place:KC.place,deity:KC.deity,concept:KC.concept};
   const kc=document.getElementById('kfil');
   const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0],cnt=bookFilter&&bookFacets[k[0]]!=null?' <span class="'+(on?'':'muted')+'" style="font-size:11px">'+bookFacets[k[0]]+'</span>':'';return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+cnt+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;q.value='';expPage=0;expSub='';expSubdim='';expSort='';expTrust='';drawChips();drawCtl();loadSubs();run();});};
@@ -522,7 +522,7 @@ async function renderNode(id){
   const inBookN=bookFilter?(d.inBookCount!=null?d.inBookCount:d.verses.filter(v=>String(v).indexOf(bookFilter+'.')===0).length):0;
   const vlist=bookFilter?d.verses.slice().sort((a,b)=>(String(b).indexOf(bookFilter+'.')===0?1:0)-(String(a).indexOf(bookFilter+'.')===0?1:0)):d.verses;
   det.innerHTML='<div class="card"><h2>'+dot(n.kind)+esc(n.label)+'</h2>'+idrow(n)+portrait(n)+
-   '<div>'+cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join('')+'</div>'+temporal+geo+sigs+scoreBars(d.scores)+
+   '<div style="margin:2px 0 6px;line-height:2">'+((d.classChain&&d.classChain.length)?d.classChain.map((c,i)=>'<span title="inheritance" style="font:11px ui-monospace,monospace;background:'+(i===d.classChain.length-1?'#dbe8ff;color:#1d4ed8;font-weight:700':'#eef2fb;color:#3a4a63')+';border-radius:5px;padding:2px 7px;white-space:nowrap">'+esc(c.curie)+'</span>').join('<span style="color:#94a3b8;margin:0 3px">›</span>'):cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join(''))+'</div>'+temporal+geo+sigs+scoreBars(d.scores)+
    (d.out.length?'<h3 class="muted" style="margin-top:16px">relationships</h3>'+grp(d.out,'out'):'')+
    (d.in.length?grp(d.in,'in'):'')+
    '<h3 class="muted" style="margin-top:16px">attested in '+(d.verseCount!=null?d.verseCount:d.verses.length)+' verses <span style="font-weight:400;text-transform:none">· click to read'+(bookFilter?' · <b style="color:#7a5c00">'+inBookN+' in '+esc(ibName)+'</b>':'')+((()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.verseMatch==='name'?' · matched by name (approximate)':'';})())+'</span></h3><div class="verses">'+vlist.map(v=>'<span class="vref'+(bookFilter&&String(v).indexOf(bookFilter+'.')===0?' bk':'')+'" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+

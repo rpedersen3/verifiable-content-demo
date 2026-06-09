@@ -182,7 +182,21 @@ app.get('/api/node/:id', async (c) => {
     rows(c.env.DB, 'SELECT scheme, value, uri, relation, match_confidence, source_id FROM xref WHERE node_id=? ORDER BY scheme', id),
     rows(c.env.DB, 'SELECT ns.source_id, s.name, s.abbrev, s.url, s.license, ns.src_ref, ns.confidence FROM node_source ns JOIN source s ON s.source_id=ns.source_id WHERE ns.node_id=? ORDER BY ns.confidence DESC', id),
   ]);
-  return c.json({ ok: true, node, out, in: inc, verses: verses.map((v) => v.osis), verseCount: vc?.n ?? verses.length, inBookCount: inBook?.n ?? 0, signals, scores, forms: formsR, xrefs: xrefsR, sources: sourcesR });
+  // Full inheritance chain from the node's most-specific class up to the root (root → leaf),
+  // so an org shows prov:Organization → org:Organization → org:FormalOrganization → gc:Nation
+  // instead of a flat set of facets.
+  const nd = node as Record<string, unknown>;
+  const leaf = (nd.gc_class || nd.aps_class || nd.org_class || nd.geo_class || nd.dul_class || nd.prov_class) as string | null;
+  const classChain: { curie: string; label: string }[] = [];
+  if (leaf) {
+    type OC = { curie: string; label: string; parent: string | null };
+    const cls = await rows<OC>(c.env.DB, 'SELECT curie,label,parent FROM ontology_class');
+    const by: Record<string, OC> = {};
+    for (const x of cls) by[x.curie] = x;
+    let cur: string | null = leaf, guard = 0; const seen = new Set<string>();
+    while (cur && guard++ < 24 && !seen.has(cur)) { seen.add(cur); const cc: OC | undefined = by[cur]; if (!cc) { classChain.unshift({ curie: cur, label: cur }); break; } classChain.unshift({ curie: cur, label: cc.label }); cur = cc.parent; }
+  }
+  return c.json({ ok: true, node, out, in: inc, verses: verses.map((v) => v.osis), verseCount: vc?.n ?? verses.length, inBookCount: inBook?.n ?? 0, classChain, signals, scores, forms: formsR, xrefs: xrefsR, sources: sourcesR });
 });
 
 // Ego graph for the trust-graph viz: center + neighbors (typed edges).
