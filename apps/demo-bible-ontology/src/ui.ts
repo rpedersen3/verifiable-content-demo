@@ -344,6 +344,7 @@ let geoImgFull={},detImgFull='';
 function openImg(u){if(!u)return;const m=document.getElementById('imgmodal'),i=document.getElementById('imgmodalImg');if(!m||!i)return;i.src=u;m.style.display='flex';}
 function openImgFor(id){openImg(geoImgFull[id]);}
 function closeImg(){const m=document.getElementById('imgmodal');if(m)m.style.display='none';}
+function scrollTop(){window.scrollTo({top:0,behavior:'smooth'});}
 function fullFromThumb(s){if(!s||s.indexOf('/img/')<0)return s;return s.replace('-thumb.jpg','.jpg').replace('-thumb.jpeg','.jpeg');}
 function imgHover(src,ev){const m=document.getElementById('imghover'),i=document.getElementById('imghoverImg');if(!m||!i||!src)return;const f=fullFromThumb(src);if(i.getAttribute('src')!==f)i.src=f;m.style.display='block';imgHoverMove(ev);}
 function imgHoverMove(ev){const m=document.getElementById('imghover');if(!m||m.style.display!=='block')return;const x=ev.clientX,y=ev.clientY,w=580,h=420;let l=x+18,t=y+18;if(l+w>innerWidth)l=Math.max(8,x-w-18);if(t+h>innerHeight)t=Math.max(8,innerHeight-h-8);m.style.left=l+'px';m.style.top=t+'px';}
@@ -533,7 +534,8 @@ async function renderNode(id){
    (d.out.length?'<h3 class="muted" style="margin-top:16px">relationships</h3>'+grp(d.out,'out'):'')+
    (d.in.length?grp(d.in,'in'):'')+
    '<h3 class="muted" style="margin-top:16px">attested in '+(d.verseCount!=null?d.verseCount:d.verses.length)+' verses <span style="font-weight:400;text-transform:none">· click to read'+(bookFilter?' · <b style="color:#7a5c00">'+inBookN+' in '+esc(ibName)+'</b>':'')+((()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.verseMatch==='name'?' · matched by name (approximate)':'';})())+'</span></h3><div class="verses">'+vlist.map(v=>'<span class="vref'+(bookFilter&&String(v).indexOf(bookFilter+'.')===0?' bk':'')+'" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
-   provHtml(d.sources,n.origin_source)+'</div>';
+   provHtml(d.sources,n.origin_source)+
+   '<div style="margin-top:18px;text-align:center"><a class="link" onclick="scrollTop()" style="font-weight:600;cursor:pointer">↑ Back to top</a></div></div>';
   const htip=document.getElementById('htip');
   det.querySelectorAll('[data-tip]').forEach(el=>{
     el.addEventListener('mouseenter',()=>{htip.style.display='block';htip.innerHTML=el.dataset.tip;});
