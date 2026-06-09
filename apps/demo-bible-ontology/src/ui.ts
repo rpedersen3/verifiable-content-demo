@@ -93,6 +93,8 @@ svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10p
 .verses span{cursor:pointer}.verses span:hover{background:#dbe6fb}
 .verses span.bk{background:#fff3c4;color:#7a5c00;font-weight:700;box-shadow:inset 0 0 0 1px #e3b829}.verses span.bk:hover{background:#ffe89a}
 .vmodal{display:none;position:fixed;inset:0;z-index:3000;background:rgba(20,30,50,.45);align-items:center;justify-content:center;padding:20px}
+.imodal{display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.86);align-items:center;justify-content:center;padding:18px;cursor:zoom-out}
+.imodal img{max-width:96vw;max-height:94vh;border-radius:8px;box-shadow:0 12px 50px rgba(0,0,0,.6)}
 .vmodal.on{display:flex}
 .vmodal .box{background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:82vh;overflow:auto;padding:18px 22px;box-shadow:0 14px 44px rgba(20,30,50,.32)}
 .vmodal h3{margin:0 0 2px;font-size:18px}
@@ -181,6 +183,7 @@ svg#tsvg{display:block;background:#fbfcfe}
 <div id="view"></div>
 <div id="htip" class="gtip"></div>
 <div id="vmodal" class="vmodal"></div>
+<div id="imgmodal" class="imodal" onclick="closeImg()"><img id="imgmodalImg" alt=""/></div>
 </div>
 <script>
 const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b',interaction:'#db2777',speechact:'#db2777',plan:'#0891b2',step:'#14b8a6'};
@@ -197,8 +200,9 @@ const styledSrc=(n)=>n.image_styled_url||n.image_thumb;     // generative backfi
 function portrait(n){
   if(!n||!n.image_thumb)return '';
   const m=imgMode();
+  detImgFull=n.image_url||n.image_thumb;
   const cap=[n.image_license,n.image_attr].filter(Boolean).map(esc).join(' · ');
-  const orig='<div class="portrait"><div class="tag">source</div><figure><img loading="lazy" src="'+esc(n.image_thumb)+'" alt="'+esc(n.label)+'"/><figcaption>'+(cap||'Wikimedia')+'<br>via Wikimedia Commons</figcaption></figure></div>';
+  const orig='<div class="portrait"><div class="tag">source</div><figure><img loading="lazy" src="'+esc(n.image_thumb)+'" alt="'+esc(n.label)+'" onclick="openImg(detImgFull)" style="cursor:zoom-in" title="click for full image"/><figcaption>'+(cap||'Wikimedia')+'<br>via Wikimedia Commons</figcaption></figure></div>';
   const sty='<div class="portrait styled"><div class="tag">app style</div><figure><div class="frame"><img loading="lazy" src="'+esc(styledSrc(n))+'" alt="'+esc(n.label)+'"/></div><figcaption>consistent render'+(n.image_styled_url?'':' (derived)')+'</figcaption></figure></div>';
   return '<div class="portrait-wrap">'+(m==='original'?orig:m==='styled'?sty:orig+sty)+'</div>';
 }
@@ -330,6 +334,10 @@ async function openPassage(osis){
   box.scrollTop=0;const hot=box.querySelector('.vrow.hot');if(hot)setTimeout(()=>hot.scrollIntoView({block:'center'}),40);
 }
 function closePassage(){const m=document.getElementById('vmodal');if(m)m.className='vmodal';}
+let geoImgFull={},detImgFull='';
+function openImg(u){if(!u)return;const m=document.getElementById('imgmodal'),i=document.getElementById('imgmodalImg');if(!m||!i)return;i.src=u;m.style.display='flex';}
+function openImgFor(id){openImg(geoImgFull[id]);}
+function closeImg(){const m=document.getElementById('imgmodal');if(m)m.style.display='none';}
 document.addEventListener('keydown',(e)=>{if(e.key==='Escape')closePassage();});
 
 async function render(){
@@ -680,7 +688,9 @@ async function geo(){
   bctl.querySelectorAll('.map-basbtn').forEach((btn,i)=>btn.onclick=()=>{map.removeLayer(activeBase);activeBase=BASEMAPS[i][1];activeBase.addTo(map);bctl.querySelectorAll('.map-basbtn').forEach((b,j)=>b.classList.toggle('on',j===i));});
   const sigC=(n,def)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':def;
   const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);if(!r.length)return '';const more=(n.v||0)>r.length?' <span style="font:11px ui-monospace,monospace;color:#8a96a3">…+'+((n.v||0)-r.length)+'</span>':'';return '<div style="margin-top:5px">'+r.map(o=>{const bk=bookFilter&&String(o).indexOf(bookFilter+'.')===0;return '<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:'+(bk?'#fff3c4':'#eef2fb')+';color:'+(bk?'#7a5c00':'#3a4a63')+';border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none;'+(bk?'font-weight:700':'')+'">'+esc(o)+'</a>';}).join('')+more+'</div>';};
-  const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
+  d.places.forEach(p=>{if(p.imgFull||p.img)geoImgFull[p.id]=p.imgFull||p.img;});
+  const pimg=(n)=>n.img?'<img src="'+esc(n.img)+'" onclick="openImgFor(\\''+n.id+'\\')" title="click for full image" style="width:100%;max-width:280px;border-radius:6px;margin-bottom:6px;cursor:zoom-in;display:block"/>':'';
+  const pop=(n,ex)=>pimg(n)+'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
   const placeG=L.layerGroup();
   const markerById={},regionG=L.layerGroup();
   const triIcon=L.divIcon({className:'reg-tri',html:'<i></i>',iconSize:[16,15],iconAnchor:[8,8]});

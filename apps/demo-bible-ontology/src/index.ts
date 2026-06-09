@@ -4,6 +4,7 @@
 // Ontology against PROV-O and real Bible usage. Verse-linked throughout.
 import { Hono } from 'hono';
 import { UI } from './ui.js';
+import { PLACE_IMG } from './images.js';
 
 interface D1 {
   prepare(q: string): { bind(...a: unknown[]): { first<T = unknown>(): Promise<T | null>; all<T = unknown>(): Promise<{ results: T[] }> }; all<T = unknown>(): Promise<{ results: T[] }> };
@@ -24,6 +25,18 @@ const instanceWhere = (classes: string[]) => {
 };
 
 app.get('/', (c) => { c.header('Cache-Control', 'no-cache, must-revalidate'); return c.html(UI); });
+
+// Illustrative place images served from the worker bundle (avoids large data URIs in D1).
+// /img/<place>.jpg = full · /img/<place>-thumb.jpg = thumbnail.
+app.get('/img/:name', (c) => {
+  const raw = c.req.param('name').replace(/\.jpe?g$/i, '');
+  const thumb = raw.endsWith('-thumb');
+  const e = PLACE_IMG[raw.replace(/-thumb$/, '')];
+  if (!e) return c.text('not found', 404);
+  const b64 = thumb ? e.thumb : e.full;
+  const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  return new Response(bytes, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=31536000, immutable' } });
+});
 app.get('/health', (c) => c.json({ ok: true, service: 'demo-bible-ontology' }));
 
 // Overview — totals, PROV-O class counts, GCO→PROV-O alignment tally.
@@ -282,7 +295,7 @@ app.get('/api/geo', async (c) => {
   const refs = (col: string) => `(SELECT group_concat(osis,'|') FROM (SELECT osis FROM node_verse WHERE node_id=${col} ${refsOrd} LIMIT 6)) refs`;
   const inBook = (col: string) => (book ? ` AND ${col} IN (SELECT node_id FROM node_verse WHERE osis LIKE '${book}.%')` : '');
   const [places, events, people] = await Promise.all([
-    rows(c.env.DB, `SELECT id,canon_id,label,lat,long lon,disambig,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v,${refs('node.id')},CASE WHEN json_extract(meta,'$.featureType')='Region' OR json_extract(meta,'$.obTypes') LIKE '%region%' THEN 1 ELSE 0 END region FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL${inBook('node.id')}`),
+    rows(c.env.DB, `SELECT id,canon_id,label,lat,long lon,disambig,image_thumb img,image_url imgFull,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v,${refs('node.id')},CASE WHEN json_extract(meta,'$.featureType')='Region' OR json_extract(meta,'$.obTypes') LIKE '%region%' THEN 1 ELSE 0 END region FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL${inBook('node.id')}`),
     rows(c.env.DB, `SELECT e.id,e.canon_id,e.label,e.t_start tStart,p.lat,p.long lon,p.label place,(SELECT polarity FROM signal WHERE subject_id=e.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=e.id) v,${refs('e.id')} FROM node e JOIN edge ed ON ed.src=e.id AND ed.rel='dul:hasLocation' JOIN node p ON p.id=ed.dst WHERE e.kind='event' AND p.lat IS NOT NULL${inBook('e.id')}`),
     rows(c.env.DB, `SELECT pe.id,pe.canon_id,pe.label,pe.t_start tStart,pe.t_end tEnd,pl.lat,pl.long lon,pl.label place,(SELECT polarity FROM signal WHERE subject_id=pe.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=pe.id) v,${refs('pe.id')} FROM node pe JOIN edge ed ON ed.src=pe.id AND ed.rel='gc:bornAt' JOIN node pl ON pl.id=ed.dst WHERE pe.kind='person' AND pl.lat IS NOT NULL${inBook('pe.id')}`),
   ]);
