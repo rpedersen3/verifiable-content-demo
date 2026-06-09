@@ -260,8 +260,7 @@ function scoreBars(scores){
       return name+'<div class="sbar bipolar"'+dt+'><span class="mid"></span><i style="left:'+left+'%;width:'+w+'%;background:'+col+'"></i></div><div class="sval" style="color:'+col+'"'+dt+'>'+vs+'</div>';}
     return name+'<div class="sbar"'+dt+'><i style="left:0;width:'+Math.round(v*100)+'%;background:'+SCOL[d]+'"></i></div><div class="sval"'+dt+'>'+v.toFixed(2)+'</div>';
   }).join('');
-  return '<h3 class="muted" style="margin-top:16px">trust &amp; alignment signals</h3><div class="scores">'+rows+'</div>'+
-   '<div class="hint">Multi-dimensional trust: <b>good↔evil, wisdom, faithfulness, courage, truthfulness</b> &amp; <b>repentance</b> are <b>curated</b> verse-backed signals (one can be wise but faithless, or courageous but rash); graph, scriptural &amp; source trust are <b>computed</b>. Individual <b>actions</b> (e.g. raising the dead, betrayal) appear as signal chips above.</div>';
+  return '<h3 class="muted" style="margin-top:16px">trust &amp; alignment signals</h3><div class="scores">'+rows+'</div>';
 }
 
 // ── hash routing: every view is a URL route so browser back/forward works ──
@@ -492,7 +491,7 @@ async function renderNode(id){
   const sigs=(d.signals&&d.signals.length)?'<div style="margin-top:8px">'+d.signals.map(s=>'<span class="chip" style="'+sigCss(s.polarity)+'">'+(s.polarity==='positive'?'＋':s.polarity==='negative'?'－':'~')+' '+esc(s.basis)+(s.osis?' · <a class="vref" onclick="openPassage(\\''+esc(s.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(s.osis)+'</a>':'')+'</span>').join('')+'</div>':'';
   const det=document.getElementById('detail')||V;
   det.innerHTML='<div class="card"><h2>'+dot(n.kind)+esc(n.label)+'</h2>'+idrow(n)+portrait(n)+
-   '<div>'+cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join('')+'</div>'+temporal+geo+sigs+scoreBars(d.scores)+formsHtml(d.forms)+xrefsHtml(d.xrefs)+
+   '<div>'+cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join('')+'</div>'+temporal+geo+sigs+scoreBars(d.scores)+
    (d.out.length?'<h3 class="muted" style="margin-top:16px">relationships</h3>'+grp(d.out,'out'):'')+
    (d.in.length?grp(d.in,'in'):'')+
    '<h3 class="muted" style="margin-top:16px">attested in '+d.verses.length+' verses <span style="font-weight:400;text-transform:none">· click to read'+((()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.verseMatch==='name'?' · matched by name (approximate)':'';})())+'</span></h3><div class="verses">'+d.verses.map(v=>'<span class="vref" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
