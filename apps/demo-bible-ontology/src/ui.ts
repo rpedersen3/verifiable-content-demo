@@ -713,7 +713,7 @@ async function geo(){
     map.addSource('regions',{type:'geojson',data:fc(rf)});
     map.addSource('events',{type:'geojson',data:fc(ef)});
     map.addSource('people',{type:'geojson',data:fc(ppf)});
-    map.addLayer({id:'places',type:'circle',source:'places',paint:{'circle-radius':['+',['min',9,['+',3,['sqrt',['max',1,['get','v']]]]],['*',2,['get','hasimg']]],'circle-color':['case',['==',['get','hasimg'],1],'#cfe0ff','#aab4c2'],'circle-stroke-color':['case',['==',['get','hasimg'],1],'#2f6df0','#7c8696'],'circle-stroke-width':['case',['==',['get','hasimg'],1],2,1],'circle-opacity':0.92}});
+    map.addLayer({id:'places',type:'circle',source:'places',paint:{'circle-radius':['min',9,['+',3,['sqrt',['max',1,['get','v']]]]],'circle-color':'#aab4c2','circle-stroke-color':'#7c8696','circle-stroke-width':1,'circle-opacity':0.92}});
     map.addLayer({id:'regions',type:'circle',source:'regions',layout:{visibility:'none'},paint:{'circle-radius':6,'circle-color':'#e8a44d','circle-stroke-color':'#c47d2e','circle-stroke-width':1.5,'circle-opacity':0.85}});
     map.addLayer({id:'events',type:'circle',source:'events',paint:{'circle-radius':['min',11,['+',4,['sqrt',['max',1,['get','v']]]]],'circle-color':sigColor,'circle-stroke-color':'#fff','circle-stroke-width':1,'circle-opacity':0.95}});
     map.addLayer({id:'people',type:'circle',source:'people',layout:{visibility:'none'},paint:{'circle-radius':6,'circle-color':sigColorP,'circle-stroke-color':'#fff','circle-stroke-width':1,'circle-opacity':0.95}});
