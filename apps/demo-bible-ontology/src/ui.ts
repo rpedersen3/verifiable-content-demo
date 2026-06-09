@@ -449,23 +449,23 @@ async function explore(){
     const pv=document.getElementById('pprev'),nx=document.getElementById('pnext');
     if(pv)pv.onclick=()=>{expPage=Math.max(0,expPage-1);run();};
     if(nx)nx.onclick=()=>{expPage++;run();};
-    if(pick&&d.results.length)renderNode(d.results[0].id); else if(!d.results.length){const det=document.getElementById('detail');if(det)det.innerHTML='';}
+    const det=document.getElementById('detail');if(det)det.innerHTML='';
   };
   const SORTS=[['','Relevance'],['good','Most good'],['evil','Most evil'],['wisdom','Wisest'],['courage','Most courageous'],['faithfulness','Most faithful'],['truthfulness','Most truthful'],['repentance','Most repentant'],['signals','Most signals']];
   const TRUSTS=[['','Any'],['pos','Positive'],['neg','Negative'],['signals','Has signals']];
   const drawCtl=()=>{document.getElementById('tctl').innerHTML=
     '<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('')+
     '<span class="muted" style="font-size:11px;margin:0 3px 0 12px">trust</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('');
-    document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;expPage=0;drawCtl();run(true);});
-    document.querySelectorAll('#tctl [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;expPage=0;drawCtl();run(true);});};
+    document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;expPage=0;drawCtl();run();});
+    document.querySelectorAll('#tctl [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;expPage=0;drawCtl();run();});};
   drawCtl();
   const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
   const FKC={'':'#64748b',person:KC.person,organization:KC.organization,activity:KC.event,place:KC.place,deity:KC.deity,concept:KC.concept};
   const kc=document.getElementById('kfil');
-  const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0];return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;q.value='';expPage=0;drawChips();run(true);});};
+  const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0];return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;q.value='';expPage=0;drawChips();run();});};
   drawChips();
   let timer;q.oninput=()=>{clearTimeout(timer);expPage=0;timer=setTimeout(run,180);};
-  if(expKind||expTrust)run(true);
+  if(expKind||expTrust)run();
 }
 function showNode(id){nav('node/'+id);}
 function showNodeTab(id){nav('node/'+id);}
