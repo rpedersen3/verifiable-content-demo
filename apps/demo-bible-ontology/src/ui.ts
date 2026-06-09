@@ -438,7 +438,8 @@ async function explore(){
   V.innerHTML='<div class="card"><input id="q" placeholder="Search by name or alias… (e.g. Peter, David, Jerusalem, Exodus)"/>'+
    '<div class="gchips" id="kfil" style="margin-top:10px"></div>'+
    '<div class="gchips" id="subfil" style="margin-top:6px;align-items:center"></div>'+
-   '<div class="gchips" id="tctl" style="margin-top:6px;align-items:center"></div>'+
+   '<div class="gchips" id="tctl" style="margin-top:6px;align-items:center;justify-content:flex-start"></div>'+
+   '<div class="gchips" id="tctl2" style="margin-top:6px;align-items:center;justify-content:flex-start"></div>'+
    '<div id="res"></div></div><div id="detail"></div>';
   const q=document.getElementById('q');q.focus();
   const run=async(pick)=>{const term=q.value.trim();const res=document.getElementById('res');
@@ -455,10 +456,11 @@ async function explore(){
   const SORTS=[['','Relevance'],['wisdom','Wisest'],['courage','Most courageous'],['faithfulness','Most faithful'],['truthfulness','Most truthful'],['repentance','Most repentant'],['signals','Most signals']];
   const TRUSTS=[['','Any'],['pos','Positive'],['neg','Negative'],['signals','Has signals']];
   const drawCtl=()=>{document.getElementById('tctl').innerHTML=
-    '<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('')+
-    '<span class="muted" style="font-size:11px;margin:0 3px 0 12px">trust</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('');
+    '<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('');
+    document.getElementById('tctl2').innerHTML=
+    '<span class="muted" style="font-size:11px;margin-right:3px">trust</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('');
     document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;expPage=0;drawCtl();run();});
-    document.querySelectorAll('#tctl [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;expPage=0;drawCtl();run();});};
+    document.querySelectorAll('#tctl2 [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;expPage=0;drawCtl();run();});};
   drawCtl();
   const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
   const FKC={'':'#64748b',person:KC.person,organization:KC.organization,activity:KC.event,place:KC.place,deity:KC.deity,concept:KC.concept};
