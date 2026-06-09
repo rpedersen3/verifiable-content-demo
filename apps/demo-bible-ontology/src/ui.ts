@@ -451,7 +451,7 @@ async function explore(){
     if(nx)nx.onclick=()=>{expPage++;run();};
     const det=document.getElementById('detail');if(det)det.innerHTML='';
   };
-  const SORTS=[['','Relevance'],['good','Most good'],['evil','Most evil'],['wisdom','Wisest'],['courage','Most courageous'],['faithfulness','Most faithful'],['truthfulness','Most truthful'],['repentance','Most repentant'],['signals','Most signals']];
+  const SORTS=[['','Relevance'],['wisdom','Wisest'],['courage','Most courageous'],['faithfulness','Most faithful'],['truthfulness','Most truthful'],['repentance','Most repentant'],['signals','Most signals']];
   const TRUSTS=[['','Any'],['pos','Positive'],['neg','Negative'],['signals','Has signals']];
   const drawCtl=()=>{document.getElementById('tctl').innerHTML=
     '<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('')+
