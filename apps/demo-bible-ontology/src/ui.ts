@@ -56,6 +56,7 @@ nav button.nav-util.on{background:#eef2fb;color:var(--accent);border-color:var(-
 .map-search ul.list{margin:0}.map-search ul.list li{padding:6px 10px;font-size:13px}
 .mlhov .maplibregl-popup-content{padding:7px 8px 6px;border-radius:8px;box-shadow:0 5px 16px rgba(20,30,50,.2)}
 .mlhov .maplibregl-popup-tip{display:none}
+.dcrumb{margin:0 0 12px}.dcrumb a{font-weight:600;font-size:13px;background:#eef2fb;color:var(--accent);border:1px solid #d7e2f7;border-radius:8px;padding:6px 12px;display:inline-block;text-decoration:none;cursor:pointer}.dcrumb a:hover{background:#dde7fb}
 .reg-tri i{display:block;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:14px solid #c47d2e;opacity:.8}
 .combo{position:relative;max-width:400px}
 .combo>input{width:100%;padding-right:30px}
@@ -510,6 +511,7 @@ async function explore(){
 function showNode(id){nav('node/'+id);}
 function showNodeTab(id){nav('node/'+id);}
 function oikosFor(id){nav('oikos/'+id);}
+function backCrumb(id,label){return id?'<div class="dcrumb"><a onclick="nav(\\'node/'+id+'\\')">← Back to '+esc(label||'entity')+' details</a></div>':'';}
 function genMovementFor(id){genRels='gc:discipled,gc:planted';nav('generations/'+id);}
 async function renderNode(id){
   const d=await api('/node/'+encodeURIComponent(id)+(bookFilter?'?book='+bookFilter:''));if(!d.ok)return;
@@ -531,7 +533,11 @@ async function renderNode(id){
    (d.in.length?grp(d.in,'in'):'')+
    '<h3 class="muted" style="margin-top:16px">attested in '+(d.verseCount!=null?d.verseCount:d.verses.length)+' verses <span style="font-weight:400;text-transform:none">· click to read'+(bookFilter?' · <b style="color:#7a5c00">'+inBookN+' in '+esc(ibName)+'</b>':'')+((()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.verseMatch==='name'?' · matched by name (approximate)':'';})())+'</span></h3><div class="verses">'+vlist.map(v=>'<span class="vref'+(bookFilter&&String(v).indexOf(bookFilter+'.')===0?' bk':'')+'" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
    provHtml(d.sources,n.origin_source)+
-   '<div class="hint"><a class="link" onclick="graphFor(\\''+n.id+'\\')">→ trust graph</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="oikosFor(\\''+n.id+'\\')">→ oikos circles</a>':'')+' &nbsp;·&nbsp; <a class="link" onclick="nav(\\'generations/'+n.id+'\\')">→ generations</a>'+(n.kind==='person'?' &nbsp;·&nbsp; <a class="link" onclick="genMovementFor(\\''+n.id+'\\')">→ movement (plants &amp; disciples)</a>':'')+'</div></div>';
+   '<div style="margin-top:16px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="muted" style="font-size:11px;margin-right:2px">explore in →</span>'+
+   '<span class="gchip" style="cursor:pointer" onclick="graphFor(\\''+n.id+'\\')">⬡ Graph</span>'+
+   (n.kind==='person'?'<span class="gchip" style="cursor:pointer" onclick="oikosFor(\\''+n.id+'\\')">◎ Oikos</span>':'')+
+   '<span class="gchip" style="cursor:pointer" onclick="nav(\\'generations/'+n.id+'\\')">⋔ Generations</span>'+
+   (n.kind==='person'?'<span class="gchip" style="cursor:pointer" onclick="genMovementFor(\\''+n.id+'\\')">↳ Movement</span>':'')+'</div></div>';
   const htip=document.getElementById('htip');
   det.querySelectorAll('[data-tip]').forEach(el=>{
     el.addEventListener('mouseenter',()=>{htip.style.display='block';htip.innerHTML=el.dataset.tip;});
@@ -557,7 +563,7 @@ function shp(kind,x,y,r){const f=KC[kind]||'#888';
  return '<circle cx="'+x+'" cy="'+y+'" r="'+r+'" fill="'+f+'"/>';}
 function badge(x,y,r,sig){if(!sig)return '';const bx=x+r*0.72,by=y-r*0.72;if(sig==='mixed')return '<circle cx="'+bx+'" cy="'+by+'" r="5" fill="#1a8a4f" stroke="#fff"/><path d="M'+bx+' '+(by-5)+' A5 5 0 0 1 '+bx+' '+(by+5)+' Z" fill="#c0392b"/>';return '<circle cx="'+bx+'" cy="'+by+'" r="5" fill="'+sigCol[sig]+'" stroke="#fff" stroke-width="1"/>';}
 async function graph(){
-  V.innerHTML='<div class="card"><input id="gq" placeholder="Center on a person/org/event… (e.g. Jesus, Paul, Nation of Israel)"/><div id="gres"></div><div id="gwrap"></div></div><div id="gtip" class="gtip"></div>';
+  V.innerHTML='<div class="card"><div id="gcrumb"></div><input id="gq" placeholder="Center on a person/org/event… (e.g. Jesus, Paul, Nation of Israel)"/><div id="gres"></div><div id="gwrap"></div></div><div id="gtip" class="gtip"></div>';
   const gq=document.getElementById('gq');
   let timer;gq.oninput=()=>{clearTimeout(timer);timer=setTimeout(async()=>{
     const r=document.getElementById('gres');
@@ -573,6 +579,7 @@ async function drawGraph(){
   const wrap=document.getElementById('gwrap');wrap.innerHTML='<div class="ghint">loading…</div>';
   const d=await api('/graph?center='+encodeURIComponent(graphCenter));if(!d.ok){wrap.innerHTML='<div class="ghint">could not load this node</div>';return;}
   const W=1040,H=560,cx=500,cy=280,center=d.center,byId={};d.nodes.forEach(n=>byId[n.id]=n);
+  {const gc=document.getElementById('gcrumb');if(gc)gc.innerHTML=backCrumb(center,(byId[center]||{}).label);}
   const famByNode={},relByNode={};
   d.edges.forEach(e=>{const nb=e.from===center?e.to:e.from;if(nb===center)return;famByNode[nb]=famByNode[nb]||famOf(e.rel);relByNode[nb]=relByNode[nb]||e.rel;});
   let neighbors=d.nodes.filter(n=>n.id!==center).filter(n=>!gFilters[famByNode[n.id]]);
@@ -783,7 +790,7 @@ let oikosCenter=null,oikosOrgs=false,oikosLabel='';
 const RING=[{label:'Family (oikos)',color:'#e87c3e',r:120},{label:'Household & kin',color:'#0d9488',r:212},{label:'Network & conversations',color:'#9333ea',r:300}];
 function ringOf(rel){if(/hasParent|hasChild|hasSibling|hasPartner|hasRelative/.test(rel))return 0;if(/memberOf|hasMember|holdsRole|bornAt|diedAt|hasResponsibility|hasSkill|hasMembership|org:member|org:organization|org:role|companionOf/.test(rel))return 1;return 2;}
 async function oikos(){
-  V.innerHTML='<div class="card"><div class="sec-head">Oikos · relationship circles</div>'+
+  V.innerHTML='<div class="card"><div id="ocrumb"></div><div class="sec-head">Oikos · relationship circles</div>'+
    '<div class="combo"><input id="oq" autocomplete="off" placeholder="Center on a person… (click to choose)"/><div id="ores" class="combo-menu"></div></div>'+
    '<div style="margin:10px 0 2px"><button id="oorg" class="map-basbtn'+(oikosOrgs?' on':'')+'" style="border:1px solid var(--line);border-radius:8px">⛪ Include organizations (churches, tribes…)</button></div>'+
    '<div id="owrap"></div></div><div id="otip" class="gtip"></div>';
@@ -799,6 +806,7 @@ async function oikos(){
   if(!oikosCenter){const d=await api('/search?q=Paul&kind=person');oikosCenter=(((d.results||[]).find(x=>x.label==='Paul'))||(d.results||[])[0]||{}).id;oikosLabel='Paul';}
   if(oikosLabel)oq.value=oikosLabel;
   else{const cn=await api('/node/'+oikosCenter);const nn=(cn&&cn.node)||cn||{};if(nn.label){oikosLabel=nn.label+(nn.disambig?' · '+nn.disambig:'');oq.value=oikosLabel;}}
+  {const oc=document.getElementById('ocrumb');if(oc)oc.innerHTML=backCrumb(oikosCenter,oikosLabel);}
   drawOikos();
 }
 async function drawOikos(){
