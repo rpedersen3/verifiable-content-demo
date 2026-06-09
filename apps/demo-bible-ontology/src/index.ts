@@ -121,7 +121,7 @@ app.get('/api/bookfacets', async (c) => {
   const rk = await rows<{ kind: string; n: number }>(c.env.DB, 'SELECT kind, count(*) n FROM node WHERE id IN (SELECT node_id FROM node_verse WHERE osis LIKE ?) GROUP BY kind', `${book}.%`);
   const map: Record<string, string> = { person: 'person', organization: 'organization', place: 'place', deity: 'deity', event: 'activity', interaction: 'activity', speechact: 'activity', plan: 'activity', role: 'concept', concept: 'concept', skill: 'concept', responsibility: 'concept' };
   const f: Record<string, number> = { '': 0, person: 0, organization: 0, activity: 0, place: 0, deity: 0, concept: 0 };
-  for (const r of rk) { const g = map[r.kind]; if (g) { f[g] += r.n; f[''] += r.n; } }
+  for (const r of rk) { const g = map[r.kind]; if (g) { f[g] = (f[g] ?? 0) + r.n; f[''] = (f[''] ?? 0) + r.n; } }
   return c.json({ ok: true, facets: f });
 });
 
@@ -274,10 +274,12 @@ app.get('/api/orgs', async (c) => {
 // locations are returned — no fabricated coordinates.
 app.get('/api/geo', async (c) => {
   const refs = (col: string) => `(SELECT group_concat(osis,'|') FROM (SELECT osis FROM node_verse WHERE node_id=${col} LIMIT 6)) refs`;
+  const book = (c.req.query('book') ?? '').trim().replace(/[^A-Za-z0-9]/g, '');
+  const inBook = (col: string) => (book ? ` AND ${col} IN (SELECT node_id FROM node_verse WHERE osis LIKE '${book}.%')` : '');
   const [places, events, people] = await Promise.all([
-    rows(c.env.DB, `SELECT id,canon_id,label,lat,long lon,disambig,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v,${refs('node.id')},CASE WHEN json_extract(meta,'$.featureType')='Region' OR json_extract(meta,'$.obTypes') LIKE '%region%' THEN 1 ELSE 0 END region FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL`),
-    rows(c.env.DB, `SELECT e.id,e.canon_id,e.label,e.t_start tStart,p.lat,p.long lon,p.label place,(SELECT polarity FROM signal WHERE subject_id=e.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=e.id) v,${refs('e.id')} FROM node e JOIN edge ed ON ed.src=e.id AND ed.rel='dul:hasLocation' JOIN node p ON p.id=ed.dst WHERE e.kind='event' AND p.lat IS NOT NULL`),
-    rows(c.env.DB, `SELECT pe.id,pe.canon_id,pe.label,pe.t_start tStart,pe.t_end tEnd,pl.lat,pl.long lon,pl.label place,(SELECT polarity FROM signal WHERE subject_id=pe.id LIMIT 1) sig,${refs('pe.id')} FROM node pe JOIN edge ed ON ed.src=pe.id AND ed.rel='gc:bornAt' JOIN node pl ON pl.id=ed.dst WHERE pe.kind='person' AND pl.lat IS NOT NULL`),
+    rows(c.env.DB, `SELECT id,canon_id,label,lat,long lon,disambig,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v,${refs('node.id')},CASE WHEN json_extract(meta,'$.featureType')='Region' OR json_extract(meta,'$.obTypes') LIKE '%region%' THEN 1 ELSE 0 END region FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL${inBook('node.id')}`),
+    rows(c.env.DB, `SELECT e.id,e.canon_id,e.label,e.t_start tStart,p.lat,p.long lon,p.label place,(SELECT polarity FROM signal WHERE subject_id=e.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=e.id) v,${refs('e.id')} FROM node e JOIN edge ed ON ed.src=e.id AND ed.rel='dul:hasLocation' JOIN node p ON p.id=ed.dst WHERE e.kind='event' AND p.lat IS NOT NULL${inBook('e.id')}`),
+    rows(c.env.DB, `SELECT pe.id,pe.canon_id,pe.label,pe.t_start tStart,pe.t_end tEnd,pl.lat,pl.long lon,pl.label place,(SELECT polarity FROM signal WHERE subject_id=pe.id LIMIT 1) sig,${refs('pe.id')} FROM node pe JOIN edge ed ON ed.src=pe.id AND ed.rel='gc:bornAt' JOIN node pl ON pl.id=ed.dst WHERE pe.kind='person' AND pl.lat IS NOT NULL${inBook('pe.id')}`),
   ]);
   return c.json({ ok: true, places, events, people });
 });
@@ -289,12 +291,14 @@ app.get('/api/timeline', async (c) => {
   const from = parseInt(c.req.query('from') ?? '-4200', 10);
   const to = parseInt(c.req.query('to') ?? '120', 10);
   const evCap = Math.min(300, Math.max(20, parseInt(c.req.query('events') ?? '150', 10)));
+  const book = (c.req.query('book') ?? '').trim().replace(/[^A-Za-z0-9]/g, '');
+  const inBook = book ? ` AND id IN (SELECT node_id FROM node_verse WHERE osis LIKE '${book}.%')` : '';
   const sel = "id,canon_id,label,kind,disambig,t_start tStart,t_end tEnd,image_thumb,json_extract(meta,'$.dateBasis') basis,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v";
   const [people, events, evTot, pplTot] = await Promise.all([
-    rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='person' AND t_start IS NOT NULL AND t_start<=? AND COALESCE(t_end,t_start)>=? ORDER BY v DESC LIMIT 130`, to, from),
-    rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='event' AND t_start IS NOT NULL AND t_start<=? AND t_start>=? ORDER BY v DESC LIMIT ?`, to, from, evCap),
-    c.env.DB.prepare("SELECT count(*) n FROM node WHERE kind='event' AND t_start IS NOT NULL AND t_start<=? AND t_start>=?").bind(to, from).first<{ n: number }>(),
-    c.env.DB.prepare("SELECT count(*) n FROM node WHERE kind='person' AND t_start IS NOT NULL AND t_start<=? AND COALESCE(t_end,t_start)>=?").bind(to, from).first<{ n: number }>(),
+    rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='person' AND t_start IS NOT NULL AND t_start<=? AND COALESCE(t_end,t_start)>=?${inBook} ORDER BY v DESC LIMIT 130`, to, from),
+    rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='event' AND t_start IS NOT NULL AND t_start<=? AND t_start>=?${inBook} ORDER BY v DESC LIMIT ?`, to, from, evCap),
+    c.env.DB.prepare(`SELECT count(*) n FROM node WHERE kind='event' AND t_start IS NOT NULL AND t_start<=? AND t_start>=?${inBook}`).bind(to, from).first<{ n: number }>(),
+    c.env.DB.prepare(`SELECT count(*) n FROM node WHERE kind='person' AND t_start IS NOT NULL AND t_start<=? AND COALESCE(t_end,t_start)>=?${inBook}`).bind(to, from).first<{ n: number }>(),
   ]);
   return c.json({ ok: true, from, to, people, events, eventTotal: evTot?.n ?? 0, peopleTotal: pplTot?.n ?? 0 });
 });
