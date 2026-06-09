@@ -443,10 +443,12 @@ app.post('/tools/list_entitlements', async (c) => {
 
 // list_requests — the owner's approval queue (demo-corpus). Owner-gated upstream.
 app.post('/tools/list_requests', async (c) => {
-  const b = await c.req.json<{ status?: string }>().catch(() => ({}) as { status?: string });
+  const b = await c.req.json<{ status?: string; subject?: string }>().catch(() => ({}) as { status?: string; subject?: string });
   if (!c.env.DB) return c.json({ ok: true, requests: [] });
-  const st = ['pending', 'granted', 'denied'].includes(String(b.status)) ? String(b.status) : 'pending';
-  const rows = (await c.env.DB.prepare('SELECT id, subject, subject_name, edition, note, status, created_at FROM entitlement_requests WHERE status=? ORDER BY id DESC LIMIT 200').bind(st).all()).results;
+  // subject filter = a reader's own requests (all statuses); else the owner's queue by status.
+  const rows = b.subject
+    ? (await c.env.DB.prepare('SELECT id, subject, subject_name, edition, note, status, created_at, decided_at FROM entitlement_requests WHERE subject=? ORDER BY id DESC LIMIT 200').bind(b.subject).all()).results
+    : (await c.env.DB.prepare('SELECT id, subject, subject_name, edition, note, status, created_at FROM entitlement_requests WHERE status=? ORDER BY id DESC LIMIT 200').bind(['pending', 'granted', 'denied'].includes(String(b.status)) ? String(b.status) : 'pending').all()).results;
   return c.json({ ok: true, requests: rows });
 });
 

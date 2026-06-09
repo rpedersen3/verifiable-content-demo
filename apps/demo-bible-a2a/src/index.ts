@@ -142,6 +142,65 @@ app.get('/vault/*', async (c) => {
   return c.json(res.body, res.status as 200);
 });
 
+// ── Entitlements (P1): subjects come ONLY from a server-side-verified id_token, never client input ──
+const CONNECT_DOMAIN = 'impact-agent.me';
+const ALLOWED_AUD = ['bible-explorer', 'demo-corpus'];
+function isAllowedIssuer(origin: string): boolean {
+  try { const u = new URL(origin); if (u.protocol !== 'https:' && u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') return false; if (u.pathname !== '/' && u.pathname !== '') return false; const h = u.hostname; return h === CONNECT_DOMAIN || h.endsWith(`.${CONNECT_DOMAIN}`) || h === 'localhost' || h === '127.0.0.1'; } catch { return false; }
+}
+function b64urlBytes(seg: string): Uint8Array { const bin = atob(seg.replace(/-/g, '+').replace(/_/g, '/')); const o = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) o[i] = bin.charCodeAt(i); return o; }
+function decodeSeg<T>(seg: string): T { return JSON.parse(new TextDecoder().decode(b64urlBytes(seg))) as T; }
+/** Verify an OIDC id_token against its home JWKS (ES256, iss-allowlisted *.impact-agent.me, aud, exp). */
+async function verifyIdToken(idToken: string): Promise<{ sub: string; name: string }> {
+  const parts = idToken.split('.');
+  if (parts.length !== 3) throw new Error('id_token malformed');
+  const header = decodeSeg<{ alg?: string; kid?: string }>(parts[0]!);
+  const claims = decodeSeg<{ iss?: string; aud?: string; exp?: number; sub?: string; canonical_agent_id?: string; agent_name?: string }>(parts[1]!);
+  const iss = String(claims.iss ?? '');
+  if (!isAllowedIssuer(iss)) throw new Error('issuer not allowed');
+  const base = iss.endsWith('/') ? iss.slice(0, -1) : iss;
+  const jwks = (await (await fetch(`${base}/jwks`)).json()) as { keys: Array<JsonWebKey & { kid: string; alg: string }> };
+  const jwk = (jwks.keys ?? []).find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error('no JWKS key for kid');
+  if (jwk.alg !== 'ES256' || header.alg !== 'ES256') throw new Error('alg not ES256');
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, b64urlBytes(parts[2]!) as BufferSource, new TextEncoder().encode(`${parts[0]}.${parts[1]}`) as BufferSource);
+  if (!ok) throw new Error('id_token signature invalid');
+  if (!ALLOWED_AUD.includes(String(claims.aud))) throw new Error('aud not allowed');
+  if (typeof claims.exp !== 'number' || claims.exp * 1000 < Date.now()) throw new Error('id_token expired');
+  const sub = claims.canonical_agent_id ?? claims.sub;
+  if (!sub) throw new Error('no subject in id_token');
+  return { sub, name: claims.agent_name ?? '' };
+}
+
+app.post('/request-entitlement', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string; note?: string; delegation?: unknown }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const { sub, name } = await verifyIdToken(String(b.id_token ?? ''));
+    const res = await mcpPost(c.env, '/tools/request_entitlement', { subject: sub, subjectName: name, edition: b.edition, note: b.note, readerDelegation: b.delegation });
+    return c.json(res.body, res.status as 200);
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+app.post('/my-entitlements', async (c) => {
+  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as { id_token?: string });
+  try { const { sub } = await verifyIdToken(String(b.id_token ?? '')); const res = await mcpPost(c.env, '/tools/list_entitlements', { subject: sub }); return c.json(res.body, res.status as 200); }
+  catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+app.post('/my-requests', async (c) => {
+  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as { id_token?: string });
+  try { const { sub } = await verifyIdToken(String(b.id_token ?? '')); const res = await mcpPost(c.env, '/tools/list_requests', { subject: sub }); return c.json(res.body, res.status as 200); }
+  catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+// Entitled read: verify the reader, then fetch gated text presenting their entitlement (presenter-bound at the MCP).
+app.post('/resolve-licensed', async (c) => {
+  const b = await c.req.json<{ id_token?: string; reference?: string; edition?: string; entitlement?: unknown }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const { sub } = await verifyIdToken(String(b.id_token ?? ''));
+    const res = await mcpPost(c.env, '/tools/get_passage_text', { reference: b.reference, edition: b.edition, subject: sub, entitlement: b.entitlement });
+    return c.json(res.body, res.status as 200);
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
 // Issue a signed Entitlement for a gated edition (proxied to the corpus issuer).
 app.post('/issue-entitlement', async (c) => {
   const body = await c.req.json<{ edition?: string }>().catch(() => ({}) as { edition?: string });
