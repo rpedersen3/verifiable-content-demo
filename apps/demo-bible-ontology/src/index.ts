@@ -349,7 +349,7 @@ app.get('/api/feedback', async (c) => {
   if (!subject) return c.json({ ok: true, feedback: [] });
   const where = basis ? 'subject_id=? AND basis=?' : 'subject_id=?';
   const args = basis ? [subject, basis] : [subject];
-  const fb = await rows(c.env.DB, `SELECT id,subject_label,sig_kind,stance,suggested,comment,author,created_at FROM signal_feedback WHERE ${where} ORDER BY id DESC LIMIT 100`, ...args);
+  const fb = await rows(c.env.DB, `SELECT id,subject_label,sig_kind,osis,stance,verdict,suggested,proposed_action,comment,author,author_sub,(assertion IS NOT NULL) signed,created_at FROM signal_feedback WHERE ${where} ORDER BY id DESC LIMIT 100`, ...args);
   return c.json({ ok: true, feedback: fb });
 });
 
@@ -359,10 +359,10 @@ app.post('/api/feedback', async (c) => {
   const comment = String(b.comment ?? '').trim();
   const stance = ['agree', 'challenge', 'note'].includes(String(b.stance)) ? String(b.stance) : 'note';
   if (!subject || !comment) return c.json({ ok: false, error: 'subject and comment required' }, 400);
-  const author = String(b.author ?? '').trim().slice(0, 60) || 'anonymous';
+  const author = String(b.author ?? '').trim().slice(0, 80) || 'anonymous';
   const now = new Date().toISOString();
-  await c.env.DB.prepare('INSERT INTO signal_feedback(subject_id,subject_label,sig_kind,basis,osis,stance,suggested,comment,author,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
-    .bind(subject, String(b.subject_label ?? '').slice(0, 120), String(b.sig_kind ?? '').slice(0, 60), String(b.basis ?? '').slice(0, 400), String(b.osis ?? '').slice(0, 40), stance, String(b.suggested ?? '').slice(0, 40), comment.slice(0, 1500), author, now).run();
+  await c.env.DB.prepare('INSERT INTO signal_feedback(subject_id,subject_label,sig_kind,basis,osis,stance,suggested,comment,author,created_at,verdict,author_sub,proposed_action,assertion) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(subject, String(b.subject_label ?? '').slice(0, 120), String(b.sig_kind ?? '').slice(0, 60), String(b.basis ?? '').slice(0, 400), String(b.osis ?? '').slice(0, 40), stance, String(b.suggested ?? '').slice(0, 40), comment.slice(0, 1500), author, now, String(b.verdict ?? '').slice(0, 40), String(b.author_sub ?? '').slice(0, 120), String(b.proposed_action ?? '').slice(0, 40), b.assertion ? String(b.assertion).slice(0, 12000) : null).run();
   return c.json({ ok: true });
 });
 

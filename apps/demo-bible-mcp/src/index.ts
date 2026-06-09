@@ -36,7 +36,9 @@ import type { Hex } from 'viem';
 type Env = McpEnv & { DB?: D1Like; ONT?: { fetch: (url: string, init?: RequestInit) => Promise<Response> }; ONT_URL?: string };
 // Vault data source: the Bible ontology worker (entities, relationships, verses,
 // trust signals, class tree). Service binding in prod; public URL in dev.
-const ontFetch = (env: Env, path: string) => (env.ONT ? env.ONT.fetch(`https://ont${path}`) : fetch(`${env.ONT_URL ?? 'https://demo-bible-ontology-production.richardpedersen3.workers.dev'}${path}`)).then((r) => r.json() as Promise<Record<string, unknown>>);
+const ontBase = (env: Env) => env.ONT_URL ?? 'https://demo-bible-ontology-production.richardpedersen3.workers.dev';
+const ontFetch = (env: Env, path: string) => (env.ONT ? env.ONT.fetch(`https://ont${path}`) : fetch(`${ontBase(env)}${path}`)).then((r) => r.json() as Promise<Record<string, unknown>>);
+const ontPost = (env: Env, path: string, body: unknown) => (env.ONT ? env.ONT.fetch(`https://ont${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }) : fetch(`${ontBase(env)}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).then((r) => r.json() as Promise<Record<string, unknown>>);
 
 const app = new Hono<{ Bindings: Env }>();
 app.use('*', cors());
@@ -52,6 +54,7 @@ const VAULT_CLS: ToolClassification = { '@sa-tool': 'service-only', '@sa-auth': 
 declareTool({ name: 'get_entity' }, VAULT_CLS);
 declareTool({ name: 'find_entities' }, VAULT_CLS);
 declareTool({ name: 'get_trust_signals' }, VAULT_CLS);
+declareTool({ name: 'submit_feedback' }, VAULT_CLS);
 
 // Phase-1 trust profile derived from the resolved trust context (the trusted
 // issuer is the dev EOA or the on-chain issuer SA). A descriptor is a POLICY
@@ -476,6 +479,49 @@ app.post('/tools/get_trust_signals', async (c) => {
   const credential = await signCredential(unsigned, trust.credentialSigner);
   audit('vault.get_trust_signals', 'success', id, { label: String(n.label ?? ''), dimensions: dimensions.length, actions: actions.length });
   return c.json({ ok: true, entity: { id, label: n.label, kind: n.kind }, dimensions, actions, credential });
+});
+
+// submit_feedback — a connected user's challenge/agreement on a trust signal, minted as a
+// SIGNED feedback assertion (ERC-8004-style attestation) and stored in the vault. Carries the
+// full (entity, signal, verse) target + verdict + proposed correction so the Scripture Agent /
+// vault can later act on it to update the signal for this person↔verse relationship.
+app.post('/tools/submit_feedback', async (c) => {
+  const gate = policyGate('submit_feedback', VAULT_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  const b = await c.req.json<{
+    target?: { entityId?: string; entityLabel?: string; signalKind?: string; basis?: string; verse?: string };
+    stance?: string; verdict?: string; score?: number; comment?: string; agentRationale?: string;
+    proposedCorrection?: { action?: string; note?: string };
+    author?: { agentId?: string; name?: string };
+  }>().catch(() => ({}) as Record<string, never>);
+  const t = b.target ?? {};
+  if (!t.entityId || !b.comment) return c.json({ ok: false, error: 'target.entityId and comment required' }, 400);
+  if (!b.author?.agentId) return c.json({ ok: false, error: 'author.agentId required (connect first)' }, 401);
+  const stance = ['agree', 'challenge', 'note'].includes(String(b.stance)) ? String(b.stance) : 'note';
+  const trust = await resolveTrust(c.env);
+  const nowMs = Date.now();
+  const subject = {
+    target: { entityId: t.entityId, entityLabel: t.entityLabel ?? '', signalKind: t.signalKind ?? '', basis: t.basis ?? '', verse: t.verse ?? '' },
+    feedback: { stance, verdict: b.verdict ?? null, score: typeof b.score === 'number' ? b.score : null, comment: String(b.comment).slice(0, 1500), agentRationale: b.agentRationale ? String(b.agentRationale).slice(0, 4000) : null },
+    proposedCorrection: { action: b.proposedCorrection?.action ?? null, note: b.proposedCorrection?.note ?? null },
+    author: { agentId: b.author.agentId, name: b.author.name ?? '' },
+  };
+  const unsigned: UnsignedCredential<typeof subject> = {
+    '@context': VC_CONTEXTS,
+    type: ['VerifiableCredential', 'TrustSignalFeedback'],
+    issuer: 'did:ap:scripture-agent',
+    validFrom: new Date(nowMs - 60_000).toISOString(),
+    credentialSubject: subject,
+  };
+  const assertion = await signCredential(unsigned, trust.credentialSigner);
+  // Persist into the ontology's public feedback thread (with the structured fields + signed assertion).
+  await ontPost(c.env, '/api/feedback', {
+    subject_id: t.entityId, subject_label: t.entityLabel ?? '', sig_kind: t.signalKind ?? '', basis: t.basis ?? '', osis: t.verse ?? '',
+    stance, verdict: b.verdict ?? '', comment: String(b.comment).slice(0, 1500), author: b.author.name || b.author.agentId, author_sub: b.author.agentId,
+    proposed_action: b.proposedCorrection?.action ?? '', assertion: JSON.stringify(assertion),
+  });
+  audit('vault.submit_feedback', 'success', t.entityId, { stance, verdict: b.verdict ?? '', author: b.author.agentId, verse: t.verse ?? '' });
+  return c.json({ ok: true, assertion });
 });
 
 // Class tree (Global Church Ontology inheritance) — public.

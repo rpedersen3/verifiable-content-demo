@@ -420,7 +420,8 @@ function openImgFor(id){openImg(geoImgFull[id]);}
 function closeImg(){const m=document.getElementById('imgmodal');if(m)m.style.display='none';}
 function pageTop(){window.scrollTo({top:0,behavior:'smooth'});}
 // ── Signal Court: challenge a trust signal (AI agent review) + public feedback ──
-let curNodeId='',curNodeLabel='',scSig=null;
+let curNodeId='',curNodeLabel='',scSig=null,scAnalysis='',scVerdict='';
+const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
 function sigIcon(kind,basis,osis,val){return '<span class="sigq" data-s="'+encodeURIComponent(JSON.stringify({id:curNodeId,label:curNodeLabel,kind:kind,basis:basis||'',osis:osis||'',val:val}))+'" onclick="openSignalCourt(this);event.stopPropagation()" title="challenge / discuss this signal">⚖</span>';}
 function mdLite(t){return esc(String(t)).replace(/^#{1,6}\\s*(.+)$/gm,'<b>$1</b>').replace(/^\\s*[-*]\\s+/gm,'• ').replace(/^---+$/gm,'').replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>').split('\\n').join('<br>');}
 function openSignalCourt(el){let p;try{p=JSON.parse(decodeURIComponent(el.dataset.s));}catch(e){return;}scSig=p;const m=document.getElementById('sigcourt');if(!m)return;
@@ -432,22 +433,30 @@ function openSignalCourt(el){let p;try{p=JSON.parse(decodeURIComponent(el.datase
    '<h3 class="muted" style="margin:16px 0 6px">Public feedback</h3><div id="sc-fb"><div class="muted" style="font-size:12px">loading…</div></div>'+
    '<div class="sc-form">'+
      '<div class="gchips" id="sc-stance"><span class="gchip mini on" data-st="challenge">⚑ Challenge</span><span class="gchip mini" data-st="agree">✓ Agree</span><span class="gchip mini" data-st="note">✎ Note</span></div>'+
-     '<input id="sc-name" placeholder="your name (optional, public)" autocomplete="off"/>'+
+     '<div class="muted" id="sc-as" style="font-size:12px"></div>'+
      '<textarea id="sc-comment" rows="3" placeholder="Why is this signal right or wrong? Cite verses…"></textarea>'+
      '<button class="gchip on" onclick="sigFeedbackSubmit()" style="cursor:pointer;align-self:flex-start">Post feedback →</button>'+
    '</div>';
   m.style.display='flex';
   document.querySelectorAll('#sc-stance [data-st]').forEach(s=>s.onclick=()=>{document.querySelectorAll('#sc-stance [data-st]').forEach(x=>x.classList.remove('on'));s.classList.add('on');});
+  scAnalysis='';scVerdict='';
+  {const a=document.getElementById('sc-as');if(a)a.innerHTML='posting as <b>'+esc(isConnected()?(session.name||(session.sub||'').slice(0,14)):'(connect to post)')+'</b>'+(isConnected()?' <span style="color:#1a8a4f">— as a signed feedback assertion</span>':'');}
   loadSigFeedback();}
 function closeSigCourt(){const m=document.getElementById('sigcourt');if(m)m.style.display='none';}
 async function sigAnalyze(){if(!requireConnect('challenge this signal'))return;const o=document.getElementById('sc-out'),b=document.getElementById('sc-go');if(b)b.textContent='🤖 reviewing…';o.innerHTML='<div class="ghint" style="padding:10px">the trust agent is weighing the signal against Scripture…</div>';
   let r;try{r=await fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subject_label:scSig.label,sig_kind:scSig.kind,basis:scSig.basis,osis:scSig.osis})}).then(x=>x.json());}catch(e){r={analysis:'Could not reach the trust agent.'};}
-  if(b)b.textContent='🤖 Re-challenge';o.innerHTML='<div class="sc-analysis">'+mdLite(r.analysis||'(no analysis)')+'</div>';}
+  const an=r.analysis||'(no analysis)';scAnalysis=an;const A=an.toUpperCase();
+  scVerdict=(A.indexOf('INVALID')>=0||A.indexOf('DOES NOT SUPPORT')>=0||an.indexOf('❌')>=0)?'invalid':(A.indexOf('TIGHTEN')>=0||A.indexOf('ADJUST')>=0||an.indexOf('⚠️')>=0)?'adjust':'valid';
+  if(b)b.textContent='🤖 Re-challenge';o.innerHTML='<div class="sc-analysis">'+mdLite(an)+'</div><div class="muted" style="font-size:11px;margin-top:5px">verdict captured: <b>'+scVerdict+'</b> — review/edit below and post it.</div>';
+  const ta=document.getElementById('sc-comment');if(ta&&!ta.value.trim())ta.value=an;
+  const st=scVerdict==='valid'?'agree':'challenge';document.querySelectorAll('#sc-stance [data-st]').forEach(x=>x.classList.toggle('on',x.dataset.st===st));}
 async function loadSigFeedback(){if(!scSig)return;let d;try{d=await api('/feedback?subject='+encodeURIComponent(scSig.id)+'&basis='+encodeURIComponent(scSig.basis));}catch(e){d={feedback:[]};}const fb=d.feedback||[];
-  document.getElementById('sc-fb').innerHTML=fb.length?fb.map(f=>'<div class="sc-fbitem"><span class="sc-st sc-'+esc(f.stance)+'">'+esc(f.stance)+'</span> <b>'+esc(f.author||'anonymous')+'</b> <span class="muted" style="font-size:11px">'+esc((f.created_at||'').slice(0,10))+'</span><div style="margin-top:2px">'+esc(f.comment)+'</div></div>').join(''):'<div class="muted" style="font-size:12px">No feedback yet — be the first to weigh in.</div>';}
-async function sigFeedbackSubmit(){if(!scSig)return;if(!requireConnect('post feedback'))return;const stEl=document.querySelector('#sc-stance .on');const stance=stEl?stEl.dataset.st:'note';const comment=document.getElementById('sc-comment').value.trim();const author=document.getElementById('sc-name').value.trim();
+  document.getElementById('sc-fb').innerHTML=fb.length?fb.map(f=>'<div class="sc-fbitem"><span class="sc-st sc-'+esc(f.stance)+'">'+esc(f.stance)+'</span> '+(f.verdict?'<span class="sc-st" style="background:#475569">'+esc(f.verdict)+'</span> ':'')+'<b>'+esc(f.author||'anonymous')+'</b> '+(f.signed?'<span title="signed feedback assertion" style="color:#1a8a4f;font-size:11px">✓ signed</span> ':'')+'<span class="muted" style="font-size:11px">'+esc((f.created_at||'').slice(0,10))+'</span><div style="margin-top:2px;white-space:pre-wrap">'+esc(f.comment)+'</div></div>').join(''):'<div class="muted" style="font-size:12px">No feedback yet — be the first to weigh in.</div>';}
+async function sigFeedbackSubmit(){if(!scSig)return;if(!requireConnect('post feedback'))return;const stEl=document.querySelector('#sc-stance .on');const stance=stEl?stEl.dataset.st:'note';const comment=document.getElementById('sc-comment').value.trim();
   if(comment.length<2)return;
-  try{await fetch('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subject_id:scSig.id,subject_label:scSig.label,sig_kind:scSig.kind,basis:scSig.basis,osis:scSig.osis,stance:stance,comment:comment,author:author})});}catch(e){}
+  const action=scVerdict==='invalid'?'flag':scVerdict==='adjust'?'adjust':'keep';
+  const payload={target:{entityId:scSig.id,entityLabel:scSig.label,signalKind:scSig.kind,basis:scSig.basis,verse:scSig.osis},stance:stance,verdict:scVerdict||'',comment:comment,agentRationale:scAnalysis||'',proposedCorrection:{action:action,note:''},author:{agentId:session.sub,name:session.name||''}};
+  try{const res=await fetch(A2A_BASE+'/submit-feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).then(x=>x.json());if(!res||!res.ok)throw new Error((res&&res.error)||'submit failed');}catch(e){alert('Could not post feedback: '+(e&&e.message?e.message:e));return;}
   document.getElementById('sc-comment').value='';loadSigFeedback();}
 function fullFromThumb(s){if(!s||s.indexOf('/img/')<0)return s;return s.replace('-thumb.jpg','.jpg').replace('-thumb.jpeg','.jpeg');}
 function imgHover(src,ev){const m=document.getElementById('imghover'),i=document.getElementById('imghoverImg');if(!m||!i||!src)return;const f=fullFromThumb(src);if(i.getAttribute('src')!==f)i.src=f;m.style.display='block';imgHoverMove(ev);}

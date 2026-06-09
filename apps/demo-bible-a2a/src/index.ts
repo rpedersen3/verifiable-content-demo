@@ -74,6 +74,13 @@ app.get('/.well-known/agent-card.json', (c) => {
         tags: ['knowledge-graph', 'ontology', 'relationships'],
         examples: ['entity David', 'relationships of Paul'],
       },
+      {
+        id: 'signal-feedback',
+        name: 'Submit signal feedback',
+        description: "Record a connected user's challenge/agreement on a trust signal as a signed feedback assertion (ERC-8004-style) carrying the (entity, signal, verse) target + verdict + proposed correction.",
+        tags: ['trust', 'feedback', 'verifiable-content', 'erc-8004'],
+        examples: ['challenge God Moral 1Chr.11.14 — verse does not support the claim'],
+      },
     ],
   });
 });
@@ -86,6 +93,8 @@ app.post('/character-trust', async (c) => { const b = await c.req.json().catch((
 app.post('/find-entities', async (c) => { const b = await c.req.json().catch(() => ({})); const res = await mcpPost(c.env, '/tools/find_entities', b); return c.json(res.body, res.status as 200); });
 app.post('/entity', async (c) => { const b = await c.req.json().catch(() => ({})); const res = await mcpPost(c.env, '/tools/get_entity', b); return c.json(res.body, res.status as 200); });
 app.get('/class-tree', async (c) => c.json(await mcpGet(c.env, '/mcp/class_tree')));
+// Submit a signed feedback assertion (challenge/agreement) on a trust signal.
+app.post('/submit-feedback', async (c) => { const b = await c.req.json().catch(() => ({})); const res = await mcpPost(c.env, '/tools/submit_feedback', b); return c.json(res.body, res.status as 200); });
 
 // Issue a signed Entitlement for a gated edition (proxied to the corpus issuer).
 app.post('/issue-entitlement', async (c) => {
