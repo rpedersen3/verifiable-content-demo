@@ -530,6 +530,19 @@ function main() {
       }
       if (biggest) for (const n of none) remap.set(n.id, biggest.canon.id);
     }
+    // Alias merge: a place whose OpenBible identification is "another name for X" (e.g. the symbolic
+    // Babylon at Rome's location → Rome) is folded into X, with its label kept as an alias.
+    const placesByLabelLc = new Map();
+    for (const n of byId.values()) if (n.kind === 'place' && n.lat != null) { const k = String(n.label).toLowerCase(); if (!placesByLabelLc.has(k)) placesByLabelLc.set(k, []); placesByLabelLc.get(k).push(n); }
+    for (const n of byId.values()) {
+      if (n.kind !== 'place' || remap.has(n.id) || n.lat == null) continue;
+      const m = String(n.extra?.modern || '').match(/another name for (.+)/i);
+      if (!m) continue;
+      const target = m[1].trim().replace(/\s+\d+$/, '').toLowerCase();
+      let best = null, bd = Infinity;
+      for (const c of placesByLabelLc.get(target) || []) { if (c.id === n.id || remap.has(c.id) || c.lat == null) continue; const dd = haversineKm(n.lat, n.lon, c.lat, c.lon); if (dd < bd) { bd = dd; best = c; } }
+      if (best && bd <= 50) { remap.set(n.id, best.id); best.akaExtra = [...(best.akaExtra || []), n.label]; }
+    }
     if (remap.size) {
       const resolve = (id) => { let x = id; const seen = new Set(); while (remap.has(x) && !seen.has(x)) { seen.add(x); x = remap.get(x); } return x; };
       for (const e of edges) { if (remap.has(e.src)) e.src = resolve(e.src); if (remap.has(e.dst)) e.dst = resolve(e.dst); }
