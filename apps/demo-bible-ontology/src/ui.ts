@@ -359,9 +359,9 @@ function closeImg(){const m=document.getElementById('imgmodal');if(m)m.style.dis
 function pageTop(){window.scrollTo({top:0,behavior:'smooth'});}
 // ── Signal Court: challenge a trust signal (AI agent review) + public feedback ──
 let curNodeId='',curNodeLabel='',scSig=null;
-function sigIcon(kind,basis,osis,val){return '<span class="sigq" data-s="'+esc(JSON.stringify({id:curNodeId,label:curNodeLabel,kind:kind,basis:basis||'',osis:osis||'',val:val}))+'" onclick="openSignalCourt(this);event.stopPropagation()" title="challenge / discuss this signal">⚖</span>';}
+function sigIcon(kind,basis,osis,val){return '<span class="sigq" data-s="'+encodeURIComponent(JSON.stringify({id:curNodeId,label:curNodeLabel,kind:kind,basis:basis||'',osis:osis||'',val:val}))+'" onclick="openSignalCourt(this);event.stopPropagation()" title="challenge / discuss this signal">⚖</span>';}
 function mdLite(t){return esc(String(t)).split('\\n').join('<br>').replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>');}
-function openSignalCourt(el){let p;try{p=JSON.parse(el.dataset.s);}catch(e){return;}scSig=p;const m=document.getElementById('sigcourt');if(!m)return;
+function openSignalCourt(el){let p;try{p=JSON.parse(decodeURIComponent(el.dataset.s));}catch(e){return;}scSig=p;const m=document.getElementById('sigcourt');if(!m)return;
   document.getElementById('sc-body').innerHTML=
    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><b style="font-size:16px">'+esc(p.label)+'</b><div class="muted" style="font-size:12px">'+esc(p.kind)+' signal</div></div><span onclick="closeSigCourt()" style="cursor:pointer;font-size:22px;line-height:1;color:#94a3b8">×</span></div>'+
    '<div class="sc-claim">“'+esc(p.basis)+'”'+(p.osis?' &nbsp;<a class="vref" onclick="openPassage(\\''+esc(p.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(p.osis)+' ↗</a>':'')+'</div>'+
