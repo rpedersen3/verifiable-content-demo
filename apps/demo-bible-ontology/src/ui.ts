@@ -155,17 +155,15 @@ a.link{color:var(--accent);cursor:pointer;text-decoration:none}
 .idpill{font:12px var(--mono);background:#eef2fb;color:#3a4a63;border-radius:6px;padding:2px 8px}
 .confdot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none;margin-left:auto}
 .confchip{font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap}
-/* portraits: source (Wikimedia) + consistent app-style render */
+/* portraits: the uploaded source image */
 .portrait-wrap{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin:4px 0 12px}
 .portrait{width:128px}.portrait figure{margin:0}
 .portrait .tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:center;margin-bottom:4px}
 .portrait img{width:128px;height:128px;object-fit:cover;border-radius:10px;display:block;border:1px solid var(--line)}
 .portrait .frame{border-radius:12px;padding:5px;background:linear-gradient(145deg,#f4e8c8,#c9a13f);box-shadow:0 2px 9px rgba(120,90,20,.25)}
 .portrait .frame img{border-radius:7px;border:2px solid #fff}
-.portrait.styled img{filter:sepia(.6) saturate(1.25) contrast(1.06) brightness(1.02) hue-rotate(-8deg)}
 .portrait figcaption{font-size:10px;color:var(--muted);margin-top:5px;text-align:center;line-height:1.3}
 img.mini{width:24px;height:24px;border-radius:50%;object-fit:cover;flex:none;border:1px solid var(--line)}
-img.mini.styled{filter:sepia(.6) saturate(1.25) contrast(1.06)}
 /* trust/alignment score bars */
 .scores{display:grid;grid-template-columns:122px 1fr 50px;gap:7px 10px;align-items:center;margin:10px 0;font-size:12px}
 .scores .sname{color:var(--muted)}
@@ -232,10 +230,7 @@ const esc=(s)=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const dot=(k)=>'<span class="kdot" style="background:'+(KC[k]||'#888')+'"></span>';
 let tab='overview';
 
-// ── entity portraits: source image + a consistent app-style render; admin-configurable ──
-const IMG_KEY='ont.imgMode';
-const imgMode=()=>'original';   // app-style render retired — show the source image only, unprocessed
-const styledSrc=(n)=>n.image_styled_url||n.image_thumb;     // generative backfill, else CSS-styled source
+// ── entity portraits: the uploaded source image, unprocessed (app-style render retired) ──
 function portrait(n){
   if(!n||!n.image_thumb)return '';
   detImgFull=n.image_url||n.image_thumb;
@@ -519,30 +514,21 @@ function drawTree(){
 async function classQuery(curie){
   const out=document.getElementById('cout');out.innerHTML='<div class="hint">loading…</div>';
   const d=await api('/class?curie='+encodeURIComponent(curie));
-  const sm=imgMode()==='styled'?' styled':'';
+  const sm='';
   out.innerHTML='<div class="hint" style="margin:12px 0"><b style="font-size:15px;color:var(--ink)">'+d.total.toLocaleString()+'</b> instances of <span class="mono">'+esc(curie)+'</span> + its <b>'+d.subclasses.length+'</b> subclasses &nbsp;<span class="mono muted">'+d.subclasses.map(esc).join(' · ')+'</span></div>'+
    '<ul class="list">'+d.results.map(r=>'<li onclick="showNodeTab(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+sm+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b> <span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||r.gc_class||'')+'</span>'+confDot(r.canon_confidence)+'</li>').join('')+'</ul>';
 }
-// ── Admin: choose how portraits render (source / app-style / both) ──
+// ── Admin: account vault + data-integrity review ──
 function admin(){
-  const m=imgMode();
-  const opt=(v,t,d)=>'<label class="'+(m===v?'on':'')+'" data-m="'+v+'"><input type="radio" name="im" '+(m===v?'checked':'')+'/><span><b>'+t+'</b><br><span class="muted">'+d+'</span></span></label>';
   V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">My account · Global.Church vault</h3>'+
    '<p class="hint">Your connected identity\\'s personal data, read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the scoped delegation your Global.Church home minted at sign-in (your app signs nothing). Note: the demo seeds <b>mock fixtures</b>, not real PII.</p>'+
    '<div id="acctview"><div class="muted" style="font-size:13px">'+(isConnected()?'loading…':'Connect (top-right) to view your account.')+'</div></div></div>'+
-   '<div class="card admin"><h3 class="muted" style="margin-top:0">Admin · entity image display</h3>'+
-   '<p class="hint">Every canonical person / place / event can carry two portraits: the <b>source</b> image (Wikimedia Commons, with attribution) and a <b>consistent app-style render</b>. The app style is currently derived from the source for a uniform look; a generative backfill can replace it per entity (the <span class="mono">image_styled_url</span> column).</p>'+
-   opt('both','Show both','Source + app-style render side by side (default).')+
-   opt('original','Original only','Unmodified Wikimedia Commons image.')+
-   opt('styled','App style only','Consistent stylized render for a uniform look.')+
-   '<div class="hint">Saved in this browser. Affects the explorer, inheritance list, and trust graph.</div></div>'+
    '<div class="card"><h3 class="muted" style="margin-top:0">Admin · data integrity</h3>'+
    '<p class="hint">Every node records how confidently its data is bound to a canonical id. Native Theographic ids are rock-solid (1.0); brought-in data (Wikidata + images) is scored by match strength — exact-unique matches near 1.0, name-collision or label-mismatch matches lower. Suspect bindings are listed here for review, never hidden.</p>'+
    '<div id="ibands" class="gchips"></div>'+
    '<div class="hint" style="margin:8px 0">Show bindings at or below: '+
    '<select id="ithr"><option value="1">all brought-in</option><option value="0.9" selected>&lt; 0.90 (needs review)</option><option value="0.7">&lt; 0.70 (suspect)</option></select></div>'+
    '<div id="ilist"></div></div>';
-  document.querySelectorAll('.admin label').forEach(l=>l.onclick=()=>{localStorage.setItem(IMG_KEY,l.dataset.m);admin();});
   const thr=document.getElementById('ithr');thr.onchange=()=>loadIntegrity(thr.value);
   loadIntegrity(thr.value);
   loadAccount();
@@ -568,7 +554,7 @@ async function loadAccount(){
 async function loadIntegrity(max){
   const d=await api('/integrity?max='+encodeURIComponent(max));
   document.getElementById('ibands').innerHTML=bandChips(d.bands);
-  const sm=imgMode()==='styled'?' styled':'';
+  const sm='';
   document.getElementById('ilist').innerHTML=d.results.length
     ?'<ul class="list">'+d.results.map(r=>'<li onclick="showNodeTab(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+sm+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b> <span class="muted">'+esc(r.canon_id||'')+(r.disambig?' · '+esc(r.disambig):'')+'<br>'+esc(r.canon_basis||'')+'</span>'+confBadge(r.canon_confidence,r.canon_method)+'</li>').join('')+'</ul>'
     :'<div class="hint">No bindings at or below this threshold.</div>';
@@ -624,7 +610,7 @@ async function explore(){
   const run=async(pick)=>{const term=q.value.trim();const res=document.getElementById('res');
     if(term.length<2&&!expKind&&!expTrust&&!bookFilter){res.innerHTML='';const det=document.getElementById('detail');if(det)det.innerHTML='';return;}
     const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):'')+(expSub?'&sub='+encodeURIComponent(expSub)+'&subdim='+expSubdim:'')+(expSort?'&sort='+expSort:'')+(expTrust?'&trust='+expTrust:'')+(bookFilter?'&book='+bookFilter:'')+'&page='+expPage);
-    const list=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'" onmouseenter="imgHover(this.src,event)" onmousemove="imgHoverMove(event)" onmouseleave="imgHoverOut()"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b>'+tind(r)+' '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind||expTrust?' for this filter':'')+'.</div>';
+    const list=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini" loading="lazy" src="'+esc(r.image_thumb)+'" onmouseenter="imgHover(this.src,event)" onmousemove="imgHoverMove(event)" onmouseleave="imgHoverOut()"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b>'+tind(r)+' '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind||expTrust?' for this filter':'')+'.</div>';
     const pager=(d.more||expPage>0)?'<div class="gchips" style="margin-top:10px;align-items:center">'+(expPage>0?'<span class="gchip mini" id="pprev">← Prev</span>':'')+'<span class="muted" style="font-size:11px;margin:0 7px">page '+(expPage+1)+'</span>'+(d.more?'<span class="gchip mini" id="pnext">Next →</span>':'')+'</div>':'';
     res.innerHTML=list+pager;
     const pv=document.getElementById('pprev'),nx=document.getElementById('pnext');
@@ -749,7 +735,7 @@ async function drawGraph(){
   neighbors.forEach(n=>{const p=pos[n.id];if(!p)return;
     s+='<g class="gnode" data-id="'+n.id+'">'+shp(n.kind,p.x,p.y,11)+badge(p.x,p.y,11,n.sig)+'<text class="gnlabel" x="'+p.x+'" y="'+(p.y+24)+'" text-anchor="middle" font-size="10" fill="#33404f">'+esc(n.label.length>16?n.label.slice(0,15)+'…':n.label)+'</text></g>';});
   const cn=byId[center]||{label:'?',kind:'person'};
-  const gfil=imgMode()==='original'?'none':'sepia(0.6) saturate(1.25) contrast(1.06)';
+  const gfil='none';
   const ccirc=cn.img
     ?'<defs><clipPath id="cclip"><circle cx="'+cx+'" cy="'+cy+'" r="28"/></clipPath></defs><image href="'+esc(cn.img)+'" x="'+(cx-28)+'" y="'+(cy-28)+'" width="56" height="56" clip-path="url(#cclip)" preserveAspectRatio="xMidYMid slice" style="filter:'+gfil+'"/><circle cx="'+cx+'" cy="'+cy+'" r="28" fill="none" stroke="#2f6df0" stroke-width="3"/>'
     :'<circle cx="'+cx+'" cy="'+cy+'" r="28" fill="#2f6df0"/>';
@@ -763,7 +749,7 @@ async function drawGraph(){
   wrap.querySelectorAll('.gnode').forEach(g=>{const id=g.dataset.id;
     g.addEventListener('mouseenter',()=>{svg.classList.add('dim');g.classList.add('hot');
       svg.querySelectorAll('.gedge').forEach(e=>{if(e.dataset.a===id||e.dataset.b===id){e.classList.add('hot');const o=e.dataset.a===id?e.dataset.b:e.dataset.a;const og=svg.querySelector('.gnode[data-id=\\''+o+'\\']');if(og)og.classList.add('hot');}});
-      const n=byId[id];if(n){tip.style.display='block';tip.innerHTML=(n.img?'<img src="'+esc(n.img)+'" style="width:100%;height:88px;object-fit:cover;border-radius:6px;margin-bottom:5px;filter:'+(imgMode()==='original'?'none':'sepia(.6) saturate(1.25) contrast(1.06)')+'"/>':'')+'<b>'+esc(n.label)+'</b> <span class="muted">'+n.kind+'</span>'+(n.tStart!=null?'<div class="muted">'+ordYr(n.tStart)+(n.tEnd!=null&&n.tEnd!==n.tStart?'–'+ordYr(n.tEnd):'')+'</div>':'')+(relByNode[id]?'<div class="muted">'+esc(relByNode[id])+'</div>':'')+(n.sig?'<div style="color:'+sigCol[n.sig]+'">'+(n.sig==='positive'?'＋ ':n.sig==='negative'?'－ ':'± ')+n.sig+' signal</div>':'');}});
+      const n=byId[id];if(n){tip.style.display='block';tip.innerHTML=(n.img?'<img src="'+esc(n.img)+'" style="width:100%;height:88px;object-fit:cover;border-radius:6px;margin-bottom:5px"/>':'')+'<b>'+esc(n.label)+'</b> <span class="muted">'+n.kind+'</span>'+(n.tStart!=null?'<div class="muted">'+ordYr(n.tStart)+(n.tEnd!=null&&n.tEnd!==n.tStart?'–'+ordYr(n.tEnd):'')+'</div>':'')+(relByNode[id]?'<div class="muted">'+esc(relByNode[id])+'</div>':'')+(n.sig?'<div style="color:'+sigCol[n.sig]+'">'+(n.sig==='positive'?'＋ ':n.sig==='negative'?'－ ':'± ')+n.sig+' signal</div>':'');}});
     g.addEventListener('mousemove',ev=>{tip.style.left=Math.min(ev.clientX+14,innerWidth-240)+'px';tip.style.top=(ev.clientY+14)+'px';});
     g.addEventListener('mouseleave',()=>{svg.classList.remove('dim');svg.querySelectorAll('.hot').forEach(x=>x.classList.remove('hot'));tip.style.display='none';});
     g.addEventListener('click',()=>{if(id===center){showNodeTab(center);}else{graphFor(id);}});});
@@ -973,7 +959,7 @@ async function drawOikos(){
   neighbors.forEach(n=>{const p=pos[n.id],rr=RING[ring[n.id]];s+='<line x1="'+cx+'" y1="'+cy+'" x2="'+p.x+'" y2="'+p.y+'" stroke="'+rr.color+'" stroke-opacity="0.3"/>';});
   neighbors.forEach(n=>{const p=pos[n.id];s+='<g class="gnode" data-id="'+esc(n.id)+'">'+shp(n.kind,p.x,p.y,10)+badge(p.x,p.y,10,n.sig)+'<text class="gnlabel" x="'+p.x+'" y="'+(p.y+22)+'" text-anchor="middle" font-size="9" fill="#33404f">'+esc(n.label.length>15?n.label.slice(0,14)+'…':n.label)+'</text></g>';});
   const cn=byId[center]||{label:'?',kind:'person'};
-  const gfil=imgMode()==='original'?'none':'sepia(0.6) saturate(1.25) contrast(1.06)';
+  const gfil='none';
   const cc=cn.img?'<defs><clipPath id="oclip"><circle cx="'+cx+'" cy="'+cy+'" r="34"/></clipPath></defs><image href="'+esc(cn.img)+'" x="'+(cx-34)+'" y="'+(cy-34)+'" width="68" height="68" clip-path="url(#oclip)" preserveAspectRatio="xMidYMid slice" style="filter:'+gfil+'"/><circle cx="'+cx+'" cy="'+cy+'" r="34" fill="none" stroke="#2f6df0" stroke-width="3"/>':'<circle cx="'+cx+'" cy="'+cy+'" r="34" fill="#2f6df0"/>';
   s+='<g class="gnode" data-id="'+esc(center)+'">'+cc+'<text x="'+cx+'" y="'+(cn.img?cy+52:cy+4)+'" text-anchor="middle" font-size="12" font-weight="700" fill="'+(cn.img?'#1f2733':'#fff')+'">'+esc(cn.label.length>16?cn.label.slice(0,15)+'…':cn.label)+'</text></g></svg>';
   const legend='<div class="glegend">'+RING.map((rr,i)=>'<span style="color:'+rr.color+'">● '+rr.label+' ('+byRing[i].length+')</span>').join(' &nbsp; ')+'</div>';
