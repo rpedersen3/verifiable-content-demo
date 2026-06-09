@@ -468,7 +468,7 @@ async function explore(){
   async function loadSubs(){const sf=document.getElementById('subfil');if(!sf)return;if(!expKind){sf.innerHTML='';return;}
     const d=await api('/subtypes?kind='+encodeURIComponent(expKind));expSubdim=d.dim||'';
     if(!d.subs||d.subs.length<2){sf.innerHTML='';return;}
-    sf.innerHTML='<span class="muted" style="font-size:11px;margin-right:3px">type</span>'+d.subs.map(s=>'<span class="gchip mini'+(expSub===s.val?' on':'')+'" data-sub="'+esc(s.val)+'">'+esc(subLabel(s.label))+' <span class="'+(expSub===s.val?'':'muted')+'">'+s.n+'</span></span>').join('');
+    sf.innerHTML='<span class="muted" style="font-size:11px;margin-right:3px">type</span>'+'<span class="gchip mini'+(expSub===''?' on':'')+'" data-sub="">All</span>'+d.subs.map(s=>'<span class="gchip mini'+(expSub===s.val?' on':'')+'" data-sub="'+esc(s.val)+'">'+esc(subLabel(s.label))+' <span class="'+(expSub===s.val?'':'muted')+'">'+s.n+'</span></span>').join('');
     sf.querySelectorAll('[data-sub]').forEach(ch=>ch.onclick=()=>{expSub=expSub===ch.dataset.sub?'':ch.dataset.sub;expPage=0;loadSubs();run();});}
   drawChips();if(expKind)loadSubs();
   let timer;q.oninput=()=>{clearTimeout(timer);expPage=0;timer=setTimeout(run,180);};
