@@ -679,7 +679,7 @@ async function geo(){
   document.getElementById('map').appendChild(bctl);
   bctl.querySelectorAll('.map-basbtn').forEach((btn,i)=>btn.onclick=()=>{map.removeLayer(activeBase);activeBase=BASEMAPS[i][1];activeBase.addTo(map);bctl.querySelectorAll('.map-basbtn').forEach((b,j)=>b.classList.toggle('on',j===i));});
   const sigC=(n,def)=>n.sig==='positive'?'#1a8a4f':n.sig==='negative'?'#c0392b':n.sig==='mixed'?'#b45309':def;
-  const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);return r.length?'<div style="margin-top:5px">'+r.map(o=>'<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:#eef2fb;color:#3a4a63;border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none">'+esc(o)+'</a>').join('')+'</div>':'';};
+  const vrefs=(n)=>{const r=(n.refs||'').split('|').filter(Boolean);if(!r.length)return '';const more=(n.v||0)>r.length?' <span style="font:11px ui-monospace,monospace;color:#8a96a3">…+'+((n.v||0)-r.length)+'</span>':'';return '<div style="margin-top:5px">'+r.map(o=>{const bk=bookFilter&&String(o).indexOf(bookFilter+'.')===0;return '<a href="#" onclick="openPassage(\\''+esc(o)+'\\');return false" style="font:11px ui-monospace,monospace;background:'+(bk?'#fff3c4':'#eef2fb')+';color:'+(bk?'#7a5c00':'#3a4a63')+';border-radius:4px;padding:1px 6px;margin:1px;display:inline-block;text-decoration:none;'+(bk?'font-weight:700':'')+'">'+esc(o)+'</a>';}).join('')+more+'</div>';};
   const pop=(n,ex)=>'<b>'+esc(n.label)+'</b>'+(ex||'')+vrefs(n)+'<br><a href="#" onclick="showNodeTab(\\''+n.id+'\\');return false">open ↗</a>';
   const placeG=L.layerGroup();
   const markerById={},regionG=L.layerGroup();
