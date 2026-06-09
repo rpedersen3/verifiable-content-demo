@@ -261,7 +261,7 @@ function scoreBars(scores){
   if(!scores||!scores.length)return '';
   const byD={};scores.forEach(s=>byD[s.dimension]=s);
   const bip=(d)=>BIPCOL[d]!=null;
-  const rows=['moral','wisdom','faithfulness','courage','truthfulness','repentance','graph_trust','scriptural_trust','historical_trust','source_trust'].filter(d=>byD[d]).map(d=>{const s=byD[d];const v=+s.value;
+  const rows=['moral','wisdom','faithfulness','courage','truthfulness','repentance','graph_trust','historical_trust'].filter(d=>byD[d]).map(d=>{const s=byD[d];const v=+s.value;
     const kind=/curated/.test(s.method||'')?'curated':'computed';
     const vs=bip(d)?(v>0?'+':'')+v.toFixed(2):v.toFixed(2);
     const tip=('<b>'+SDIM[d]+'</b> &nbsp;'+vs+'<br><span style="color:#8a96a3;text-transform:uppercase;font-size:10px">'+kind+' · '+esc(s.method||'')+'</span><br>'+esc(s.basis||'(no basis recorded)')).replace(/"/g,'&quot;');
@@ -521,17 +521,18 @@ async function renderNode(id){
   const ibName=bookFilter?((BOOKS.find(b=>b[0]===bookFilter)||[])[1]||bookFilter):'';
   const inBookN=bookFilter?(d.inBookCount!=null?d.inBookCount:d.verses.filter(v=>String(v).indexOf(bookFilter+'.')===0).length):0;
   const vlist=bookFilter?d.verses.slice().sort((a,b)=>(String(b).indexOf(bookFilter+'.')===0?1:0)-(String(a).indexOf(bookFilter+'.')===0?1:0)):d.verses;
-  det.innerHTML='<div class="card"><h2>'+dot(n.kind)+esc(n.label)+'</h2>'+idrow(n)+portrait(n)+
+  det.innerHTML='<div class="card"><h2>'+dot(n.kind)+esc(n.label)+'</h2>'+idrow(n)+
+   '<div style="margin:8px 0 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="muted" style="font-size:11px;margin-right:2px">explore in →</span>'+
+   '<span class="gchip" style="cursor:pointer" onclick="graphFor(\\''+n.id+'\\')">⬡ Graph</span>'+
+   (n.kind==='person'?'<span class="gchip" style="cursor:pointer" onclick="oikosFor(\\''+n.id+'\\')">◎ Oikos</span>':'')+
+   '<span class="gchip" style="cursor:pointer" onclick="nav(\\'generations/'+n.id+'\\')">⋔ Generations</span>'+
+   (n.kind==='person'?'<span class="gchip" style="cursor:pointer" onclick="genMovementFor(\\''+n.id+'\\')">↳ Movement</span>':'')+'</div>'+
+   portrait(n)+
    '<div style="margin:2px 0 6px;line-height:2">'+((d.classChain&&d.classChain.length)?d.classChain.map((c,i)=>'<span title="inheritance" style="font:11px ui-monospace,monospace;background:'+(i===d.classChain.length-1?'#dbe8ff;color:#1d4ed8;font-weight:700':'#eef2fb;color:#3a4a63')+';border-radius:5px;padding:2px 7px;white-space:nowrap">'+esc(c.curie)+'</span>').join('<span style="color:#94a3b8;margin:0 3px">›</span>'):cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join(''))+'</div>'+temporal+geo+sigs+scoreBars(d.scores)+
    (d.out.length?'<h3 class="muted" style="margin-top:16px">relationships</h3>'+grp(d.out,'out'):'')+
    (d.in.length?grp(d.in,'in'):'')+
    '<h3 class="muted" style="margin-top:16px">attested in '+(d.verseCount!=null?d.verseCount:d.verses.length)+' verses <span style="font-weight:400;text-transform:none">· click to read'+(bookFilter?' · <b style="color:#7a5c00">'+inBookN+' in '+esc(ibName)+'</b>':'')+((()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.verseMatch==='name'?' · matched by name (approximate)':'';})())+'</span></h3><div class="verses">'+vlist.map(v=>'<span class="vref'+(bookFilter&&String(v).indexOf(bookFilter+'.')===0?' bk':'')+'" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
-   provHtml(d.sources,n.origin_source)+
-   '<div style="margin-top:16px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="muted" style="font-size:11px;margin-right:2px">explore in →</span>'+
-   '<span class="gchip" style="cursor:pointer" onclick="graphFor(\\''+n.id+'\\')">⬡ Graph</span>'+
-   (n.kind==='person'?'<span class="gchip" style="cursor:pointer" onclick="oikosFor(\\''+n.id+'\\')">◎ Oikos</span>':'')+
-   '<span class="gchip" style="cursor:pointer" onclick="nav(\\'generations/'+n.id+'\\')">⋔ Generations</span>'+
-   (n.kind==='person'?'<span class="gchip" style="cursor:pointer" onclick="genMovementFor(\\''+n.id+'\\')">↳ Movement</span>':'')+'</div></div>';
+   provHtml(d.sources,n.origin_source)+'</div>';
   const htip=document.getElementById('htip');
   det.querySelectorAll('[data-tip]').forEach(el=>{
     el.addEventListener('mouseenter',()=>{htip.style.display='block';htip.innerHTML=el.dataset.tip;});
