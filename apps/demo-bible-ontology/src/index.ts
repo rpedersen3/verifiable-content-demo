@@ -74,12 +74,16 @@ app.get('/api/search', async (c) => {
   else if (trust === 'neg') where.push(`${MORAL} < -0.2`);
   else if (trust === 'signals') where.push(`${NSIG} > 0`);
   const verseOrd = '(SELECT count(*) FROM node_verse WHERE node_id=node.id) DESC';
-  let order = verseOrd;
-  if (sort === 'good') order = `${MORAL} IS NULL, ${MORAL} DESC, ${verseOrd}`;
-  else if (sort === 'evil') order = `${MORAL} IS NULL, ${MORAL} ASC, ${verseOrd}`;
+  const DIMS = ['wisdom', 'faithfulness', 'courage', 'truthfulness', 'repentance'];
+  let order = verseOrd, dimSel = '';
+  if (sort === 'good' || sort === 'evil') { where.push(`${MORAL} IS NOT NULL`); order = `${MORAL} ${sort === 'evil' ? 'ASC' : 'DESC'}, ${verseOrd}`; }
+  else if (DIMS.includes(sort)) { const d = `(SELECT value FROM score WHERE subject_id=node.id AND dimension='${sort}')`; where.push(`${d} IS NOT NULL`); order = `${d} DESC, ${verseOrd}`; dimSel = `,${d} dimval`; }
   else if (sort === 'signals') order = `${NSIG} DESC, ${verseOrd}`;
-  const r = await rows(c.env.DB, `SELECT id,canon_id,label,kind,disambig,aka,prov_class,gc_class,canon_confidence,image_thumb,${MORAL} moral,${NSIG} nsig FROM node WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 50`, ...args);
-  return c.json({ ok: true, results: r });
+  const page = Math.max(0, parseInt(c.req.query('page') ?? '0', 10) || 0);
+  const PER = 50, off = page * PER;
+  const r = await rows(c.env.DB, `SELECT id,canon_id,label,kind,disambig,aka,prov_class,gc_class,canon_confidence,image_thumb,${MORAL} moral,${NSIG} nsig${dimSel} FROM node WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ${PER + 1} OFFSET ${off}`, ...args);
+  const more = r.length > PER;
+  return c.json({ ok: true, results: r.slice(0, PER), page, more });
 });
 
 // Inheritance-aware class browser — instances of a class AND all its subclasses, across every

@@ -427,34 +427,45 @@ function tagAlign(a){
   if(a==='unaligned')return '<span class="chip tag-un">unaligned</span>';
   return '<span class="chip">'+esc(a)+'</span>';
 }
-let expKind='',expSort='',expTrust='';
-function tind(r){let h='';if(r.moral!=null){const v=+r.moral,c=v>0.15?'#1a8a4f':v<-0.15?'#c0392b':'#b45309';h+='<span class="tbadge" title="good ↔ evil trust signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'＋':v<0?'－':'~')+Math.abs(v).toFixed(2)+'</span>';}if(r.nsig>0)h+='<span class="muted" style="font-size:11px" title="'+r.nsig+' trust signals">◴ '+r.nsig+'</span>';return h?'<span class="trow">'+h+'</span>':'';}
+let expKind='',expSort='',expTrust='',expPage=0;
+const DSORTC={wisdom:'#7c5cff',faithfulness:'#2563eb',courage:'#0d9488',truthfulness:'#0e7490',repentance:'#b45309'};
+function tind(r){let h='';
+  if(r.dimval!=null&&DSORTC[expSort]){const v=+r.dimval,c=DSORTC[expSort];h+='<span class="tbadge" title="'+esc(expSort)+' signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'+':'')+v.toFixed(2)+' '+esc(expSort)+'</span>';}
+  if(r.moral!=null){const v=+r.moral,c=v>0.15?'#1a8a4f':v<-0.15?'#c0392b':'#b45309';h+='<span class="tbadge" title="good ↔ evil trust signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'＋':v<0?'－':'~')+Math.abs(v).toFixed(2)+'</span>';}
+  if(r.nsig>0)h+='<span class="muted" style="font-size:11px" title="'+r.nsig+' trust signals">◴ '+r.nsig+'</span>';
+  return h?'<span class="trow">'+h+'</span>':'';}
 async function explore(){
   V.innerHTML='<div class="card"><input id="q" placeholder="Search by name or alias… (e.g. Peter, David, Jerusalem, Exodus)"/>'+
    '<div class="gchips" id="kfil" style="margin-top:10px"></div>'+
    '<div class="gchips" id="tctl" style="margin-top:6px;align-items:center"></div>'+
    '<div id="res"></div></div><div id="detail"></div>';
   const q=document.getElementById('q');q.focus();
-  const run=async()=>{const term=q.value.trim();const res=document.getElementById('res');
-    if(term.length<2&&!expKind&&!expTrust){res.innerHTML='';return;}
-    const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):'')+(expSort?'&sort='+expSort:'')+(expTrust?'&trust='+expTrust:''));
-    res.innerHTML=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b>'+tind(r)+' '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind||expTrust?' for this filter':'')+'.</div>';
+  const run=async(pick)=>{const term=q.value.trim();const res=document.getElementById('res');
+    if(term.length<2&&!expKind&&!expTrust){res.innerHTML='';const det=document.getElementById('detail');if(det)det.innerHTML='';return;}
+    const d=await api('/search?q='+encodeURIComponent(term)+(expKind?'&kind='+encodeURIComponent(expKind):'')+(expSort?'&sort='+expSort:'')+(expTrust?'&trust='+expTrust:'')+'&page='+expPage);
+    const list=d.results.length?'<ul class="list">'+d.results.map(r=>{const aka=(r.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(r.label||'').toLowerCase());return '<li onclick="showNode(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+(imgMode()==='styled'?' styled':'')+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b>'+tind(r)+' '+(aka.length?'<span class="muted">a.k.a. '+aka.map(esc).join(', ')+'</span> ':'')+'<span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||'')+(r.gc_class?' · '+esc(r.gc_class):'')+'</span>'+confDot(r.canon_confidence)+'</li>';}).join('')+'</ul>':'<div class="ghint">No matches'+(expKind||expTrust?' for this filter':'')+'.</div>';
+    const pager=(d.more||expPage>0)?'<div class="gchips" style="margin-top:10px;align-items:center">'+(expPage>0?'<span class="gchip mini" id="pprev">← Prev</span>':'')+'<span class="muted" style="font-size:11px;margin:0 7px">page '+(expPage+1)+'</span>'+(d.more?'<span class="gchip mini" id="pnext">Next →</span>':'')+'</div>':'';
+    res.innerHTML=list+pager;
+    const pv=document.getElementById('pprev'),nx=document.getElementById('pnext');
+    if(pv)pv.onclick=()=>{expPage=Math.max(0,expPage-1);run();};
+    if(nx)nx.onclick=()=>{expPage++;run();};
+    if(pick&&d.results.length)renderNode(d.results[0].id); else if(!d.results.length){const det=document.getElementById('detail');if(det)det.innerHTML='';}
   };
-  const SORTS=[['','Relevance'],['good','Most good'],['evil','Most evil'],['signals','Most signals']];
+  const SORTS=[['','Relevance'],['good','Most good'],['evil','Most evil'],['wisdom','Wisest'],['courage','Most courageous'],['faithfulness','Most faithful'],['truthfulness','Most truthful'],['repentance','Most repentant'],['signals','Most signals']];
   const TRUSTS=[['','Any'],['pos','Positive'],['neg','Negative'],['signals','Has signals']];
   const drawCtl=()=>{document.getElementById('tctl').innerHTML=
     '<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('')+
     '<span class="muted" style="font-size:11px;margin:0 3px 0 12px">trust</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('');
-    document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;drawCtl();run();});
-    document.querySelectorAll('#tctl [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;drawCtl();run();});};
+    document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;expPage=0;drawCtl();run(true);});
+    document.querySelectorAll('#tctl [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;expPage=0;drawCtl();run(true);});};
   drawCtl();
   const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
   const FKC={'':'#64748b',person:KC.person,organization:KC.organization,activity:KC.event,place:KC.place,deity:KC.deity,concept:KC.concept};
   const kc=document.getElementById('kfil');
-  const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0];return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;q.value='';drawChips();run();});};
+  const drawChips=()=>{kc.innerHTML=KF.map(k=>{const c=FKC[k[0]]||'#64748b',on=expKind===k[0];return '<span class="gchip'+(on?' on':'')+'" data-k="'+k[0]+'" style="'+(on?'background:'+c+';color:#fff;border-color:'+c:'border-color:'+c+'66')+'">'+(k[0]?'<span class="kdot" style="display:inline-block;vertical-align:middle;margin-right:5px;background:'+(on?'#fff':c)+'"></span>':'')+esc(k[1])+'</span>';}).join('');kc.querySelectorAll('[data-k]').forEach(ch=>ch.onclick=()=>{expKind=ch.dataset.k;q.value='';expPage=0;drawChips();run(true);});};
   drawChips();
-  let timer;q.oninput=()=>{clearTimeout(timer);timer=setTimeout(run,180);};
-  if(expKind||expTrust)run();
+  let timer;q.oninput=()=>{clearTimeout(timer);expPage=0;timer=setTimeout(run,180);};
+  if(expKind||expTrust)run(true);
 }
 function showNode(id){nav('node/'+id);}
 function showNodeTab(id){nav('node/'+id);}
