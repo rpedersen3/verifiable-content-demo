@@ -230,15 +230,10 @@ function bandChips(integ){
   return B.filter(b=>integ[b[0]]).map(b=>'<span class="confchip" style="background:'+b[2]+';color:'+b[1]+'">'+integ[b[0]].toLocaleString()+' '+b[3]+'</span>').join(' ');
 }
 function idrow(n){
-  const links=[];
-  if(n.wikidata)links.push('<a class="link" href="'+esc(n.wikidata)+'" target="_blank" rel="noopener">Wikidata ↗</a>');
-  if(n.authority_uri&&n.authority_uri!==n.wikidata)links.push('<a class="link" href="'+esc(n.authority_uri)+'" target="_blank" rel="noopener">authority ↗</a>');
-  const cb=confBadge(n.canon_confidence,n.canon_method,n.canon_basis);
-  const og=n.origin_source&&n.origin_source!=='theographic'?'<span class="origin" title="canonical node minted from this source (not in the Theographic backbone)">'+esc(n.origin_source)+'</span>':'';
   const akaList=(n.aka||'').split('|').filter(f=>f&&f.toLowerCase()!==String(n.label||'').toLowerCase());
   const akaHtml=akaList.length?'<span class="muted" title="also known as">a.k.a. <b>'+akaList.map(esc).join(', ')+'</b></span>':'';
-  if(!n.canon_id&&!n.disambig&&!links.length&&!cb&&!og&&!akaHtml)return '';
-  return '<div class="idrow">'+(n.canon_id?'<span class="idpill" title="canonical id — unique even when names collide">'+esc(n.canon_id)+'</span>':'')+og+(n.disambig?'<span class="muted">'+esc(n.disambig)+'</span>':'')+akaHtml+links.join(' ')+cb+'</div>';
+  if(!n.disambig&&!akaHtml)return '';
+  return '<div class="idrow">'+(n.disambig?'<span class="muted">'+esc(n.disambig)+'</span>':'')+akaHtml+'</div>';
 }
 // multi-source: original-language forms, external identifiers, provenance
 const XSCHEME={wikidata:['Wikidata','#a30000'],pleiades:['Pleiades','#7b3f00'],geonames:['GeoNames','#0b6e4f'],tipnr:['STEPBible','#2f6df0'],strongs:["Strong's",'#6b21a8'],openbible:['OpenBible','#b45309'],theographic:['Theographic','#475569']};
@@ -276,7 +271,7 @@ function scoreBars(scores){
       return name+'<div class="sbar bipolar"'+dt+'><span class="mid"></span><i style="left:'+left+'%;width:'+w+'%;background:'+col+'"></i></div><div class="sval" style="color:'+col+'"'+dt+'>'+vs+'</div>';}
     return name+'<div class="sbar"'+dt+'><i style="left:0;width:'+Math.round(v*100)+'%;background:'+SCOL[d]+'"></i></div><div class="sval"'+dt+'>'+v.toFixed(2)+'</div>';
   }).join('');
-  return '<h3 class="muted" style="margin-top:16px">trust &amp; alignment signals</h3><div class="scores">'+rows+'</div>';
+  return '<h3 class="muted" style="margin-top:16px">trust signals</h3><div class="scores">'+rows+'</div>';
 }
 
 // ── hash routing: every view is a URL route so browser back/forward works ──
@@ -485,12 +480,11 @@ async function explore(){
   };
   const SORTS=[['','Relevance'],['wisdom','Wisest'],['courage','Most courageous'],['faithfulness','Most faithful'],['truthfulness','Most truthful'],['repentance','Most repentant'],['signals','Most signals']];
   const TRUSTS=[['','Any'],['pos','Righteous'],['neg','Wicked'],['signals','Has signals']];
-  const drawCtl=()=>{document.getElementById('tctl').innerHTML=
-    '<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('');
-    document.getElementById('tctl2').innerHTML=
-    '<span class="muted" style="font-size:11px;margin-right:3px">righteousness</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('');
-    document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;expPage=0;drawCtl();run();});
-    document.querySelectorAll('#tctl2 [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;expPage=0;drawCtl();run();});};
+  const drawCtl=()=>{const showT=(expKind==='person'||expKind==='organization');
+    document.getElementById('tctl').innerHTML=showT?('<span class="muted" style="font-size:11px;margin-right:3px">sort</span>'+SORTS.map(s=>'<span class="gchip mini'+(expSort===s[0]?' on':'')+'" data-s="'+s[0]+'">'+esc(s[1])+'</span>').join('')):'';
+    document.getElementById('tctl2').innerHTML=showT?('<span class="muted" style="font-size:11px;margin-right:3px">righteousness</span>'+TRUSTS.map(t=>'<span class="gchip mini'+(expTrust===t[0]?' on':'')+'" data-tr="'+t[0]+'">'+esc(t[1])+'</span>').join('')):'';
+    if(showT){document.querySelectorAll('#tctl [data-s]').forEach(ch=>ch.onclick=()=>{expSort=ch.dataset.s;expPage=0;drawCtl();run();});
+    document.querySelectorAll('#tctl2 [data-tr]').forEach(ch=>ch.onclick=()=>{expTrust=ch.dataset.tr;expPage=0;drawCtl();run();});}};
   drawCtl();
   const KF=[['','All'],['person','People'],['organization','Orgs'],['activity','Activities'],['place','Places'],['deity','Deities'],['concept','Roles & concepts']];
   const FKC={'':'#64748b',person:KC.person,organization:KC.organization,activity:KC.event,place:KC.place,deity:KC.deity,concept:KC.concept};
