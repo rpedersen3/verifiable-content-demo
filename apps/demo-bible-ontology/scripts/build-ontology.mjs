@@ -151,18 +151,14 @@ const CLASSES = [
   // PROV-O mid (aligned under DUL)
   ['prov:Agent', 'prov:Agent', 'prov', 'dul:Agent'], ['prov:Person', 'prov:Person', 'prov', 'prov:Agent'], ['prov:Organization', 'prov:Organization', 'prov', 'prov:Agent'],
   ['prov:Activity', 'prov:Activity', 'prov', 'dul:Event'], ['prov:Entity', 'prov:Entity', 'prov', 'dul:Object'],
-  // W3C ORG (membership)
-  ['org:Organization', 'org:Organization', 'org', 'prov:Organization'], ['org:FormalOrganization', 'Formal Organization', 'org', 'org:Organization'],
-  ['org:OrganizationalUnit', 'Organizational Unit', 'org', 'org:Organization'], ['org:Membership', 'Membership', 'org', 'dul:Situation'],
-  ['org:Role', 'org:Role', 'org', 'dul:Role'], ['org:Post', 'Post', 'org', 'dul:Role'],
   // GeoSPARQL (geo)
   ['geo:Feature', 'Geo Feature', 'geo', 'prov:Entity'], ['geo:Geometry', 'Geometry', 'geo', 'dul:Object'],
   // agenticprimitives skills
   ['aps:Skill', 'Skill', 'aps', 'dul:Concept'], ['aps:SkillClaim', 'Skill Claim', 'aps', 'dul:Description'],
   // Global Church + Bible-lower (gc:)
-  ['gc:Person', 'Bible Person', 'gc', 'prov:Person'], ['gc:AgentiveEkklesia', 'Assembly / Ekklesia', 'gc', 'org:FormalOrganization'],
-  ['gc:Community', 'Community', 'gc', 'org:Organization'], ['gc:Tribe', 'Tribe', 'gc', 'org:OrganizationalUnit'], ['gc:Nation', 'Nation', 'gc', 'org:FormalOrganization'],
-  ['gc:House', 'House / Lineage', 'gc', 'org:OrganizationalUnit'], ['gc:Genealogy', 'Genealogy / Ancestral Line', 'gc', 'gc:House'], ['gc:ApostolicBody', 'Apostolic Body', 'gc', 'gc:AgentiveEkklesia'],
+  ['gc:Person', 'Bible Person', 'gc', 'prov:Person'], ['gc:AgentiveEkklesia', 'Assembly / Ekklesia', 'gc', 'prov:Organization'],
+  ['gc:Community', 'Community', 'gc', 'prov:Organization'], ['gc:Tribe', 'Tribe', 'gc', 'gc:Community'], ['gc:Nation', 'Nation', 'gc', 'prov:Organization'],
+  ['gc:House', 'House / Lineage', 'gc', 'gc:Community'], ['gc:Genealogy', 'Genealogy / Ancestral Line', 'gc', 'gc:House'], ['gc:ApostolicBody', 'Apostolic Body', 'gc', 'gc:AgentiveEkklesia'],
   ['gc:BiblicalEvent', 'Biblical Event', 'gc', 'prov:Activity'], ['gc:Covenant', 'Covenant', 'gc', 'dul:Description'],
   // fine-grained interactions (conversation level) — speech acts, letters, encounters between agents
   ['gc:Interaction', 'Interaction', 'gc', 'gc:BiblicalEvent'], ['gc:Correspondence', 'Correspondence (Letter)', 'gc', 'gc:Interaction'],
@@ -190,7 +186,7 @@ const CLASSES = [
   ['gc:Prophecy', 'Prophecy', 'gc', 'gc:Assertive'], ['gc:Parable', 'Parable', 'gc', 'gc:Assertive'], ['gc:Confession', 'Confession', 'gc', 'gc:Assertive'],
   ['gc:Curse', 'Curse', 'gc', 'gc:Expressive'], ['gc:Praise', 'Praise', 'gc', 'gc:Expressive'], ['gc:Vow', 'Vow', 'gc', 'gc:Commissive'],
   // grouped biblical roles (cleaner GCO tree)
-  ['gc:Role', 'Biblical Role', 'gc', 'org:Role'],
+  ['gc:Role', 'Biblical Role', 'gc', 'dul:Role'],
   ['gc:Place', 'Biblical Place', 'gc', 'geo:Feature'], ['gc:Responsibility', 'Responsibility', 'gc', 'dul:Concept'],
   // gc roles (Bible usage)
   ...[['Patriarch'], ['Matriarch'], ['Prophet'], ['Prophetess'], ['Priest'], ['HighPriest', 'High Priest'], ['King'], ['Queen'], ['Judge'], ['Apostle'], ['Disciple'], ['Levite'], ['Elder'], ['Deacon'], ['Evangelist'], ['Leader'], ['Governor'], ['Scribe'], ['Shepherd'], ['Messiah']].map(([r, l]) => [`gc:${r}`, l ?? r, 'gc', 'gc:Role']),
