@@ -188,7 +188,7 @@ svg#tsvg{display:block;background:#fbfcfe}
 .tnode{cursor:pointer}.tnode:hover rect,.tnode:hover polygon{fill-opacity:1;stroke:#1f2733;stroke-width:1.2}
 .tnode:hover text{font-weight:600}
 </style></head><body><div class="wrap">
-<div class="site-header"><span class="brand-name" onclick="nav('home')" title="Home">Bible Explorer</span><span class="brand-sub" id="brandsub"></span><select id="bookSel" class="book-sel" title="Filter the Explore list by book"></select></div>
+<div class="site-header"><span class="brand-name" onclick="nav('home')" title="Home">Bible Explorer</span><span class="brand-sub" id="brandsub"></span><select id="bookSel" class="book-sel" title="Filter the Explore list by book"></select><span id="connectBtn" style="margin-left:10px;display:inline-flex;gap:6px;align-items:center"></span></div>
 <nav>
  <button data-t="home" class="on">Home</button>
  <button data-t="explore">Explore</button>
@@ -311,6 +311,51 @@ const BOOKS=[['Gen','Genesis'],['Exod','Exodus'],['Lev','Leviticus'],['Num','Num
 (function(){const sel=document.getElementById('bookSel');if(!sel)return;sel.innerHTML='<option value="">All books</option>'+BOOKS.map(b=>'<option value="'+b[0]+'">'+b[1]+'</option>').join('');
   sel.onchange=async()=>{bookFilter=sel.value;await loadFacets();if(tab==='explore'){if(exploreRun)exploreRun();}else if(tab==='geo'||tab==='timeline'){nav(tab);}else nav('explore');};})();
 
+// ── Connect: OIDC sign-in via the Impact central-auth home (mirrors demo-gs) ──
+const CONNECT_DOMAIN='impact-agent.me',CLIENT_ID='bible-explorer',CENTRAL_AUTH_ORIGIN='https://www.'+CONNECT_DOMAIN,CONNECT_DELEGATE='0x89D13c596c45E4eE80Af5ae06C727FE9A820ffD0';
+let session=null;
+function loadSession(){try{const j=JSON.parse(localStorage.getItem('sa.session')||'null');session=(j&&j.exp*1000>Date.now())?j:null;if(!session)localStorage.removeItem('sa.session');}catch(e){session=null;}}
+function isConnected(){return !!session;}
+function b64url(b){let s='';for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s).split('+').join('-').split('/').join('_').replace(/=+$/,'');}
+function fromB64url(seg){const bin=atob(seg.split('-').join('+').split('_').join('/'));const o=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)o[i]=bin.charCodeAt(i);return o;}
+function decodeSeg(seg){return JSON.parse(new TextDecoder().decode(fromB64url(seg)));}
+const randB64=(n)=>b64url(crypto.getRandomValues(new Uint8Array(n)));
+async function pkce(){const v=randB64(32);const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v));return {verifier:v,challenge:b64url(new Uint8Array(d))};}
+function nameLabel(n){let x=String(n||'').trim().toLowerCase();if(x.endsWith('.impact'))x=x.slice(0,-7);return x.split('.')[0];}
+function authOriginFor(name){const l=nameLabel(name);return l?('https://'+l+'.'+CONNECT_DOMAIN):CENTRAL_AUTH_ORIGIN;}
+function isAllowedIssuer(origin){try{const u=new URL(origin);if(u.protocol!=='https:'&&u.hostname!=='localhost'&&u.hostname!=='127.0.0.1')return false;if(u.pathname!=='/'&&u.pathname!=='')return false;if(u.search||u.hash)return false;const h=u.hostname;return h===CONNECT_DOMAIN||h.endsWith('.'+CONNECT_DOMAIN)||h==='localhost'||h==='127.0.0.1';}catch(e){return false;}}
+async function connectStart(name){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(name);
+  sessionStorage.setItem('sa.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin,name:name||''}));
+  const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
+async function verifyIdToken(authOrigin,idToken,expectedNonce){if(!isAllowedIssuer(authOrigin))throw new Error('issuer not allowed');
+  const parts=idToken.split('.');if(parts.length!==3)throw new Error('id_token malformed');
+  const header=decodeSeg(parts[0]),claims=decodeSeg(parts[1]);
+  const base=authOrigin.endsWith('/')?authOrigin.slice(0,-1):authOrigin;
+  const jwks=await fetch(base+'/jwks').then(r=>r.json());
+  const jwk=(jwks.keys||[]).find(k=>k.kid===header.kid);if(!jwk)throw new Error('no JWKS key');
+  if(jwk.alg!=='ES256'||header.alg!=='ES256')throw new Error('alg not ES256');
+  const key=await crypto.subtle.importKey('jwk',jwk,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+  const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,fromB64url(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1]));
+  if(!ok)throw new Error('signature invalid');
+  if(claims.iss!==authOrigin)throw new Error('iss mismatch');if(claims.aud!==CLIENT_ID)throw new Error('aud mismatch');
+  if(expectedNonce&&claims.nonce!==expectedNonce)throw new Error('nonce mismatch');
+  if(typeof claims.exp!=='number'||claims.exp*1000<Date.now())throw new Error('id_token expired');return claims;}
+async function connectCallback(){const p=new URLSearchParams(location.search);const code=p.get('code'),state=p.get('state');if(!code||!state)return false;
+  let pend=null;try{pend=JSON.parse(sessionStorage.getItem('sa.pending')||'null');}catch(e){}
+  history.replaceState(null,'',location.pathname+location.hash);
+  if(!pend||pend.state!==state)return false;
+  try{const tr=await fetch((pend.authOrigin.endsWith('/')?pend.authOrigin.slice(0,-1):pend.authOrigin)+'/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant_type:'authorization_code',code,code_verifier:pend.verifier,client_id:CLIENT_ID,redirect_uri:location.origin+'/'})}).then(r=>r.json());
+    if(!tr.id_token)throw new Error(tr.error||'no id_token returned');
+    const claims=await verifyIdToken(pend.authOrigin,tr.id_token,pend.nonce);
+    session={idToken:tr.id_token,name:claims.agent_name||pend.name||'',sub:claims.sub,exp:claims.exp};
+    localStorage.setItem('sa.session',JSON.stringify(session));sessionStorage.removeItem('sa.pending');return true;
+  }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));sessionStorage.removeItem('sa.pending');return false;}}
+function disconnect(){session=null;localStorage.removeItem('sa.session');renderConnect();}
+function promptConnect(){const n=prompt('Connect with your Impact name (e.g. alice.impact) — leave blank to sign up:','');if(n===null)return;connectStart(n.trim());}
+function requireConnect(action){if(isConnected())return true;if(confirm('Connect to '+action+'? You sign in with your Impact identity.'))promptConnect();return false;}
+function renderConnect(){const el=document.getElementById('connectBtn');if(!el)return;el.innerHTML=isConnected()?'<span class="muted" style="font-size:12px">● '+esc(session.name||(session.sub||'').slice(0,12))+'</span><button class="map-basbtn" style="border:1px solid var(--line);border-radius:8px" onclick="disconnect()">Disconnect</button>':'<button class="map-basbtn on" style="border:1px solid var(--accent);border-radius:8px" onclick="promptConnect()">Connect</button>';}
+loadSession();renderConnect();connectCallback().then(ok=>{if(ok)renderConnect();});
+
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
 const SVG_TL='<svg viewBox="0 0 200 92">'+[['#2563eb',24,86],['#0e7490',46,118],['#b45309',74,78],['#1a8a4f',104,66],['#9333ea',142,46]].map((b,i)=>'<rect x="'+b[1]+'" y="'+(14+i*15)+'" width="'+b[2]+'" height="9" rx="3" fill="'+b[0]+'"/>').join('')+'<line x1="12" y1="8" x2="12" y2="86" stroke="#cbd5e1"/></svg>';
@@ -378,12 +423,12 @@ function openSignalCourt(el){let p;try{p=JSON.parse(decodeURIComponent(el.datase
   document.querySelectorAll('#sc-stance [data-st]').forEach(s=>s.onclick=()=>{document.querySelectorAll('#sc-stance [data-st]').forEach(x=>x.classList.remove('on'));s.classList.add('on');});
   loadSigFeedback();}
 function closeSigCourt(){const m=document.getElementById('sigcourt');if(m)m.style.display='none';}
-async function sigAnalyze(){const o=document.getElementById('sc-out'),b=document.getElementById('sc-go');if(b)b.textContent='🤖 reviewing…';o.innerHTML='<div class="ghint" style="padding:10px">the trust agent is weighing the signal against Scripture…</div>';
+async function sigAnalyze(){if(!requireConnect('challenge this signal'))return;const o=document.getElementById('sc-out'),b=document.getElementById('sc-go');if(b)b.textContent='🤖 reviewing…';o.innerHTML='<div class="ghint" style="padding:10px">the trust agent is weighing the signal against Scripture…</div>';
   let r;try{r=await fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(scSig)}).then(x=>x.json());}catch(e){r={analysis:'Could not reach the trust agent.'};}
   if(b)b.textContent='🤖 Re-challenge';o.innerHTML='<div class="sc-analysis">'+mdLite(r.analysis||'(no analysis)')+'</div>';}
 async function loadSigFeedback(){if(!scSig)return;let d;try{d=await api('/feedback?subject='+encodeURIComponent(scSig.id)+'&basis='+encodeURIComponent(scSig.basis));}catch(e){d={feedback:[]};}const fb=d.feedback||[];
   document.getElementById('sc-fb').innerHTML=fb.length?fb.map(f=>'<div class="sc-fbitem"><span class="sc-st sc-'+esc(f.stance)+'">'+esc(f.stance)+'</span> <b>'+esc(f.author||'anonymous')+'</b> <span class="muted" style="font-size:11px">'+esc((f.created_at||'').slice(0,10))+'</span><div style="margin-top:2px">'+esc(f.comment)+'</div></div>').join(''):'<div class="muted" style="font-size:12px">No feedback yet — be the first to weigh in.</div>';}
-async function sigFeedbackSubmit(){if(!scSig)return;const stEl=document.querySelector('#sc-stance .on');const stance=stEl?stEl.dataset.st:'note';const comment=document.getElementById('sc-comment').value.trim();const author=document.getElementById('sc-name').value.trim();
+async function sigFeedbackSubmit(){if(!scSig)return;if(!requireConnect('post feedback'))return;const stEl=document.querySelector('#sc-stance .on');const stance=stEl?stEl.dataset.st:'note';const comment=document.getElementById('sc-comment').value.trim();const author=document.getElementById('sc-name').value.trim();
   if(comment.length<2)return;
   try{await fetch('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subject_id:scSig.id,subject_label:scSig.label,sig_kind:scSig.kind,basis:scSig.basis,osis:scSig.osis,stance:stance,comment:comment,author:author})});}catch(e){}
   document.getElementById('sc-comment').value='';loadSigFeedback();}
