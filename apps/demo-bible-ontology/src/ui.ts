@@ -105,6 +105,17 @@ svg{width:100%;background:#fbfcfe;border:1px solid var(--line);border-radius:10p
 .mappulse::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:3px solid #ff5a36;animation:mpulse 1.5s ease-out infinite}
 @keyframes mpulse{0%{transform:scale(.55);opacity:1}100%{transform:scale(1.5);opacity:0}}
 .ihover img{display:block;max-width:560px;max-height:400px}
+.sigq{cursor:pointer;font-size:12px;margin-left:5px;opacity:.45;user-select:none}.sigq:hover{opacity:1}
+.scmodal{display:none;position:fixed;inset:0;z-index:4500;background:rgba(20,30,50,.5);align-items:flex-start;justify-content:center;padding:38px 16px;overflow:auto}
+.sc-card{background:#fff;border-radius:12px;max-width:560px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:8px}
+.sc-claim{background:#f6f8fc;border-left:3px solid var(--accent);border-radius:6px;padding:9px 12px;font-size:14px;margin:4px 0}
+.sc-analysis{background:#fbfcfe;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.55;margin-top:8px}
+.sc-form{display:flex;flex-direction:column;gap:7px;margin-top:6px}
+.sc-form input,.sc-form textarea{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:13px system-ui;outline:none;resize:vertical}
+.sc-form input:focus,.sc-form textarea:focus{border-color:var(--accent)}
+.sc-fbitem{border-bottom:1px solid var(--line);padding:7px 0;font-size:13px}
+.sc-st{font-size:10px;font-weight:700;text-transform:uppercase;border-radius:4px;padding:1px 5px;color:#fff}
+.sc-challenge{background:#c0392b}.sc-agree{background:#1a8a4f}.sc-note{background:#7c8696}
 .vmodal.on{display:flex}
 .vmodal .box{background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:82vh;overflow:auto;padding:18px 22px;box-shadow:0 14px 44px rgba(20,30,50,.32)}
 .vmodal h3{margin:0 0 2px;font-size:18px}
@@ -196,6 +207,7 @@ svg#tsvg{display:block;background:#fbfcfe}
 <div id="vmodal" class="vmodal"></div>
 <div id="imgmodal" class="imodal" onclick="closeImg()"><img id="imgmodalImg" alt=""/></div>
 <div id="imghover" class="ihover"><img id="imghoverImg" alt=""/></div>
+<div id="sigcourt" class="scmodal" onclick="if(event.target===this)closeSigCourt()"><div class="sc-card" id="sc-body"></div></div>
 </div>
 <script>
 const KC={person:'#2563eb',organization:'#9333ea',event:'#0e7490',place:'#b45309',role:'#0d9488',skill:'#7c3aed',membership:'#94a0b3',responsibility:'#475569',deity:'#7c3aed',concept:'#64748b',interaction:'#db2777',speechact:'#db2777',plan:'#0891b2',step:'#14b8a6'};
@@ -267,7 +279,7 @@ function scoreBars(scores){
     const vs=bip(d)?(v>0?'+':'')+v.toFixed(2):v.toFixed(2);
     const tip=('<b>'+SDIM[d]+'</b> &nbsp;'+vs+'<br><span style="color:#8a96a3;text-transform:uppercase;font-size:10px">'+kind+' · '+esc(s.method||'')+'</span><br>'+esc(s.basis||'(no basis recorded)')).replace(/"/g,'&quot;');
     const dt=' data-tip="'+tip+'"';
-    const name='<div class="sname"'+dt+'>'+SDIM[d]+'</div>';
+    const name='<div class="sname"'+dt+'>'+SDIM[d]+sigIcon(SDIM[d],s.basis,s.osis,v)+'</div>';
     if(bip(d)){const w=Math.abs(v)/2*100,left=v>=0?50:50-w,col=v>=0?BIPCOL[d]:'#c0392b';
       return name+'<div class="sbar bipolar"'+dt+'><span class="mid"></span><i style="left:'+left+'%;width:'+w+'%;background:'+col+'"></i></div><div class="sval" style="color:'+col+'"'+dt+'>'+vs+'</div>';}
     return name+'<div class="sbar"'+dt+'><i style="left:0;width:'+Math.round(v*100)+'%;background:'+SCOL[d]+'"></i></div><div class="sval"'+dt+'>'+v.toFixed(2)+'</div>';
@@ -345,6 +357,36 @@ function openImg(u){if(!u)return;const m=document.getElementById('imgmodal'),i=d
 function openImgFor(id){openImg(geoImgFull[id]);}
 function closeImg(){const m=document.getElementById('imgmodal');if(m)m.style.display='none';}
 function pageTop(){window.scrollTo({top:0,behavior:'smooth'});}
+// ── Signal Court: challenge a trust signal (AI agent review) + public feedback ──
+let curNodeId='',curNodeLabel='',scSig=null;
+function sigIcon(kind,basis,osis,val){return '<span class="sigq" data-s="'+esc(JSON.stringify({id:curNodeId,label:curNodeLabel,kind:kind,basis:basis||'',osis:osis||'',val:val}))+'" onclick="openSignalCourt(this);event.stopPropagation()" title="challenge / discuss this signal">⚖</span>';}
+function mdLite(t){return esc(String(t)).split('\\n').join('<br>').replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>');}
+function openSignalCourt(el){let p;try{p=JSON.parse(el.dataset.s);}catch(e){return;}scSig=p;const m=document.getElementById('sigcourt');if(!m)return;
+  document.getElementById('sc-body').innerHTML=
+   '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><b style="font-size:16px">'+esc(p.label)+'</b><div class="muted" style="font-size:12px">'+esc(p.kind)+' signal</div></div><span onclick="closeSigCourt()" style="cursor:pointer;font-size:22px;line-height:1;color:#94a3b8">×</span></div>'+
+   '<div class="sc-claim">“'+esc(p.basis)+'”'+(p.osis?' &nbsp;<a class="vref" onclick="openPassage(\\''+esc(p.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(p.osis)+' ↗</a>':'')+'</div>'+
+   '<button class="gchip on" id="sc-go" onclick="sigAnalyze()" style="cursor:pointer;align-self:flex-start">🤖 Challenge with the trust agent</button>'+
+   '<div id="sc-out"></div>'+
+   '<h3 class="muted" style="margin:16px 0 6px">Public feedback</h3><div id="sc-fb"><div class="muted" style="font-size:12px">loading…</div></div>'+
+   '<div class="sc-form">'+
+     '<div class="gchips" id="sc-stance"><span class="gchip mini on" data-st="challenge">⚑ Challenge</span><span class="gchip mini" data-st="agree">✓ Agree</span><span class="gchip mini" data-st="note">✎ Note</span></div>'+
+     '<input id="sc-name" placeholder="your name (optional, public)" autocomplete="off"/>'+
+     '<textarea id="sc-comment" rows="3" placeholder="Why is this signal right or wrong? Cite verses…"></textarea>'+
+     '<button class="gchip on" onclick="sigFeedbackSubmit()" style="cursor:pointer;align-self:flex-start">Post feedback →</button>'+
+   '</div>';
+  m.style.display='flex';
+  document.querySelectorAll('#sc-stance [data-st]').forEach(s=>s.onclick=()=>{document.querySelectorAll('#sc-stance [data-st]').forEach(x=>x.classList.remove('on'));s.classList.add('on');});
+  loadSigFeedback();}
+function closeSigCourt(){const m=document.getElementById('sigcourt');if(m)m.style.display='none';}
+async function sigAnalyze(){const o=document.getElementById('sc-out'),b=document.getElementById('sc-go');if(b)b.textContent='🤖 reviewing…';o.innerHTML='<div class="ghint" style="padding:10px">the trust agent is weighing the signal against Scripture…</div>';
+  let r;try{r=await fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(scSig)}).then(x=>x.json());}catch(e){r={analysis:'Could not reach the trust agent.'};}
+  if(b)b.textContent='🤖 Re-challenge';o.innerHTML='<div class="sc-analysis">'+mdLite(r.analysis||'(no analysis)')+'</div>';}
+async function loadSigFeedback(){if(!scSig)return;let d;try{d=await api('/feedback?subject='+encodeURIComponent(scSig.id)+'&basis='+encodeURIComponent(scSig.basis));}catch(e){d={feedback:[]};}const fb=d.feedback||[];
+  document.getElementById('sc-fb').innerHTML=fb.length?fb.map(f=>'<div class="sc-fbitem"><span class="sc-st sc-'+esc(f.stance)+'">'+esc(f.stance)+'</span> <b>'+esc(f.author||'anonymous')+'</b> <span class="muted" style="font-size:11px">'+esc((f.created_at||'').slice(0,10))+'</span><div style="margin-top:2px">'+esc(f.comment)+'</div></div>').join(''):'<div class="muted" style="font-size:12px">No feedback yet — be the first to weigh in.</div>';}
+async function sigFeedbackSubmit(){if(!scSig)return;const stEl=document.querySelector('#sc-stance .on');const stance=stEl?stEl.dataset.st:'note';const comment=document.getElementById('sc-comment').value.trim();const author=document.getElementById('sc-name').value.trim();
+  if(comment.length<2)return;
+  try{await fetch('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subject_id:scSig.id,subject_label:scSig.label,sig_kind:scSig.kind,basis:scSig.basis,osis:scSig.osis,stance:stance,comment:comment,author:author})});}catch(e){}
+  document.getElementById('sc-comment').value='';loadSigFeedback();}
 function fullFromThumb(s){if(!s||s.indexOf('/img/')<0)return s;return s.replace('-thumb.jpg','.jpg').replace('-thumb.jpeg','.jpeg');}
 function imgHover(src,ev){const m=document.getElementById('imghover'),i=document.getElementById('imghoverImg');if(!m||!i||!src)return;const f=fullFromThumb(src);if(i.getAttribute('src')!==f)i.src=f;m.style.display='block';imgHoverMove(ev);}
 function imgHoverMove(ev){const m=document.getElementById('imghover');if(!m||m.style.display!=='block')return;const x=ev.clientX,y=ev.clientY,w=580,h=420;let l=x+18,t=y+18;if(l+w>innerWidth)l=Math.max(8,x-w-18);if(t+h>innerHeight)t=Math.max(8,innerHeight-h-8);m.style.left=l+'px';m.style.top=t+'px';}
@@ -511,14 +553,14 @@ function backCrumb(id,label){return id?'<div class="dcrumb"><a onclick="nav(\\'n
 function genMovementFor(id){genRels='gc:discipled,gc:planted';nav('generations/'+id);}
 async function renderNode(id){
   const d=await api('/node/'+encodeURIComponent(id)+(bookFilter?'?book='+bookFilter:''));if(!d.ok)return;
-  const n=d.node;const cls=[['prov',n.prov_class],['dul',n.dul_class],['org',n.org_class],['geo',n.geo_class],['aps',n.aps_class],['gc',n.gc_class]].filter(x=>x[1]);
+  const n=d.node;curNodeId=n.id;curNodeLabel=n.label;const cls=[['prov',n.prov_class],['dul',n.dul_class],['org',n.org_class],['geo',n.geo_class],['aps',n.aps_class],['gc',n.gc_class]].filter(x=>x[1]);
   const ectx=(e)=>{let x='';try{const c=JSON.parse(e.ctx||'null');if(c){if(c.rel)x+=' <span class="muted">('+esc(c.rel)+')</span>';if(c.n)x+=' <span class="muted">×'+c.n+'</span>';if(c.osis)x+=' <a class="vref" onclick="openPassage(\\''+esc(c.osis)+'\\')" style="text-decoration:underline">'+esc(c.osis)+'</a>';else if(c.refs)x+=' '+c.refs.slice(0,3).map(o=>'<a class="vref" onclick="openPassage(\\''+esc(o)+'\\')" style="text-decoration:underline;font-size:11px">'+esc(o)+'</a>').join(' ');}}catch(z){}return x;};
   const grp=(arr,dir)=>{const by={};arr.forEach(e=>{(by[e.rel]=by[e.rel]||[]).push(e)});return Object.entries(by).map(([rel,es])=>'<div class="edge-grp"><div class="rel">'+esc(rel)+(dir==='in'?' (inverse)':'')+'</div>'+es.map(e=>'<span style="margin-right:10px;white-space:nowrap"><a onclick="showNode(\\''+e.id+'\\')">'+dot(e.kind)+esc(e.label)+'</a>'+ectx(e)+'</span>').join('')+'</div>').join('');};
   const geo=n.lat!=null?'<div class="hint">📍 '+n.lat+', '+n.long+' &nbsp;<span class="mono">'+esc(n.wkt||'')+'</span></div>':'';
   const ord=(y)=>y==null?'':('c. '+Math.abs(y)+(y<0?' BC':' AD'));
   const temporal=(()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.lifespan?'<div class="hint">📅 Lived <b>'+m.lifespan+' years</b>'+(m.lifespanRef?' · <a class="vref" onclick="openPassage(\\''+esc(m.lifespanRef)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(m.lifespanRef)+'</a>':'')+' <span class="muted">(stated in Scripture)</span></div>':'';})();
   const sigCss=(p)=>p==='positive'?'background:#e7f6ee;color:#1a8a4f':p==='negative'?'background:#fdeceA;color:#c0392b':'background:#fbf0e6;color:#b45309';
-  const sigs=(d.signals&&d.signals.length)?'<div style="margin-top:8px">'+d.signals.map(s=>'<span class="chip" style="'+sigCss(s.polarity)+'">'+(s.polarity==='positive'?'＋':s.polarity==='negative'?'－':'~')+' '+esc(s.basis)+(s.osis?' · <a class="vref" onclick="openPassage(\\''+esc(s.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(s.osis)+'</a>':'')+'</span>').join('')+'</div>':'';
+  const sigs=(d.signals&&d.signals.length)?'<div style="margin-top:8px">'+d.signals.map(s=>'<span class="chip" style="'+sigCss(s.polarity)+'">'+(s.polarity==='positive'?'＋':s.polarity==='negative'?'－':'~')+' '+esc(s.basis)+(s.osis?' · <a class="vref" onclick="openPassage(\\''+esc(s.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(s.osis)+'</a>':'')+sigIcon((s.polarity==='positive'?'+ Act':s.polarity==='negative'?'- Act':'~ Act'),s.basis,s.osis,s.polarity)+'</span>').join('')+'</div>':'';
   const det=document.getElementById('detail')||V;
   const ibName=bookFilter?((BOOKS.find(b=>b[0]===bookFilter)||[])[1]||bookFilter):'';
   const inBookN=bookFilter?(d.inBookCount!=null?d.inBookCount:d.verses.filter(v=>String(v).indexOf(bookFilter+'.')===0).length):0;

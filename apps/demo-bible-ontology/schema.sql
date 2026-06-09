@@ -75,3 +75,11 @@ CREATE INDEX IF NOT EXISTS idx_form_node ON node_form(node_id);
 CREATE INDEX IF NOT EXISTS idx_node_origin ON node(origin_source);
 CREATE INDEX IF NOT EXISTS idx_verses_osis ON verses(osis);
 CREATE INDEX IF NOT EXISTS idx_verses_leaf ON verses(leaf_index);
+
+-- Public feedback / challenges on trust signals (persists across data reseeds).
+CREATE TABLE IF NOT EXISTS signal_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id TEXT, subject_label TEXT, sig_kind TEXT, basis TEXT, osis TEXT,
+  stance TEXT, suggested TEXT, comment TEXT, author TEXT, created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_subj ON signal_feedback(subject_id);

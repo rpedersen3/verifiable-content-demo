@@ -6,9 +6,9 @@ import { Hono } from 'hono';
 import { UI } from './ui.js';
 
 interface D1 {
-  prepare(q: string): { bind(...a: unknown[]): { first<T = unknown>(): Promise<T | null>; all<T = unknown>(): Promise<{ results: T[] }> }; all<T = unknown>(): Promise<{ results: T[] }> };
+  prepare(q: string): { bind(...a: unknown[]): { first<T = unknown>(): Promise<T | null>; all<T = unknown>(): Promise<{ results: T[] }>; run(): Promise<unknown> }; all<T = unknown>(): Promise<{ results: T[] }> };
 }
-type Env = { DB: D1 };
+type Env = { DB: D1; ANTHROPIC_API_KEY?: string; ANALYZE_MODEL?: string };
 const app = new Hono<{ Bindings: Env }>();
 const rows = <T,>(db: D1, q: string, ...b: unknown[]) => db.prepare(q).bind(...b).all<T>().then((r) => r.results);
 // Transitive subclasses (+ self) of a class, from the precomputed closure — the heart of
@@ -339,6 +339,55 @@ app.get('/api/validate', async (c) => {
 app.get('/api/classes', async (c) => {
   const r = await rows(c.env.DB, 'SELECT curie,label,layer,parent FROM ontology_class ORDER BY layer,curie');
   return c.json({ ok: true, classes: r });
+});
+
+// ── Signal Court: challenge a trust signal (AI agent review) + public feedback ──
+// Public feedback thread for a given signal (keyed by subject + the signal's basis text).
+app.get('/api/feedback', async (c) => {
+  const subject = (c.req.query('subject') ?? '').trim();
+  const basis = (c.req.query('basis') ?? '').trim();
+  if (!subject) return c.json({ ok: true, feedback: [] });
+  const where = basis ? 'subject_id=? AND basis=?' : 'subject_id=?';
+  const args = basis ? [subject, basis] : [subject];
+  const fb = await rows(c.env.DB, `SELECT id,subject_label,sig_kind,stance,suggested,comment,author,created_at FROM signal_feedback WHERE ${where} ORDER BY id DESC LIMIT 100`, ...args);
+  return c.json({ ok: true, feedback: fb });
+});
+
+app.post('/api/feedback', async (c) => {
+  const b = await c.req.json().catch(() => ({})) as Record<string, string>;
+  const subject = String(b.subject_id ?? '').trim();
+  const comment = String(b.comment ?? '').trim();
+  const stance = ['agree', 'challenge', 'note'].includes(String(b.stance)) ? String(b.stance) : 'note';
+  if (!subject || !comment) return c.json({ ok: false, error: 'subject and comment required' }, 400);
+  const author = String(b.author ?? '').trim().slice(0, 60) || 'anonymous';
+  const now = new Date().toISOString();
+  await c.env.DB.prepare('INSERT INTO signal_feedback(subject_id,subject_label,sig_kind,basis,osis,stance,suggested,comment,author,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+    .bind(subject, String(b.subject_label ?? '').slice(0, 120), String(b.sig_kind ?? '').slice(0, 60), String(b.basis ?? '').slice(0, 400), String(b.osis ?? '').slice(0, 40), stance, String(b.suggested ?? '').slice(0, 40), comment.slice(0, 1500), author, now).run();
+  return c.json({ ok: true });
+});
+
+// Ask the trust agent (Claude) to validate/challenge a signal against Scripture. Needs ANTHROPIC_API_KEY.
+app.post('/api/analyze', async (c) => {
+  const key = c.env.ANTHROPIC_API_KEY;
+  if (!key) return c.json({ ok: false, error: 'unconfigured', analysis: 'The trust agent is not configured yet. Set the ANTHROPIC_API_KEY secret on this worker (`wrangler secret put ANTHROPIC_API_KEY`) to enable live signal challenges.' });
+  const b = await c.req.json().catch(() => ({})) as Record<string, string>;
+  const label = String(b.subject_label ?? 'this entity').slice(0, 120);
+  const kind = String(b.sig_kind ?? 'signal').slice(0, 60);
+  const basis = String(b.basis ?? '').slice(0, 400);
+  const osis = String(b.osis ?? '').slice(0, 40);
+  const prompt = `You are a Scripture-grounded trust auditor for a Bible knowledge graph. Validate ONE trust signal and say whether it is correct.\n\nEntity: ${label}\nSignal dimension/type: ${kind}\nStated basis: "${basis}"\nCited verse (OSIS): ${osis || '(none)'}\n\nIn ≤220 words, markdown:\n1. Restate what the signal claims.\n2. Check each factual claim against Scripture (cite book chapter:verse). Mark ✅/⚠️/❌.\n3. Confirm the cited verse actually supports the claim.\n4. Verdict: is the signal correct, and would you keep the polarity/rating or adjust it (and why)?\nBe precise, fair, and concrete. If the basis pins one individual's sin on a whole group, flag it.`;
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: c.env.ANALYZE_MODEL || 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!r.ok) return c.json({ ok: false, error: `agent ${r.status}`, analysis: `The trust agent returned an error (${r.status}). Check the API key / model.` });
+    const j = await r.json() as { content?: { text?: string }[] };
+    return c.json({ ok: true, analysis: j.content?.[0]?.text ?? '(no response)' });
+  } catch (e) {
+    return c.json({ ok: false, error: 'fetch failed', analysis: 'Could not reach the trust agent.' });
+  }
 });
 
 export default app;
