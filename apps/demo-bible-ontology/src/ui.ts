@@ -127,6 +127,7 @@ svg.dim .gedge{opacity:.07}svg.dim .gnode{opacity:.22}svg.dim .gcluster{opacity:
 .gbread{margin:6px 0 2px;font-size:14px}
 .gchips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
 .gchip{font-size:11px;font-weight:600;padding:4px 11px;border-radius:999px;border:1px solid var(--line);color:var(--muted);cursor:pointer;background:#fff;user-select:none}
+.gchip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .gtip{position:fixed;display:none;z-index:30;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:12px;line-height:1.45;box-shadow:0 6px 20px rgba(20,30,50,.16);max-width:230px;pointer-events:none}
 .glegend{font-size:11px;color:var(--muted);margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .ghint{font-size:12px;color:var(--muted);margin-top:6px}
