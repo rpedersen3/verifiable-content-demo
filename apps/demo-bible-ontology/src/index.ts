@@ -167,17 +167,21 @@ app.get('/api/node/:id', async (c) => {
   const id = c.req.param('id');
   const node = await c.env.DB.prepare('SELECT * FROM node WHERE id=?').bind(id).first();
   if (!node) return c.json({ ok: false, error: 'not found' }, 404);
-  const [out, inc, verses, signals, scores, formsR, xrefsR, sourcesR] = await Promise.all([
+  const book = (c.req.query('book') ?? '').trim().replace(/[^A-Za-z0-9]/g, '');
+  const vord = book ? `ORDER BY (CASE WHEN osis LIKE '${book}.%' THEN 0 ELSE 1 END)` : '';
+  const [out, inc, verses, vc, inBook, signals, scores, formsR, xrefsR, sourcesR] = await Promise.all([
     rows(c.env.DB, "SELECT e.rel, e.dst id, n.label, n.kind, e.ctx FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=? AND n.kind!='membership' LIMIT 250", id),
     rows(c.env.DB, "SELECT e.rel, e.src id, n.label, n.kind, e.ctx FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? AND n.kind!='membership' LIMIT 250", id),
-    rows<{ osis: string }>(c.env.DB, 'SELECT osis FROM node_verse WHERE node_id=? LIMIT 80', id),
+    rows<{ osis: string }>(c.env.DB, `SELECT osis FROM node_verse WHERE node_id=? ${vord} LIMIT 80`, id),
+    c.env.DB.prepare('SELECT count(*) n FROM node_verse WHERE node_id=?').bind(id).first<{ n: number }>(),
+    book ? c.env.DB.prepare(`SELECT count(*) n FROM node_verse WHERE node_id=? AND osis LIKE '${book}.%'`).bind(id).first<{ n: number }>() : Promise.resolve(null),
     rows(c.env.DB, 'SELECT polarity, basis, osis FROM signal WHERE subject_id=?', id),
     rows(c.env.DB, 'SELECT dimension, value, basis, method FROM score WHERE subject_id=? ORDER BY dimension', id),
     rows(c.env.DB, 'SELECT lang, form, strongs FROM node_form WHERE node_id=?', id),
     rows(c.env.DB, 'SELECT scheme, value, uri, relation, match_confidence, source_id FROM xref WHERE node_id=? ORDER BY scheme', id),
     rows(c.env.DB, 'SELECT ns.source_id, s.name, s.abbrev, s.url, s.license, ns.src_ref, ns.confidence FROM node_source ns JOIN source s ON s.source_id=ns.source_id WHERE ns.node_id=? ORDER BY ns.confidence DESC', id),
   ]);
-  return c.json({ ok: true, node, out, in: inc, verses: verses.map((v) => v.osis), signals, scores, forms: formsR, xrefs: xrefsR, sources: sourcesR });
+  return c.json({ ok: true, node, out, in: inc, verses: verses.map((v) => v.osis), verseCount: vc?.n ?? verses.length, inBookCount: inBook?.n ?? 0, signals, scores, forms: formsR, xrefs: xrefsR, sources: sourcesR });
 });
 
 // Ego graph for the trust-graph viz: center + neighbors (typed edges).
