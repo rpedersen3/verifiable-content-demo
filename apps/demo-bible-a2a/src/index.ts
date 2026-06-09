@@ -39,8 +39,8 @@ app.get('/.well-known/agent-card.json', (c) => {
   const origin = (c.env.A2A_PUBLIC_ORIGIN ?? new URL(c.req.url).origin).replace(/\/$/, '');
   return c.json({
     protocolVersion: '1.0',
-    name: 'Scripture Resolver',
-    description: 'Resolves scripture passages by reference + translation via verifiable content descriptors (issuer-signed, commitment-verified). Public-domain editions only by default.',
+    name: 'Scripture Agent',
+    description: 'Verifiable Scripture + a Bible knowledge-graph vault: resolves passages by reference/translation (issuer-signed, commitment-verified), and serves entities, relationships, and verse-grounded trust/character signals as signed credentials.',
     provider: { organization: 'Agentic Primitives — Scripture Demo', url: origin },
     capabilities: { streaming: false, pushNotifications: false },
     defaultInputModes: ['application/json'],
@@ -53,12 +53,39 @@ app.get('/.well-known/agent-card.json', (c) => {
         tags: ['scripture', 'verifiable-content', 'citation'],
         examples: ['John 3:16 in bsb', 'Psalm 23:1 in bsb'],
       },
+      {
+        id: 'character-trust-profile',
+        name: 'Character / trust profile',
+        description: "Return an entity's multi-dimensional, verse-grounded trust profile (righteousness, wisdom, faithfulness, courage, truthfulness, repentance + actions) as a signed TrustProfileCredential.",
+        tags: ['trust', 'character', 'verifiable-content'],
+        examples: ['trust profile for David', 'signals for the Tribe of Levi'],
+      },
+      {
+        id: 'find-entities',
+        name: 'Find entities',
+        description: 'Search the Bible knowledge-graph vault for people, places, events, and organizations (optionally by kind or book).',
+        tags: ['knowledge-graph', 'search'],
+        examples: ['find David', 'people in Romans'],
+      },
+      {
+        id: 'entity-graph',
+        name: 'Entity graph',
+        description: 'Return an entity with its ontology class inheritance, relationships, and attesting verses.',
+        tags: ['knowledge-graph', 'ontology', 'relationships'],
+        examples: ['entity David', 'relationships of Paul'],
+      },
     ],
   });
 });
 
 app.get('/editions', async (c) => c.json(await mcpGet(c.env, '/mcp/editions')));
 app.get('/books', async (c) => c.json(await mcpGet(c.env, '/mcp/books')));
+
+// ── Scripture-Agent vault skills (the Bible knowledge graph via the MCP vault) ──
+app.post('/character-trust', async (c) => { const b = await c.req.json().catch(() => ({})); const res = await mcpPost(c.env, '/tools/get_trust_signals', b); return c.json(res.body, res.status as 200); });
+app.post('/find-entities', async (c) => { const b = await c.req.json().catch(() => ({})); const res = await mcpPost(c.env, '/tools/find_entities', b); return c.json(res.body, res.status as 200); });
+app.post('/entity', async (c) => { const b = await c.req.json().catch(() => ({})); const res = await mcpPost(c.env, '/tools/get_entity', b); return c.json(res.body, res.status as 200); });
+app.get('/class-tree', async (c) => c.json(await mcpGet(c.env, '/mcp/class_tree')));
 
 // Issue a signed Entitlement for a gated edition (proxied to the corpus issuer).
 app.post('/issue-entitlement', async (c) => {
