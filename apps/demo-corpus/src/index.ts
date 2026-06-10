@@ -76,6 +76,16 @@ app.post('/admin/deny', async (c) => {
   try { const owner = await ownerGate(c.env, String(b.id_token ?? '')); const r = await mcp(c.env, '/tools/deny_request', { id: b.requestId, reason: b.reason, deniedBySub: owner.sub }); return c.json(r); }
   catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
+app.post('/admin/issued', async (c) => {
+  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as { id_token?: string });
+  try { await ownerGate(c.env, String(b.id_token ?? '')); const r = await mcp(c.env, '/tools/list_issued', { status: 'granted' }); return c.json(r); }
+  catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+app.post('/admin/revoke', async (c) => {
+  const b = await c.req.json<{ id_token?: string; id?: number }>().catch(() => ({}) as Record<string, never>);
+  try { await ownerGate(c.env, String(b.id_token ?? '')); const r = await mcp(c.env, '/tools/revoke_entitlement', { id: b.id }); return c.json(r); }
+  catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
 app.get('/health', (c) => c.json({ ok: true, service: 'demo-corpus' }));
 app.get('/', (c) => c.html(SPA));
 
@@ -104,6 +114,9 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <div class="card"><h3 style="margin-top:0">Requests queue</h3>
 <p class="muted" style="font-size:13px">Readers request access to licensed editions from inside the Bible Explorer. Approve to issue a signed, time-boxed entitlement to that reader; deny to decline. Only the corpus owner may act.</p>
 <div id="queue"></div></div>
+<div class="card"><h3 style="margin-top:0">Issued entitlements</h3>
+<p class="muted" style="font-size:13px">Live grants. Revoking is immediate — gated reads re-check this ledger and fail closed.</p>
+<div id="issued"></div></div>
 </main>
 <script>
 const esc=(s)=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -149,6 +162,13 @@ async function loadQueue(){const el=document.getElementById('queue');if(!el)retu
   el.innerHTML=reqs.length?reqs.map(q=>'<div class="req"><div><b>'+esc(q.edition)+'</b> <span class="muted">'+esc(q.subject_name||q.subject)+'</span><div class="muted" style="font-size:11px">'+esc(q.note||'')+' · '+esc((q.created_at||'').slice(0,16).replace('T',' '))+'</div></div><div class="acts"><select id="ttl'+q.id+'"><option value="3600">1 hour</option><option value="86400" selected>1 day</option><option value="2592000">30 days</option></select><button class="ap" onclick="approve('+q.id+')">Approve</button><button class="dn" onclick="deny('+q.id+')">Deny</button></div></div>').join(''):'<p class="muted">No pending requests.</p>';}
 async function approve(id){const sel=document.getElementById('ttl'+id);const ttl=parseInt(sel?sel.value:'86400',10)||86400;const r=await post('/admin/approve',{id_token:session.idToken,requestId:id,ttlSeconds:ttl}).catch(e=>({ok:false,error:String(e)}));if(r&&r.ok)loadQueue();else alert('Approve failed: '+((r&&r.error)||'?'));}
 async function deny(id){const reason=prompt('Deny reason (optional):','')||'';const r=await post('/admin/deny',{id_token:session.idToken,requestId:id,reason:reason}).catch(e=>({ok:false,error:String(e)}));if(r&&r.ok)loadQueue();else alert('Deny failed: '+((r&&r.error)||'?'));}
-function render(){const w=document.getElementById('who');if(w)w.innerHTML=isConnected()?'<span class="muted">● '+esc(session.name||(session.sub||'').slice(0,14))+'</span> <button onclick="disconnect()">Disconnect</button>':'<button class="conn" onclick="connectStart()">🌐 Connect with Global.Church</button>';loadQueue();}
+async function loadIssued(){const el=document.getElementById('issued');if(!el)return;
+  if(!isConnected()){el.innerHTML='<p class="muted">Connect to view issued entitlements.</p>';return;}
+  const r=await post('/admin/issued',{id_token:session.idToken}).catch(e=>({ok:false,error:String(e)}));
+  if(!r||!r.ok){el.innerHTML='<p style="color:#c0392b">'+esc((r&&r.error)||'failed')+'</p>';return;}
+  const rows=r.issued||[];
+  el.innerHTML=rows.length?rows.map(x=>'<div class="req"><div><b>'+esc(x.edition)+'</b> <span class="muted">'+esc(x.subject)+'</span><div class="muted" style="font-size:11px">until '+esc((x.valid_until||'').slice(0,10))+' · issued '+esc((x.created_at||'').slice(0,10))+'</div></div><div class="acts"><button class="dn" onclick="revoke('+x.id+')">Revoke</button></div></div>').join(''):'<p class="muted">No active entitlements.</p>';}
+async function revoke(id){if(!confirm('Revoke this entitlement? The reader loses access immediately.'))return;const r=await post('/admin/revoke',{id_token:session.idToken,id:id}).catch(e=>({ok:false,error:String(e)}));if(r&&r.ok)loadIssued();else alert('Revoke failed: '+((r&&r.error)||'?'));}
+function render(){const w=document.getElementById('who');if(w)w.innerHTML=isConnected()?'<span class="muted">● '+esc(session.name||(session.sub||'').slice(0,14))+'</span> <button onclick="disconnect()">Disconnect</button>':'<button class="conn" onclick="connectStart()">🌐 Connect with Global.Church</button>';loadQueue();loadIssued();}
 loadSession();connectCallback().then(()=>render());
 </script></body></html>`;

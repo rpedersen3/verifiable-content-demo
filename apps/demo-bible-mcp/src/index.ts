@@ -484,6 +484,15 @@ app.post('/tools/list_requests', async (c) => {
   return c.json({ ok: true, requests: rows });
 });
 
+// list_issued — the owner's issued-entitlement ledger (for review + revocation). Owner-gated upstream.
+app.post('/tools/list_issued', async (c) => {
+  const b = await c.req.json<{ status?: string }>().catch(() => ({}) as { status?: string });
+  if (!c.env.DB) return c.json({ ok: true, issued: [] });
+  const st = ['granted', 'revoked'].includes(String(b.status)) ? String(b.status) : 'granted';
+  const rows = (await c.env.DB.prepare('SELECT id, request_id, edition, subject, issued_by_sub, valid_until, status, created_at FROM entitlements_issued WHERE status=? ORDER BY id DESC LIMIT 200').bind(st).all()).results;
+  return c.json({ ok: true, issued: rows });
+});
+
 // deny_request — owner declines a pending request (owner-gated upstream).
 app.post('/tools/deny_request', async (c) => {
   const b = await c.req.json<{ id?: number; reason?: string; deniedBySub?: string }>().catch(() => ({}) as Record<string, never>);
