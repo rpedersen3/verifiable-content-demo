@@ -1,0 +1,22 @@
+{
+  "name": "@verifiable-content-demo/demo-corpus",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Corpus owner/admin surface: claim ceremony (P0), entitlement Requests queue + approve/deny/revoke. Calls demo-bible-mcp via a service binding; owner sign-in via OIDC.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev --port 8796 --inspector-port 9231 --persist-to ../../.wrangler/state-demo-corpus",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.12.23"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260604.1",
+    "@types/node": "^22.7.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.0.0"
+  }
+}

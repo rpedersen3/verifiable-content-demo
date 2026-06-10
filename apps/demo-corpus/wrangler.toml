@@ -1,0 +1,29 @@
+# demo-corpus — corpus owner/admin Worker + inline SPA.
+# Local dev: wrangler dev --port 8796 (calls demo-bible-mcp via the MCP service binding).
+
+name = "demo-corpus"
+main = "src/index.ts"
+compatibility_date = "2026-05-19"
+compatibility_flags = ["nodejs_compat"]
+
+[dev]
+port = 8796
+local_protocol = "http"
+
+[vars]
+CLIENT_ID = "demo-corpus"
+# OWNER_SUB: set to the owner's canonical agent id to gate writes to the claimed owner only.
+# Empty in P1 (any verified id_token may approve) — tighten once the claim ceremony (P0) lands.
+OWNER_SUB = ""
+
+[env.production]
+workers_dev = true
+
+[env.production.vars]
+CLIENT_ID = "demo-corpus"
+OWNER_SUB = ""
+
+# Owner admin calls the corpus manager (BSB) for list/issue/deny/revoke.
+[[env.production.services]]
+binding = "MCP"
+service = "demo-bible-mcp-production"

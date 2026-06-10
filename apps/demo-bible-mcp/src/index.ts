@@ -452,6 +452,16 @@ app.post('/tools/list_requests', async (c) => {
   return c.json({ ok: true, requests: rows });
 });
 
+// deny_request — owner declines a pending request (owner-gated upstream).
+app.post('/tools/deny_request', async (c) => {
+  const b = await c.req.json<{ id?: number; reason?: string; deniedBySub?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  if (!b.id) return c.json({ ok: false, error: 'id required' }, 400);
+  await c.env.DB.prepare("UPDATE entitlement_requests SET status='denied', decided_at=?, decided_by_sub=?, note=COALESCE(note,'')||? WHERE id=? AND status='pending'")
+    .bind(new Date().toISOString(), b.deniedBySub ?? null, b.reason ? ` [denied: ${String(b.reason).slice(0, 120)}]` : '', b.id).run();
+  return c.json({ ok: true });
+});
+
 // revoke_entitlement — online revocation (gated reads re-check the ledger). Owner-gated upstream.
 app.post('/tools/revoke_entitlement', async (c) => {
   const b = await c.req.json<{ id?: number; subject?: string; edition?: string }>().catch(() => ({}) as Record<string, never>);
