@@ -33,7 +33,29 @@ import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import type { Hex } from 'viem';
 
-type Env = McpEnv & { DB?: D1Like; ONT?: { fetch: (url: string, init?: RequestInit) => Promise<Response> }; ONT_URL?: string };
+type Relay = { fetch: (url: string, init?: RequestInit) => Promise<Response> };
+type Env = McpEnv & { DB?: D1Like; ONT?: Relay; ONT_URL?: string; A2A_RELAY?: Relay; RELAY_URL?: string; RELAY_ORIGIN?: string };
+
+// Deliver a granted entitlement VC into the READER's personal demo-mcp vault, RIGHT AWAY at grant
+// time, by presenting the reader's captured connect-delegation to the relayer's set_vault_record
+// (demo-mcp keys the record by the delegation's delegator = the reader). Best-effort: on failure the
+// reader can still pick the VC up from the issuer ledger (list_entitlements). The reader signs nothing.
+async function deliverEntitlementToVault(env: Env, readerDelegation: { delegate?: string }, edition: string, vc: unknown): Promise<{ delivered: boolean; reason?: string }> {
+  try {
+    const origin = env.RELAY_ORIGIN ?? 'https://demo-bible-ontology-production.richardpedersen3.workers.dev';
+    const base = env.RELAY_URL ?? 'https://demo-a2a-production.richardpedersen3.workers.dev';
+    const rfetch = (path: string, init?: RequestInit) => (env.A2A_RELAY ? env.A2A_RELAY.fetch(`https://relay${path}`, init) : fetch(`${base}${path}`, init));
+    const csrf = (await (await rfetch('/auth/csrf', { headers: { origin } })).json()) as { token?: string };
+    if (!csrf.token) return { delivered: false, reason: 'no csrf token' };
+    const res = await rfetch('/mcp/vault/set', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': csrf.token, origin },
+      body: JSON.stringify({ delegation: readerDelegation, requester: readerDelegation.delegate, recordType: `entitlement:bsb:${edition}`, data: vc }),
+    });
+    const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    return j.ok ? { delivered: true } : { delivered: false, reason: j.error ?? `relay ${res.status}` };
+  } catch (e) { return { delivered: false, reason: (e as Error).message }; }
+}
 // Vault data source: the Bible ontology worker (entities, relationships, verses,
 // trust signals, class tree). Service binding in prod; public URL in dev.
 const ontBase = (env: Env) => env.ONT_URL ?? 'https://demo-bible-ontology-production.richardpedersen3.workers.dev';
@@ -415,8 +437,18 @@ app.post('/tools/issue_entitlement', async (c) => {
       .bind(body.requestId ?? null, body.edition, subject, body.issuedBySub ?? null, JSON.stringify(entitlement), unsigned.validUntil ?? null, 'granted', now).run();
     if (body.requestId) await c.env.DB.prepare("UPDATE entitlement_requests SET status='granted', decided_at=?, decided_by_sub=? WHERE id=?").bind(now, body.issuedBySub ?? null, body.requestId).run();
   }
-  audit('content.entitlement.issue', 'success', body.edition, { subject, issuer: corpus.manifest.issuer });
-  return c.json({ ok: true, entitlement });
+  // Deliver the VC into the reader's own demo-mcp vault RIGHT AWAY (locked decision), using the
+  // delegation captured at request time. Best-effort — the issuer ledger is the pickup fallback.
+  let delivery: { delivered: boolean; reason?: string } = { delivered: false, reason: 'no captured reader delegation' };
+  if (c.env.DB && body.requestId) {
+    const row = await c.env.DB.prepare('SELECT reader_delegation FROM entitlement_requests WHERE id=?').bind(body.requestId).first<{ reader_delegation: string | null }>();
+    if (row?.reader_delegation) {
+      try { delivery = await deliverEntitlementToVault(c.env, JSON.parse(row.reader_delegation) as { delegate?: string }, body.edition, entitlement); }
+      catch (e) { delivery = { delivered: false, reason: (e as Error).message }; }
+    }
+  }
+  audit('content.entitlement.issue', 'success', body.edition, { subject, issuer: corpus.manifest.issuer, delivered: delivery.delivered });
+  return c.json({ ok: true, entitlement, delivery });
 });
 
 // request_entitlement — a reader asks for access (subject comes from a verified id_token upstream,

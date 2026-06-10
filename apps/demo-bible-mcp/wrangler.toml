@@ -16,6 +16,10 @@ local_protocol = "http"
 [vars]
 SCHEME_ID = "bible-verse"
 ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
+# The agenticprimitives relayer + the (already allow-listed) origin used to mint its CSRF token,
+# for delivering a granted entitlement into the reader's demo-mcp vault.
+RELAY_URL = "https://demo-a2a-production.richardpedersen3.workers.dev"
+RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 
 [env.production]
 workers_dev = true
@@ -23,6 +27,8 @@ workers_dev = true
 [env.production.vars]
 SCHEME_ID = "bible-verse"
 ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
+RELAY_URL = "https://demo-a2a-production.richardpedersen3.workers.dev"
+RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 
 # Durable full-BSB corpus (verses + precomputed corpusRoot + leaf commitments).
 # The Worker reads from D1 and rebuilds nothing on cold start.
@@ -36,3 +42,9 @@ database_id = "25fcf315-c1d8-45ae-aa41-16bf21697d20"
 [[env.production.services]]
 binding = "ONT"
 service = "demo-bible-ontology-production"
+
+# The agenticprimitives demo-a2a relayer — to deliver a granted entitlement into the reader's
+# personal demo-mcp vault (set_vault_record under the reader's namespace). Avoids CF error 1042.
+[[env.production.services]]
+binding = "A2A_RELAY"
+service = "demo-a2a-production"
