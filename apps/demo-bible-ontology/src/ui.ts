@@ -178,6 +178,10 @@ img.mini{width:24px;height:24px;border-radius:50%;object-fit:cover;flex:none;bor
 .acct{border-collapse:collapse;width:100%;font-size:13px}
 .acct td{padding:5px 9px;border-bottom:1px solid var(--line);vertical-align:top}
 .acct td:first-child{width:130px;text-transform:capitalize;white-space:nowrap}
+.acc-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;flex-wrap:wrap}
+.acc-st{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:10px;color:#fff}
+.acc-granted{background:#1a8a4f}.acc-pending{background:#b45309}.acc-denied{background:#c0392b}
+.acc-verse{background:#f7f9fc;border:1px solid var(--line);border-radius:9px;padding:11px 13px;font-size:14px;line-height:1.55}
 /* original-language forms + external ids + provenance */
 .forms{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .form{border:1px solid var(--line);border-radius:8px;padding:5px 11px;text-align:center}
@@ -523,6 +527,9 @@ function admin(){
   V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">My account · Global.Church vault</h3>'+
    '<p class="hint">Your connected identity\\'s personal data, read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the scoped delegation your Global.Church home minted at sign-in (your app signs nothing). Note: the demo seeds <b>mock fixtures</b>, not real PII.</p>'+
    '<div id="acctview"><div class="muted" style="font-size:13px">'+(isConnected()?'loading…':'Connect (top-right) to view your account.')+'</div></div></div>'+
+   '<div class="card"><h3 class="muted" style="margin-top:0">My access · licensed editions</h3>'+
+   '<p class="hint">Request access to a licensed edition; the corpus owner approves and the signed <b>entitlement</b> is issued to you. Held entitlements let you read gated verse text — every read is <b>presenter-bound</b> (only you can use your entitlement) and commitment-verified.</p>'+
+   '<div id="accessview"><div class="muted" style="font-size:13px">'+(isConnected()?'loading…':'Connect (top-right) to request and view access.')+'</div></div></div>'+
    '<div class="card"><h3 class="muted" style="margin-top:0">Admin · data integrity</h3>'+
    '<p class="hint">Every node records how confidently its data is bound to a canonical id. Native Theographic ids are rock-solid (1.0); brought-in data (Wikidata + images) is scored by match strength — exact-unique matches near 1.0, name-collision or label-mismatch matches lower. Suspect bindings are listed here for review, never hidden.</p>'+
    '<div id="ibands" class="gchips"></div>'+
@@ -532,6 +539,41 @@ function admin(){
   const thr=document.getElementById('ithr');thr.onchange=()=>loadIntegrity(thr.value);
   loadIntegrity(thr.value);
   loadAccount();
+  loadAccess();
+}
+// ── My access: request + hold entitlements, do an entitled read — all via the Scripture Agent ──
+let accessEnts=[];
+const a2aPost=(p,b)=>fetch(A2A_BASE+p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
+async function loadAccess(){
+  const el=document.getElementById('accessview');if(!el)return;
+  if(!isConnected()){el.innerHTML='<div class="muted" style="font-size:13px">Connect (top-right) to request and view access.</div>';return;}
+  el.innerHTML='<div class="ghint" style="padding:8px">loading your access…</div>';
+  try{
+    const r=await Promise.all([a2aPost('/my-entitlements',{id_token:session.idToken}),a2aPost('/my-requests',{id_token:session.idToken})]);
+    const held=(r[0]&&r[0].entitlements)||[],reqs=(r[1]&&r[1].requests)||[];accessEnts=held;
+    const heldEd={},pendEd={};held.forEach(e=>heldEd[e.edition]=1);reqs.forEach(q=>{if(q.status==='pending')pendEd[q.edition]=1;});
+    let h='';
+    if(held.length)h+='<div style="font-weight:600;font-size:13px;margin-bottom:3px">Entitlements held</div>'+held.map((e,i)=>'<div class="acc-row"><span class="acc-st acc-granted">✓ entitled</span> <b>'+esc(e.edition)+'</b> <span class="muted" style="font-size:11px">until '+esc((e.validUntil||'').slice(0,10))+'</span> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accReadPrompt('+i+')">Read a verse →</button></div>').join('');
+    if(reqs.length)h+='<div style="font-weight:600;font-size:13px;margin:9px 0 3px">Requests</div>'+reqs.map(q=>'<div class="acc-row"><span class="acc-st acc-'+esc(q.status)+'">'+esc(q.status)+'</span> <b>'+esc(q.edition)+'</b> <span class="muted" style="font-size:11px">'+esc((q.created_at||'').slice(0,10))+'</span></div>').join('');
+    if(!heldEd['demo-licensed']&&!pendEd['demo-licensed'])h+='<button class="cg-go" style="margin-top:11px;max-width:300px" onclick="accRequest(\\'demo-licensed\\')">Request access to demo-licensed</button>';
+    h+='<div id="acc-read" style="margin-top:11px"></div>';
+    el.innerHTML=h||'<div class="muted" style="font-size:13px">No access yet — request a licensed edition below.</div>';
+    if(!h)el.innerHTML='<button class="cg-go" style="max-width:300px" onclick="accRequest(\\'demo-licensed\\')">Request access to demo-licensed</button>';
+  }catch(e){el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not load access: '+esc(e&&e.message?e.message:String(e))+'</div>';}
+}
+async function accRequest(edition){
+  if(!requireConnect('request access'))return;
+  const r=await a2aPost('/request-entitlement',{id_token:session.idToken,edition:edition,note:'requested from Bible Explorer',delegation:session.delegation||null}).catch(e=>({ok:false,error:String(e)}));
+  if(r&&r.ok){alert('Request sent to the corpus owner (request #'+(r.requestId||'?')+'). It shows as pending until approved.');loadAccess();}
+  else alert('Could not request access: '+((r&&r.error)||'failed'));
+}
+function accReadPrompt(i){const e=accessEnts[i];if(!e)return;const ref=prompt('Read which verse from '+e.edition+'?  e.g. John 3:16','John 3:16');if(ref)accRead(i,ref.trim());}
+async function accRead(i,ref){
+  const e=accessEnts[i],out=document.getElementById('acc-read');if(!e||!out)return;
+  out.innerHTML='<div class="ghint" style="padding:8px">reading '+esc(ref)+' from '+esc(e.edition)+'…</div>';
+  const r=await a2aPost('/resolve-licensed',{id_token:session.idToken,reference:ref,edition:e.edition,entitlement:e.entitlement}).catch(er=>({ok:false,error:String(er)}));
+  if(r&&r.ok)out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound entitled read</div>':'')+'</div>';
+  else out.innerHTML='<div style="color:#c0392b;font-size:13px">Denied: '+esc((r&&r.error)||'failed')+'</div>';
 }
 // Read the connected user's PII from THEIR demo-mcp vault, via the demo-a2a relayer, using the
 // delegation their Global.Church home minted at sign-in (re-presented; no extra signature).
