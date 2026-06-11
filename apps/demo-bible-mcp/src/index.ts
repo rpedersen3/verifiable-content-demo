@@ -480,7 +480,9 @@ app.post('/tools/issue_entitlement', async (c) => {
   const unsigned: UnsignedCredential<{ id: string; corpusRef: `0x${string}`; accessPolicy: string }> = {
     '@context': VC_CONTEXTS,
     type: ['VerifiableCredential', 'Entitlement'],
-    issuer: `did:ap:issuer:${body.edition}`,
+    // The verifier requires a CAIP-10 eip155 issuer matching the signer (not a did:) — else the
+    // structural check rejects it before the signature is even verified.
+    issuer: `eip155:${trust.credentialSigner.chainId}:${trust.credentialSigner.issuerAddress}`,
     validFrom: new Date(nowMs - 60_000).toISOString(),
     validUntil: new Date(nowMs + (body.ttlSeconds ?? 31_536_000) * 1000).toISOString(),
     credentialSubject: { id: subject, corpusRef: corpus.manifest.corpusRef, accessPolicy: corpus.manifest.accessPolicy },
