@@ -48,11 +48,25 @@ async function verifyIdToken(env: Env, idToken: string): Promise<{ sub: string; 
   return { sub, name: claims.agent_name ?? '' };
 }
 /** Verify + (if OWNER_SUB configured) require the connected sub IS the claimed corpus owner. */
+/** Verify the id_token + require the caller IS the claimed corpus owner (first-claim-wins). */
 async function ownerGate(env: Env, idToken: string): Promise<{ sub: string; name: string }> {
   const c = await verifyIdToken(env, idToken);
-  if (env.OWNER_SUB && env.OWNER_SUB.length > 0 && c.sub.toLowerCase() !== env.OWNER_SUB.toLowerCase()) throw new Error('not the corpus owner');
+  const r = await mcp(env, '/tools/get_service_identity', { service: 'bsb-archive' });
+  const id = r.identity as { owner_sub?: string } | null;
+  if (!id?.owner_sub) throw new Error('corpus unclaimed — connect to claim it');
+  if (id.owner_sub.toLowerCase() !== c.sub.toLowerCase()) throw new Error('not the corpus owner');
   return c;
 }
+
+// Claim ceremony (first-claim-wins): the first connected user becomes the BSB corpus owner.
+app.post('/admin/claim', async (c) => {
+  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as { id_token?: string });
+  try {
+    const user = await verifyIdToken(c.env, String(b.id_token ?? ''));
+    const r = await mcp(c.env, '/tools/claim_service', { service: 'bsb-archive', ownerSub: user.sub, issuerAgentId: 'bsb.impact' });
+    return c.json({ ...r, you: user.sub, name: user.name });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
 
 // ── admin API (owner-gated) ──
 app.post('/admin/requests', async (c) => {
@@ -108,9 +122,12 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 .req .acts{margin-left:auto;display:flex;gap:7px;align-items:center}
 .req select{padding:5px;border:1px solid var(--line);border-radius:7px}
 .ap{background:#1a8a4f;color:#fff;border:0;font-weight:600}.dn{background:#fff;color:#c0392b;border:1px solid #f0c5bd}
+.ownb{border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:14px}
+.own-yes{background:#e9f7ef;border:1px solid #b7e2c8;color:#136c3a}.own-no{background:#fff5e9;border:1px solid #f0d3a8;color:#8a5510}
 </style></head><body>
 <div class="hdr"><h1>🗂️ Corpus Manager</h1><span class="sub">BSB · entitlement approvals</span><span id="who"></span></div>
 <main>
+<div id="owner"></div>
 <div class="card"><h3 style="margin-top:0">Requests queue</h3>
 <p class="muted" style="font-size:13px">Readers request access to licensed editions from inside the Bible Explorer. Approve to issue a signed, time-boxed entitlement to that reader; deny to decline. Only the corpus owner may act.</p>
 <div id="queue"></div></div>
@@ -169,6 +186,19 @@ async function loadIssued(){const el=document.getElementById('issued');if(!el)re
   const rows=r.issued||[];
   el.innerHTML=rows.length?rows.map(x=>'<div class="req"><div><b>'+esc(x.edition)+'</b> <span class="muted">'+esc(x.subject)+'</span><div class="muted" style="font-size:11px">until '+esc((x.valid_until||'').slice(0,10))+' · issued '+esc((x.created_at||'').slice(0,10))+'</div></div><div class="acts"><button class="dn" onclick="revoke('+x.id+')">Revoke</button></div></div>').join(''):'<p class="muted">No active entitlements.</p>';}
 async function revoke(id){if(!confirm('Revoke this entitlement? The reader loses access immediately.'))return;const r=await post('/admin/revoke',{id_token:session.idToken,id:id}).catch(e=>({ok:false,error:String(e)}));if(r&&r.ok)loadIssued();else alert('Revoke failed: '+((r&&r.error)||'?'));}
-function render(){const w=document.getElementById('who');if(w)w.innerHTML=isConnected()?'<span class="muted">● '+esc(session.name||(session.sub||'').slice(0,14))+'</span> <button onclick="disconnect()">Disconnect</button>':'<button class="conn" onclick="connectStart()">🌐 Connect with Global.Church</button>';loadQueue();loadIssued();}
+async function render(){
+  const w=document.getElementById('who');if(w)w.innerHTML=isConnected()?'<span class="muted">● '+esc(session.name||(session.sub||'').slice(0,14))+'</span> <button onclick="disconnect()">Disconnect</button>':'<button class="conn" onclick="connectStart()">🌐 Connect with Global.Church</button>';
+  const ob=document.getElementById('owner'),q=document.getElementById('queue'),is=document.getElementById('issued');
+  if(!isConnected()){if(ob)ob.innerHTML='';if(q)q.innerHTML='<p class="muted">Connect as the corpus owner to review requests.</p>';if(is)is.innerHTML='';return;}
+  if(ob)ob.innerHTML='<div class="ownb">checking corpus ownership…</div>';
+  const cl=await post('/admin/claim',{id_token:session.idToken}).catch(e=>({ok:false,error:String(e)}));
+  if(cl&&cl.ok&&cl.isOwner){
+    if(ob)ob.innerHTML='<div class="ownb own-yes">'+(cl.claimed?'🎉 You just <b>claimed the BSB corpus</b> — you are the owner.':'✓ You are the <b>BSB corpus owner</b>.')+'</div>';
+    loadQueue();loadIssued();
+  }else{
+    if(ob)ob.innerHTML='<div class="ownb own-no">This corpus is owned by <span class="mono">'+esc((cl&&cl.ownerSub||'').slice(0,20))+'…</span> — you are not the owner.</div>';
+    if(q)q.innerHTML='<p class="muted">Only the corpus owner can review requests.</p>';if(is)is.innerHTML='';
+  }
+}
 loadSession();connectCallback().then(()=>render());
 </script></body></html>`;

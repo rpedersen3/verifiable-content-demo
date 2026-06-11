@@ -487,6 +487,33 @@ app.post('/tools/list_requests', async (c) => {
   return c.json({ ok: true, requests: rows });
 });
 
+// get_service_identity — who (if anyone) owns a service. Public read (the owner_sub is an agent id).
+app.post('/tools/get_service_identity', async (c) => {
+  const b = await c.req.json<{ service?: string }>().catch(() => ({}) as { service?: string });
+  if (!c.env.DB) return c.json({ ok: true, identity: null });
+  const row = await c.env.DB.prepare('SELECT service, issuer_agent_id, owner_sub, delegate_address, created_at FROM service_identity WHERE service=?').bind(String(b.service ?? 'bsb-archive')).first();
+  return c.json({ ok: true, identity: row ?? null });
+});
+
+// claim_service — FIRST-CLAIM-WINS: the first connected user becomes the owner of the corpus
+// (records owner_sub from their verified id_token). Re-claim only by the same owner. The operational
+// KMS delegate + on-chain delegation (Flow A / P0) fill delegate_address + delegation later.
+app.post('/tools/claim_service', async (c) => {
+  const b = await c.req.json<{ service?: string; ownerSub?: string; issuerAgentId?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  if (!b.ownerSub) return c.json({ ok: false, error: 'ownerSub required' }, 400);
+  const service = String(b.service ?? 'bsb-archive');
+  const existing = await c.env.DB.prepare('SELECT owner_sub FROM service_identity WHERE service=?').bind(service).first<{ owner_sub: string }>();
+  if (existing) {
+    const isOwner = existing.owner_sub.toLowerCase() === b.ownerSub.toLowerCase();
+    return c.json({ ok: true, claimed: false, isOwner, ownerSub: existing.owner_sub });
+  }
+  await c.env.DB.prepare('INSERT INTO service_identity(service, issuer_agent_id, owner_sub, delegate_address, delegation, created_at) VALUES(?,?,?,?,?,?)')
+    .bind(service, b.issuerAgentId ?? 'bsb.impact', b.ownerSub, '', '', new Date().toISOString()).run();
+  audit('content.service.claim', 'success', service, { ownerSub: b.ownerSub });
+  return c.json({ ok: true, claimed: true, isOwner: true, ownerSub: b.ownerSub });
+});
+
 // list_issued — the owner's issued-entitlement ledger (for review + revocation). Owner-gated upstream.
 app.post('/tools/list_issued', async (c) => {
   const b = await c.req.json<{ status?: string }>().catch(() => ({}) as { status?: string });
