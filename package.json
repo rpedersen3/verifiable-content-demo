@@ -28,7 +28,21 @@
   },
   "pnpm": {
     "overrides": {
-      "esbuild": "0.28.0"
+      "esbuild": "0.28.0",
+      "@agenticprimitives/a2a": "link:../agenticprimitives/packages/a2a",
+      "@agenticprimitives/fulfillment": "link:../agenticprimitives/packages/fulfillment",
+      "@agenticprimitives/delegation": "link:../agenticprimitives/packages/delegation",
+      "@agenticprimitives/agent-account": "link:../agenticprimitives/packages/agent-account",
+      "@agenticprimitives/agent-naming": "link:../agenticprimitives/packages/agent-naming",
+      "@agenticprimitives/audit": "link:../agenticprimitives/packages/audit",
+      "@agenticprimitives/connect": "link:../agenticprimitives/packages/connect",
+      "@agenticprimitives/connect-auth": "link:../agenticprimitives/packages/connect-auth",
+      "@agenticprimitives/content-primitives": "link:../agenticprimitives/packages/content-primitives",
+      "@agenticprimitives/identity-directory": "link:../agenticprimitives/packages/identity-directory",
+      "@agenticprimitives/mcp-runtime": "link:../agenticprimitives/packages/mcp-runtime",
+      "@agenticprimitives/tool-policy": "link:../agenticprimitives/packages/tool-policy",
+      "@agenticprimitives/types": "link:../agenticprimitives/packages/types",
+      "@agenticprimitives/verifiable-credentials": "link:../agenticprimitives/packages/verifiable-credentials"
     }
   },
   "packageManager": "pnpm@9.0.0"
