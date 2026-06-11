@@ -84,6 +84,19 @@ export const EDITIONS: EditionEntry[] = [
     rightsStatus: 'licensed',
     texts: MOCK_LICENSED_TEXTS,
   },
+  // Licensed-BSB: the SAME BSB source text, but published under a LICENSED access policy — every read
+  // requires a valid entitlement (request → owner approve → presenter-bound read). Its own corpusRef
+  // (distinct from public `bsb`) so entitlements are scoped to it.
+  {
+    edition: 'lbsb',
+    version: BSB_VERSION,
+    displayName: 'Licensed BSB',
+    issuerName: 'bsb.impact',
+    language: 'en',
+    accessPolicy: 'licensed',
+    rightsStatus: 'licensed',
+    texts: BSB_VERSES,
+  },
 ];
 
 export interface DescriptorRow {

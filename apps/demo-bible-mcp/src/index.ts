@@ -56,13 +56,13 @@ async function isBsbCustodian(env: { A2A_RPC_URL?: string }, agentSa: Address, a
 
 // Who CONTROLS the bsb.impact name node on-chain (AgentNameRegistry.owner(namehash)). The corpus
 // owner must be this address (or the resolved agent). Returns null on no-RPC / timeout.
-async function resolveBsbController(env: { A2A_RPC_URL?: string; A2A_NAME_REGISTRY?: string }): Promise<string | null> {
+async function resolveBsbController(env: { A2A_RPC_URL?: string; A2A_NAME_REGISTRY?: string }, agentName = 'bsb.impact'): Promise<string | null> {
   if (!env.A2A_RPC_URL) return null;
   try {
     const client = createPublicClient({ chain: baseSepolia, transport: http(env.A2A_RPC_URL) });
     const registry = (env.A2A_NAME_REGISTRY ?? '0x15F7ed064A230C011b0244A14fD9653f011d609B') as Address;
     const owner = await Promise.race([
-      client.readContract({ address: registry, abi: agentNameRegistryAbi, functionName: 'owner', args: [namehash('bsb.impact')] }) as Promise<string>,
+      client.readContract({ address: registry, abi: agentNameRegistryAbi, functionName: 'owner', args: [namehash(agentName)] }) as Promise<string>,
       new Promise<string>((_, rej) => setTimeout(() => rej(new Error('controller timeout')), 8000)),
     ]);
     return owner ? String(owner).toLowerCase() : null;
@@ -71,7 +71,7 @@ async function resolveBsbController(env: { A2A_RPC_URL?: string; A2A_NAME_REGIST
 
 // Resolve the agent that controls `bsb.impact` on-chain (agent-naming). The corpus owner MUST be
 // this agent — its canonical CAIP-10 id. Returns null if no RPC or the name is unregistered.
-async function resolveBsbOwnerId(env: { A2A_RPC_URL?: string; A2A_CHAIN_ID?: string; A2A_NAME_REGISTRY?: string; A2A_NAME_RESOLVER?: string }): Promise<{ id: string | null; sa: string | null }> {
+async function resolveBsbOwnerId(env: { A2A_RPC_URL?: string; A2A_CHAIN_ID?: string; A2A_NAME_REGISTRY?: string; A2A_NAME_RESOLVER?: string }, agentName = 'bsb.impact'): Promise<{ id: string | null; sa: string | null }> {
   if (!env.A2A_RPC_URL) return { id: null, sa: null };
   const chainId = Number(env.A2A_CHAIN_ID ?? '84532');
   const client = new AgentNamingClient({
@@ -82,7 +82,7 @@ async function resolveBsbOwnerId(env: { A2A_RPC_URL?: string; A2A_CHAIN_ID?: str
   });
   try {
     const sa = await Promise.race([
-      client.resolveName('bsb.impact'),
+      client.resolveName(agentName),
       new Promise<null>((_, rej) => setTimeout(() => rej(new Error('resolve timeout')), 8000)),
     ]);
     return { id: sa ? `eip155:${chainId}:${sa.toLowerCase()}` : null, sa: sa ? sa.toLowerCase() : null };
@@ -533,12 +533,16 @@ app.post('/tools/list_entitlements', async (c) => {
 
 // list_requests — the owner's approval queue (demo-corpus). Owner-gated upstream.
 app.post('/tools/list_requests', async (c) => {
-  const b = await c.req.json<{ status?: string; subject?: string }>().catch(() => ({}) as { status?: string; subject?: string });
+  const b = await c.req.json<{ status?: string; subject?: string; edition?: string }>().catch(() => ({}) as { status?: string; subject?: string; edition?: string });
   if (!c.env.DB) return c.json({ ok: true, requests: [] });
-  // subject filter = a reader's own requests (all statuses); else the owner's queue by status.
+  // subject filter = a reader's own requests (all statuses); else the owner's queue by status, scoped
+  // to one edition when given (so each corpus manager sees only its own corpus's requests).
+  const status = ['pending', 'granted', 'denied'].includes(String(b.status)) ? String(b.status) : 'pending';
   const rows = b.subject
     ? (await c.env.DB.prepare('SELECT id, subject, subject_name, edition, note, status, created_at, decided_at FROM entitlement_requests WHERE subject=? ORDER BY id DESC LIMIT 200').bind(b.subject).all()).results
-    : (await c.env.DB.prepare('SELECT id, subject, subject_name, edition, note, status, created_at FROM entitlement_requests WHERE status=? ORDER BY id DESC LIMIT 200').bind(['pending', 'granted', 'denied'].includes(String(b.status)) ? String(b.status) : 'pending').all()).results;
+    : b.edition
+      ? (await c.env.DB.prepare('SELECT id, subject, subject_name, edition, note, status, created_at FROM entitlement_requests WHERE status=? AND edition=? ORDER BY id DESC LIMIT 200').bind(status, b.edition).all()).results
+      : (await c.env.DB.prepare('SELECT id, subject, subject_name, edition, note, status, created_at FROM entitlement_requests WHERE status=? ORDER BY id DESC LIMIT 200').bind(status).all()).results;
   return c.json({ ok: true, requests: rows });
 });
 
@@ -552,27 +556,29 @@ app.post('/tools/get_service_identity', async (c) => {
 
 // get_owner_id — resolve who controls bsb.impact on-chain (the required corpus owner). For the UI + tests.
 app.post('/tools/get_owner_id', async (c) => {
-  const b = await c.req.json<{ addr?: string }>().catch(() => ({}) as { addr?: string });
-  const r = await resolveBsbOwnerId(c.env as never);
-  const controller = await resolveBsbController(c.env as never);
-  // Optionally check whether `addr` (e.g. a connecting user's SA) is a custodian of bsb.impact's account.
+  const b = await c.req.json<{ addr?: string; name?: string }>().catch(() => ({}) as { addr?: string; name?: string });
+  const name = String(b.name ?? 'bsb.impact');
+  const r = await resolveBsbOwnerId(c.env as never, name);
+  const controller = await resolveBsbController(c.env as never, name);
+  // Optionally check whether `addr` (e.g. a connecting user's SA) is a custodian of the agent's account.
   const addr = b.addr ? (b.addr.includes(':') ? b.addr.split(':').pop()! : b.addr) : null;
   const isCustodian = addr && r.sa ? await isBsbCustodian(c.env as never, r.sa as Address, addr) : null;
-  return c.json({ ok: true, name: 'bsb.impact', resolvedAgentSa: r.sa, resolvedAgentId: r.id, nameController: controller, queriedAddr: addr, isCustodian, source: r.id || controller ? 'agent-naming (on-chain)' : 'unresolved' });
+  return c.json({ ok: true, name, resolvedAgentSa: r.sa, resolvedAgentId: r.id, nameController: controller, queriedAddr: addr, isCustodian, source: r.id || controller ? 'agent-naming (on-chain)' : 'unresolved' });
 });
 
 // claim_service — ownership bound to bsb.impact (live agent-naming): only its controller may claim
 // (records owner_sub from their verified id_token). Re-claim only by the same owner. The operational
 // KMS delegate + on-chain delegation (Flow A / P0) fill delegate_address + delegation later.
 app.post('/tools/claim_service', async (c) => {
-  const b = await c.req.json<{ service?: string; ownerSub?: string; issuerAgentId?: string }>().catch(() => ({}) as Record<string, never>);
+  const b = await c.req.json<{ service?: string; ownerSub?: string; issuerAgentId?: string; agentName?: string }>().catch(() => ({}) as Record<string, never>);
   if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
   if (!b.ownerSub) return c.json({ ok: false, error: 'ownerSub required' }, 400);
   const service = String(b.service ?? 'bsb-archive');
+  const agentName = String(b.agentName ?? b.issuerAgentId ?? 'bsb.impact');
   const existing = await c.env.DB.prepare('SELECT owner_sub FROM service_identity WHERE service=?').bind(service).first<{ owner_sub: string }>();
-  // Ownership bound to bsb.impact via LIVE ANS (no hardcoded address): the claimant must be the agent
-  // the name resolves to, OR a custodian of that account (read on-chain from agent-naming + agent-account).
-  const resolved = await resolveBsbOwnerId(c.env as never);
+  // Ownership bound to the service agent via LIVE ANS (no hardcoded address): the claimant must be the
+  // agent the name resolves to, OR a custodian of that account (read on-chain from agent-naming + agent-account).
+  const resolved = await resolveBsbOwnerId(c.env as never, agentName);
   const subSa = b.ownerSub.includes(':') ? b.ownerSub.split(':').pop()!.toLowerCase() : b.ownerSub.toLowerCase();
   const ansAuthorized = resolved.sa ? (subSa === resolved.sa.toLowerCase() || (await isBsbCustodian(c.env as never, resolved.sa as Address, subSa))) : false;
   const now = new Date().toISOString();
@@ -588,24 +594,26 @@ app.post('/tools/claim_service', async (c) => {
       audit('content.service.takeover', 'success', service, { newOwner: b.ownerSub, previousOwner: existing.owner_sub });
       return c.json({ ok: true, claimed: true, takeover: true, isOwner: true, ownerSub: b.ownerSub, previousOwner: existing.owner_sub });
     }
-    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: existing.owner_sub, reason: existingIsCanonical ? 'corpus owned by the canonical bsb.impact agent' : 'not the corpus owner' });
+    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: existing.owner_sub, reason: existingIsCanonical ? `corpus owned by the canonical ${agentName} agent` : 'not the corpus owner' });
   }
   // Unclaimed: only the ANS-authorized controller may claim; if ANS is unresolvable (no RPC / timeout) fall back to first-claim-wins.
   if (resolved.sa && !ansAuthorized) {
-    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: resolved.id, reason: 'only bsb.impact (per ANS), or a custodian of its account, may claim this corpus' });
+    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: resolved.id, reason: `only ${agentName} (per ANS), or a custodian of its account, may claim this corpus` });
   }
   await c.env.DB.prepare('INSERT INTO service_identity(service, issuer_agent_id, owner_sub, delegate_address, delegation, created_at) VALUES(?,?,?,?,?,?)')
-    .bind(service, b.issuerAgentId ?? 'bsb.impact', b.ownerSub, '', '', now).run();
+    .bind(service, b.issuerAgentId ?? agentName, b.ownerSub, '', '', now).run();
   audit('content.service.claim', 'success', service, { ownerSub: b.ownerSub });
   return c.json({ ok: true, claimed: true, isOwner: true, ownerSub: b.ownerSub });
 });
 
 // list_issued — the owner's issued-entitlement ledger (for review + revocation). Owner-gated upstream.
 app.post('/tools/list_issued', async (c) => {
-  const b = await c.req.json<{ status?: string }>().catch(() => ({}) as { status?: string });
+  const b = await c.req.json<{ status?: string; edition?: string }>().catch(() => ({}) as { status?: string; edition?: string });
   if (!c.env.DB) return c.json({ ok: true, issued: [] });
   const st = ['granted', 'revoked'].includes(String(b.status)) ? String(b.status) : 'granted';
-  const rows = (await c.env.DB.prepare('SELECT id, request_id, edition, subject, issued_by_sub, valid_until, status, created_at FROM entitlements_issued WHERE status=? ORDER BY id DESC LIMIT 200').bind(st).all()).results;
+  const rows = b.edition
+    ? (await c.env.DB.prepare('SELECT id, request_id, edition, subject, issued_by_sub, valid_until, status, created_at FROM entitlements_issued WHERE status=? AND edition=? ORDER BY id DESC LIMIT 200').bind(st, b.edition).all()).results
+    : (await c.env.DB.prepare('SELECT id, request_id, edition, subject, issued_by_sub, valid_until, status, created_at FROM entitlements_issued WHERE status=? ORDER BY id DESC LIMIT 200').bind(st).all()).results;
   return c.json({ ok: true, issued: rows });
 });
 

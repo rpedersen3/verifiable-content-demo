@@ -49,36 +49,47 @@ async function verifyIdToken(env: Env, idToken: string): Promise<{ sub: string; 
 }
 /** Verify + (if OWNER_SUB configured) require the connected sub IS the claimed corpus owner. */
 /** Verify the id_token + require the caller IS the claimed corpus owner (first-claim-wins). */
-async function ownerGate(env: Env, idToken: string): Promise<{ sub: string; name: string }> {
+// Corpora this manager administers — each a licensed edition owned by its service agent (custodied by
+// a possibly-distinct user). Pick one, connect as that agent, then claim/manage it.
+const CORPORA = {
+  bsb: { service: 'bsb-archive', agent: 'bsb.impact', edition: 'demo-licensed' },
+  lbsb: { service: 'lbsb', agent: 'lbsb.impact', edition: 'lbsb' },
+} as const;
+const corpusOf = (k?: string) => (k && k in CORPORA ? CORPORA[k as keyof typeof CORPORA] : CORPORA.bsb);
+
+async function ownerGate(env: Env, idToken: string, corpusKey?: string): Promise<{ sub: string; name: string }> {
   const c = await verifyIdToken(env, idToken);
-  const r = await mcp(env, '/tools/get_service_identity', { service: 'bsb-archive' });
+  const cp = corpusOf(corpusKey);
+  const r = await mcp(env, '/tools/get_service_identity', { service: cp.service });
   const id = r.identity as { owner_sub?: string } | null;
   if (!id?.owner_sub) throw new Error('corpus unclaimed — connect to claim it');
   if (id.owner_sub.toLowerCase() !== c.sub.toLowerCase()) throw new Error('not the corpus owner');
   return c;
 }
 
-// Claim ceremony (first-claim-wins): the first connected user becomes the BSB corpus owner.
+// Claim ceremony: the ANS-authorized custodian of the corpus's service agent becomes its owner.
 app.post('/admin/claim', async (c) => {
-  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as { id_token?: string });
+  const b = await c.req.json<{ id_token?: string; corpus?: string }>().catch(() => ({}) as Record<string, never>);
   try {
+    const cp = corpusOf(b.corpus);
     const user = await verifyIdToken(c.env, String(b.id_token ?? ''));
-    const r = await mcp(c.env, '/tools/claim_service', { service: 'bsb-archive', ownerSub: user.sub, issuerAgentId: 'bsb.impact' });
-    return c.json({ ...r, you: user.sub, name: user.name });
+    const r = await mcp(c.env, '/tools/claim_service', { service: cp.service, agentName: cp.agent, ownerSub: user.sub });
+    return c.json({ ...r, you: user.sub, name: user.name, corpus: b.corpus ?? 'bsb', agent: cp.agent });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
-// ── admin API (owner-gated) ──
+// ── admin API (owner-gated, scoped to the selected corpus) ──
 app.post('/admin/requests', async (c) => {
-  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as { id_token?: string });
-  try { await ownerGate(c.env, String(b.id_token ?? '')); const r = await mcp(c.env, '/tools/list_requests', { status: 'pending' }); return c.json(r); }
+  const b = await c.req.json<{ id_token?: string; corpus?: string }>().catch(() => ({}) as Record<string, never>);
+  try { await ownerGate(c.env, String(b.id_token ?? ''), b.corpus); const r = await mcp(c.env, '/tools/list_requests', { status: 'pending', edition: corpusOf(b.corpus).edition }); return c.json(r); }
   catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 app.post('/admin/approve', async (c) => {
-  const b = await c.req.json<{ id_token?: string; requestId?: number; ttlSeconds?: number }>().catch(() => ({}) as Record<string, never>);
+  const b = await c.req.json<{ id_token?: string; corpus?: string; requestId?: number; ttlSeconds?: number }>().catch(() => ({}) as Record<string, never>);
   try {
-    const owner = await ownerGate(c.env, String(b.id_token ?? ''));
-    const lr = await mcp(c.env, '/tools/list_requests', { status: 'pending' });
+    const cp = corpusOf(b.corpus);
+    const owner = await ownerGate(c.env, String(b.id_token ?? ''), b.corpus);
+    const lr = await mcp(c.env, '/tools/list_requests', { status: 'pending', edition: cp.edition });
     const req = ((lr.requests as Array<{ id: number; subject: string; edition: string }>) ?? []).find((r) => r.id === b.requestId);
     if (!req) return c.json({ ok: false, error: 'request not pending' }, 404);
     const res = await mcp(c.env, '/tools/issue_entitlement', { edition: req.edition, subject: req.subject, requestId: req.id, issuedBySub: owner.sub, ttlSeconds: b.ttlSeconds ?? 86400 });
@@ -86,18 +97,18 @@ app.post('/admin/approve', async (c) => {
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 app.post('/admin/deny', async (c) => {
-  const b = await c.req.json<{ id_token?: string; requestId?: number; reason?: string }>().catch(() => ({}) as Record<string, never>);
-  try { const owner = await ownerGate(c.env, String(b.id_token ?? '')); const r = await mcp(c.env, '/tools/deny_request', { id: b.requestId, reason: b.reason, deniedBySub: owner.sub }); return c.json(r); }
+  const b = await c.req.json<{ id_token?: string; corpus?: string; requestId?: number; reason?: string }>().catch(() => ({}) as Record<string, never>);
+  try { const owner = await ownerGate(c.env, String(b.id_token ?? ''), b.corpus); const r = await mcp(c.env, '/tools/deny_request', { id: b.requestId, reason: b.reason, deniedBySub: owner.sub }); return c.json(r); }
   catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 app.post('/admin/issued', async (c) => {
-  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as { id_token?: string });
-  try { await ownerGate(c.env, String(b.id_token ?? '')); const r = await mcp(c.env, '/tools/list_issued', { status: 'granted' }); return c.json(r); }
+  const b = await c.req.json<{ id_token?: string; corpus?: string }>().catch(() => ({}) as Record<string, never>);
+  try { await ownerGate(c.env, String(b.id_token ?? ''), b.corpus); const r = await mcp(c.env, '/tools/list_issued', { status: 'granted', edition: corpusOf(b.corpus).edition }); return c.json(r); }
   catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 app.post('/admin/revoke', async (c) => {
-  const b = await c.req.json<{ id_token?: string; id?: number }>().catch(() => ({}) as Record<string, never>);
-  try { await ownerGate(c.env, String(b.id_token ?? '')); const r = await mcp(c.env, '/tools/revoke_entitlement', { id: b.id }); return c.json(r); }
+  const b = await c.req.json<{ id_token?: string; corpus?: string; id?: number }>().catch(() => ({}) as Record<string, never>);
+  try { await ownerGate(c.env, String(b.id_token ?? ''), b.corpus); const r = await mcp(c.env, '/tools/revoke_entitlement', { id: b.id }); return c.json(r); }
   catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 // All trust-signal feedback across the corpus (owner moderation view), with filters. Proxies to the
@@ -147,10 +158,16 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 .topnav{display:flex;gap:2px;background:#fff;border-bottom:1px solid var(--line);padding:0 20px}
 .navlink{padding:11px 16px;cursor:pointer;font-size:14px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none}
 .navlink:hover{color:#1a2433}.navlink.active{color:var(--accent);border-bottom-color:var(--accent)}
+.cpick{max-width:580px;margin:46px auto;text-align:center}.cpick h2{font-size:20px;margin:0 0 6px}
+.cpickbtns{display:flex;gap:14px;justify-content:center;margin-top:22px;flex-wrap:wrap}
+.cpickcard{flex:1;min-width:190px;border:1px solid var(--line);border-radius:12px;padding:20px;cursor:pointer;background:#fff;text-align:left}
+.cpickcard:hover{border-color:var(--accent);box-shadow:0 2px 12px rgba(47,109,240,.14)}.cpickcard b{font-size:16px;display:block}
+.chipbtn{cursor:pointer;color:var(--accent);font-weight:600}
 </style></head><body>
-<div class="hdr"><h1>🗂️ Corpus Manager</h1><span class="sub">BSB · entitlement approvals</span><span id="who"></span></div>
-<nav class="topnav"><a id="nav-ent" class="navlink active" onclick="showPage('ent')">Entitlements</a><a id="nav-fb" class="navlink" onclick="showPage('fb')">Feedback</a></nav>
+<div class="hdr"><h1>🗂️ Corpus Manager</h1><span class="sub" id="hsub">entitlement approvals</span><span id="who"></span></div>
+<nav class="topnav" id="topnav"><a id="nav-ent" class="navlink active" onclick="showPage('ent')">Entitlements</a><a id="nav-fb" class="navlink" onclick="showPage('fb')">Feedback</a><span id="corpchip" style="margin-left:auto;align-self:center;font-size:13px"></span></nav>
 <main>
+<div id="corpuspick" style="display:none"></div>
 <div id="owner"></div>
 <div id="page-ent">
 <div class="card"><h3 style="margin-top:0">Requests queue</h3>
@@ -173,9 +190,11 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <script>
 const esc=(s)=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const CONNECT_DOMAIN='impact-agent.me',CLIENT_ID='demo-corpus',CENTRAL_AUTH_ORIGIN='https://www.'+CONNECT_DOMAIN,CONNECT_DELEGATE='0x89D13c596c45E4eE80Af5ae06C727FE9A820ffD0';
-// The corpus owner signs in AS bsb.impact (its home) so their id_token sub = bsb.impact's agent id —
-// the home only authenticates whoever controls the name. The claim verifies it against agent-naming.
-const OWNER_NAME='bsb',OWNER_HOME='https://'+OWNER_NAME+'.'+CONNECT_DOMAIN;
+// Corpora this manager administers. Pick one FIRST, then connect AS that corpus's service agent (the
+// manager signs in at <short>.impact-agent.me as <agent>); the claim verifies custody via agent-naming.
+const CORPORA=[{key:'bsb',label:'BSB',short:'bsb',agent:'bsb.impact'},{key:'lbsb',label:'Licensed BSB',short:'lbsb',agent:'lbsb.impact'}];
+let corpusKey=localStorage.getItem('corp.corpus')||'';
+function curCorpus(){return CORPORA.filter(x=>x.key===corpusKey)[0]||null;}
 let session=null;
 function loadSession(){try{const j=JSON.parse(localStorage.getItem('corp.session')||'null');session=(j&&j.exp*1000>Date.now())?j:null;if(!session)localStorage.removeItem('corp.session');}catch(e){session=null;}}
 function isConnected(){return !!session;}
@@ -185,9 +204,11 @@ function decodeSeg(seg){return JSON.parse(new TextDecoder().decode(fromB64url(se
 const randB64=(n)=>b64url(crypto.getRandomValues(new Uint8Array(n)));
 async function pkce(){const v=randB64(32);const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v));return {verifier:v,challenge:b64url(new Uint8Array(d))};}
 function isAllowedIssuer(origin){try{const u=new URL(origin);if(u.protocol!=='https:'&&u.hostname!=='localhost'&&u.hostname!=='127.0.0.1')return false;if(u.pathname!=='/'&&u.pathname!=='')return false;const h=u.hostname;return h===CONNECT_DOMAIN||h.endsWith('.'+CONNECT_DOMAIN)||h==='localhost'||h==='127.0.0.1';}catch(e){return false;}}
-async function connectStart(){const state=randB64(16),nonce=randB64(16),pk=await pkce();
-  sessionStorage.setItem('corp.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin:CENTRAL_AUTH_ORIGIN}));
-  const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
+async function connectStart(){const cp=curCorpus();if(!cp){alert('Pick a corpus to manage first.');return;}
+  const state=randB64(16),nonce=randB64(16),pk=await pkce();
+  const home='https://'+cp.short+'.'+CONNECT_DOMAIN;
+  sessionStorage.setItem('corp.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin:home}));
+  const u=new URL('/',home);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',cp.short);u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
 // fetch with a hard timeout so a slow/looping home can never hang the page (browser-kill).
 async function tfetch(url,opts,ms){const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),ms||12000);try{return await fetch(url,Object.assign({signal:ctrl.signal},opts||{}));}finally{clearTimeout(t);}}
 async function verifyIdToken(authOrigin,idToken,expectedNonce){
@@ -211,7 +232,23 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
     localStorage.setItem('corp.session',JSON.stringify(session));sessionStorage.removeItem('corp.pending');return true;
   }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));return false;}}
 function disconnect(){session=null;localStorage.removeItem('corp.session');render();}
-const post=(p,b)=>tfetch(p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)},10000).then(r=>r.json());
+// Auto-scope every /admin call to the selected corpus.
+const post=(p,b)=>tfetch(p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(p.indexOf('/admin')===0?Object.assign({corpus:corpusKey},b||{}):b)},10000).then(r=>r.json());
+function pickCorpus(k){corpusKey=k;localStorage.setItem('corp.corpus',k);renderPicker();render();}
+function switchCorpus(){corpusKey='';localStorage.removeItem('corp.corpus');renderPicker();render();}
+// Show the corpus picker when none is chosen; otherwise reveal the nav + pages for the chosen corpus.
+function renderPicker(){
+  const pk=document.getElementById('corpuspick'),nv=document.getElementById('topnav'),pe=document.getElementById('page-ent'),pf=document.getElementById('page-fb'),ob=document.getElementById('owner'),chip=document.getElementById('corpchip'),hsub=document.getElementById('hsub');
+  const cp=curCorpus();
+  if(!cp){
+    if(nv)nv.style.display='none';if(pe)pe.style.display='none';if(pf)pf.style.display='none';if(ob)ob.style.display='none';if(chip)chip.innerHTML='';if(hsub)hsub.textContent='select a corpus';
+    if(pk){pk.style.display='block';pk.innerHTML='<div class="cpick"><h2>Which scripture corpus do you manage?</h2><p class="muted" style="font-size:14px">Pick a corpus, then connect as its service agent. Only that agent\\'s custodian can administer it.</p><div class="cpickbtns">'+CORPORA.map(x=>'<div class="cpickcard" onclick="pickCorpus(\\''+x.key+'\\')"><b>'+esc(x.label)+'</b><span class="muted" style="font-size:12px">connect as <span class="mono">'+esc(x.agent)+'</span></span></div>').join('')+'</div></div>';}
+  }else{
+    if(pk){pk.style.display='none';pk.innerHTML='';}if(nv)nv.style.display='';if(ob)ob.style.display='';
+    if(chip)chip.innerHTML='<span class="muted">'+esc(cp.label)+' · '+esc(cp.agent)+'</span> · <span class="chipbtn" onclick="switchCorpus()">switch</span>';
+    if(hsub)hsub.textContent=cp.label+' · entitlement approvals';
+  }
+}
 async function loadQueue(){const el=document.getElementById('queue');if(!el)return;
   if(!isConnected()){el.innerHTML='<p class="muted">Connect as the corpus owner to review requests.</p>';return;}
   el.innerHTML='<p class="muted">loading…</p>';
@@ -229,19 +266,22 @@ async function loadIssued(){const el=document.getElementById('issued');if(!el)re
   el.innerHTML=rows.length?rows.map(x=>'<div class="req"><div><b>'+esc(x.edition)+'</b> <span class="muted">'+esc(x.subject)+'</span><div class="muted" style="font-size:11px">until '+esc((x.valid_until||'').slice(0,10))+' · issued '+esc((x.created_at||'').slice(0,10))+'</div></div><div class="acts"><button class="dn" onclick="revoke('+x.id+')">Revoke</button></div></div>').join(''):'<p class="muted">No active entitlements.</p>';}
 async function revoke(id){if(!confirm('Revoke this entitlement? The reader loses access immediately.'))return;const r=await post('/admin/revoke',{id_token:session.idToken,id:id}).catch(e=>({ok:false,error:String(e)}));if(r&&r.ok)loadIssued();else alert('Revoke failed: '+((r&&r.error)||'?'));}
 async function render(){
-  const w=document.getElementById('who');if(w)w.innerHTML=isConnected()?'<span class="muted">● '+esc(session.name||(session.sub||'').slice(0,14))+'</span> <button onclick="disconnect()">Disconnect</button>':'<button class="conn" onclick="connectStart()">🌐 Connect with Global.Church</button>';
+  const cp=curCorpus();
+  const w=document.getElementById('who');
+  if(w)w.innerHTML=!cp?'':(isConnected()?'<span class="muted">● '+esc(session.name||(session.sub||'').slice(0,14))+'</span> <button onclick="disconnect()">Disconnect</button>':'<button class="conn" onclick="connectStart()">🌐 Connect as '+esc(cp.agent)+'</button>');
+  if(!cp)return;
   const ob=document.getElementById('owner'),q=document.getElementById('queue'),is=document.getElementById('issued');
-  if(!isConnected()){if(ob)ob.innerHTML='';if(q)q.innerHTML='<p class="muted">Connect as the corpus owner to review requests.</p>';if(is)is.innerHTML='';return;}
+  if(!isConnected()){window.isOwnerNow=false;if(ob)ob.innerHTML='<div class="ownb">Connect as <b>'+esc(cp.agent)+'</b> to manage the '+esc(cp.label)+' corpus.</div>';if(q)q.innerHTML='<p class="muted">Connect as the corpus owner to review requests.</p>';if(is)is.innerHTML='';return;}
   if(ob)ob.innerHTML='<div class="ownb">checking corpus ownership…</div>';
   const cl=await post('/admin/claim',{id_token:session.idToken}).catch(e=>({ok:false,error:String(e)}));
   const fbl=document.getElementById('fblist');
   if(cl&&cl.ok&&cl.isOwner){
     window.isOwnerNow=true;
-    if(ob)ob.innerHTML='<div class="ownb own-yes">'+(cl.claimed?'🎉 You just <b>claimed the BSB corpus</b> — you are the owner.':'✓ You are the <b>BSB corpus owner</b>.')+'</div>';
+    if(ob)ob.innerHTML='<div class="ownb own-yes">'+(cl.claimed?'🎉 You just <b>claimed the '+esc(cp.label)+' corpus</b> — you are the owner.':'✓ You are the <b>'+esc(cp.label)+' corpus owner</b> ('+esc(cp.agent)+').')+'</div>';
     loadQueue();loadIssued();loadFeedback();
   }else{
     window.isOwnerNow=false;
-    if(ob)ob.innerHTML='<div class="ownb own-no">This corpus is owned by <span class="mono">'+esc((cl&&cl.ownerSub||'').slice(0,20))+'…</span> — you are not the owner.</div>';
+    if(ob)ob.innerHTML='<div class="ownb own-no">'+esc(cp.label)+' is owned by <span class="mono">'+esc((cl&&cl.ownerSub||'').slice(0,20))+'…</span> — you are not the owner'+((cl&&cl.reason)?' ('+esc(cl.reason)+')':'')+'.</div>';
     if(q)q.innerHTML='<p class="muted">Only the corpus owner can review requests.</p>';if(is)is.innerHTML='';
     if(fbl)fbl.innerHTML='<p class="muted">Only the corpus owner can review feedback.</p>';
   }
@@ -275,5 +315,5 @@ function showPage(name){const fb=name==='fb';
   if(fb&&window.isOwnerNow)loadFeedback();}
 function route(){showPage(location.hash==='#feedback'?'fb':'ent');}
 window.addEventListener('hashchange',route);
-loadSession();connectCallback().then(()=>render()).then(route);
+loadSession();renderPicker();connectCallback().then(()=>render()).then(route);
 </script></body></html>`;
