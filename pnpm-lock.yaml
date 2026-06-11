@@ -80,6 +80,9 @@ importers:
 
   apps/demo-bible-mcp:
     dependencies:
+      '@agenticprimitives/a2a':
+        specifier: link:../../../agenticprimitives/packages/a2a
+        version: link:../../../agenticprimitives/packages/a2a
       '@agenticprimitives/agent-account':
         specifier: link:../../../agenticprimitives/packages/agent-account
         version: link:../../../agenticprimitives/packages/agent-account
@@ -92,6 +95,12 @@ importers:
       '@agenticprimitives/content-primitives':
         specifier: link:../../../agenticprimitives/packages/content-primitives
         version: link:../../../agenticprimitives/packages/content-primitives
+      '@agenticprimitives/delegation':
+        specifier: link:../../../agenticprimitives/packages/delegation
+        version: link:../../../agenticprimitives/packages/delegation
+      '@agenticprimitives/fulfillment':
+        specifier: link:../../../agenticprimitives/packages/fulfillment
+        version: link:../../../agenticprimitives/packages/fulfillment
       '@agenticprimitives/scripture-content-extension':
         specifier: ^1.0.0-alpha.6
         version: 1.0.0-alpha.6(@agenticprimitives/content-primitives@agenticprimitives+packages+content-primitives)
