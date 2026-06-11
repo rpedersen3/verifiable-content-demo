@@ -138,6 +138,9 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <script>
 const esc=(s)=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const CONNECT_DOMAIN='impact-agent.me',CLIENT_ID='demo-corpus',CENTRAL_AUTH_ORIGIN='https://www.'+CONNECT_DOMAIN,CONNECT_DELEGATE='0x89D13c596c45E4eE80Af5ae06C727FE9A820ffD0';
+// The corpus owner signs in AS bsb.impact (its home) so their id_token sub = bsb.impact's agent id —
+// the home only authenticates whoever controls the name. The claim verifies it against agent-naming.
+const OWNER_NAME='bsb',OWNER_HOME='https://'+OWNER_NAME+'.'+CONNECT_DOMAIN;
 let session=null;
 function loadSession(){try{const j=JSON.parse(localStorage.getItem('corp.session')||'null');session=(j&&j.exp*1000>Date.now())?j:null;if(!session)localStorage.removeItem('corp.session');}catch(e){session=null;}}
 function isConnected(){return !!session;}
@@ -148,23 +151,24 @@ const randB64=(n)=>b64url(crypto.getRandomValues(new Uint8Array(n)));
 async function pkce(){const v=randB64(32);const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v));return {verifier:v,challenge:b64url(new Uint8Array(d))};}
 function isAllowedIssuer(origin){try{const u=new URL(origin);if(u.protocol!=='https:'&&u.hostname!=='localhost'&&u.hostname!=='127.0.0.1')return false;if(u.pathname!=='/'&&u.pathname!=='')return false;const h=u.hostname;return h===CONNECT_DOMAIN||h.endsWith('.'+CONNECT_DOMAIN)||h==='localhost'||h==='127.0.0.1';}catch(e){return false;}}
 async function connectStart(){const state=randB64(16),nonce=randB64(16),pk=await pkce();
-  sessionStorage.setItem('corp.pending',JSON.stringify({state,nonce,verifier:pk.verifier}));
-  const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
-async function verifyIdToken(idToken,expectedNonce){if(!isAllowedIssuer(CENTRAL_AUTH_ORIGIN))throw new Error('issuer');
+  sessionStorage.setItem('corp.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin:OWNER_HOME}));
+  const u=new URL('/',OWNER_HOME);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',OWNER_NAME);u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
+async function verifyIdToken(authOrigin,idToken,expectedNonce){if(!isAllowedIssuer(authOrigin))throw new Error('issuer');
   const parts=idToken.split('.');if(parts.length!==3)throw new Error('malformed');
   const header=decodeSeg(parts[0]),claims=decodeSeg(parts[1]);
-  const jwks=await fetch(CENTRAL_AUTH_ORIGIN+'/jwks').then(r=>r.json());const jwk=(jwks.keys||[]).find(k=>k.kid===header.kid);if(!jwk)throw new Error('no key');
+  const base=authOrigin.endsWith('/')?authOrigin.slice(0,-1):authOrigin;
+  const jwks=await fetch(base+'/jwks').then(r=>r.json());const jwk=(jwks.keys||[]).find(k=>k.kid===header.kid);if(!jwk)throw new Error('no key');
   if(jwk.alg!=='ES256'||header.alg!=='ES256')throw new Error('alg');
   const key=await crypto.subtle.importKey('jwk',jwk,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
   const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,fromB64url(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1]));
-  if(!ok)throw new Error('signature');if(claims.iss!==CENTRAL_AUTH_ORIGIN)throw new Error('iss');if(claims.aud!==CLIENT_ID)throw new Error('aud');if(expectedNonce&&claims.nonce!==expectedNonce)throw new Error('nonce');if(typeof claims.exp!=='number'||claims.exp*1000<Date.now())throw new Error('expired');return claims;}
+  if(!ok)throw new Error('signature');if(claims.iss!==authOrigin)throw new Error('iss');if(claims.aud!==CLIENT_ID)throw new Error('aud');if(expectedNonce&&claims.nonce!==expectedNonce)throw new Error('nonce');if(typeof claims.exp!=='number'||claims.exp*1000<Date.now())throw new Error('expired');return claims;}
 async function connectCallback(){const p=new URLSearchParams(location.search);const code=p.get('code'),state=p.get('state');if(!code||!state)return false;
   let pend=null;try{pend=JSON.parse(sessionStorage.getItem('corp.pending')||'null');}catch(e){}
   history.replaceState(null,'',location.pathname);
   if(!pend||pend.state!==state)return false;
-  try{const tr=await fetch(CENTRAL_AUTH_ORIGIN+'/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant_type:'authorization_code',code,code_verifier:pend.verifier,client_id:CLIENT_ID,redirect_uri:location.origin+'/'})}).then(r=>r.json());
+  try{const ao=pend.authOrigin||OWNER_HOME;const tr=await fetch((ao.endsWith('/')?ao.slice(0,-1):ao)+'/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant_type:'authorization_code',code,code_verifier:pend.verifier,client_id:CLIENT_ID,redirect_uri:location.origin+'/'})}).then(r=>r.json());
     if(!tr.id_token)throw new Error(tr.error||'no id_token');
-    const claims=await verifyIdToken(tr.id_token,pend.nonce);
+    const claims=await verifyIdToken(ao,tr.id_token,pend.nonce);
     session={idToken:tr.id_token,name:claims.agent_name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp};
     localStorage.setItem('corp.session',JSON.stringify(session));sessionStorage.removeItem('corp.pending');return true;
   }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));return false;}}
