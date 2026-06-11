@@ -24,6 +24,10 @@ AGENT_NAME = "scripture-resolver.impact"
 # bsb.impact Smart Agent is set (and the BSB agent itself is activated with RPC + its claimed SA).
 BSB_AGENT_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
 # BSB_AGENT_SA = "0x..."
+# Base Sepolia caveat enforcers — for building the reader's scoped grant (buildA2aGrantCaveats).
+A2A_ENF_TARGETS = "0xe3909FdEfD8b74B7D006E045DCd678e97D469Bfd"
+A2A_ENF_METHODS = "0xf77cf06aCd8b9e2f3204fe4bE16449B3594c9633"
+A2A_ENF_TIMESTAMP = "0x7c452434314A5bf2048f9263aeCd0cC20Fa07965"
 
 # Worker-to-Worker via a service binding (avoids CF error 1042).
 [[env.production.services]]

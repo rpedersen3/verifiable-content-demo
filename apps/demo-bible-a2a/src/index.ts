@@ -9,7 +9,7 @@ import { buildCitationAssertion, verifyCommitment, type Entitlement } from '@age
 import { signCredential, verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT } from '@agenticprimitives/verifiable-credentials';
 import { recoverAddress, keccak256, toBytes } from 'viem';
 import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
-import { resolveOnBehalf, pollTask } from './a2a/client.js';
+import { resolveOnBehalf, pollTask, buildGrantSpec } from './a2a/client.js';
 import type { Delegation } from '@agenticprimitives/delegation';
 import type { Hex } from 'viem';
 
@@ -23,6 +23,9 @@ interface Env {
   A2A_PUBLIC_ORIGIN?: string;
   BSB_AGENT_URL?: string;
   BSB_AGENT_SA?: string;
+  A2A_ENF_TARGETS?: string;
+  A2A_ENF_METHODS?: string;
+  A2A_ENF_TIMESTAMP?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -214,6 +217,12 @@ app.get('/task-status', async (c) => {
   if (!taskId) return c.json({ ok: false, error: 'taskId required' }, 400);
   try { return c.json({ ok: true, task: await pollTask(c.env, taskId as Hex) }); }
   catch (e) { return c.json({ ok: false, error: (e as Error).message }, 502); }
+});
+// The scoped-grant SPEC a reader's home must mint to authorize an async entitled read on the bus:
+// delegate = this Scripture Agent, allowedTargets = BSB SA, allowedMethods = skill, + timestamp.
+app.get('/a2a-grant-spec', (c) => {
+  const skill = c.req.query('skill') ?? 'get-gated-passage';
+  return c.json({ ok: true, ...buildGrantSpec(c.env, skill, Math.floor(Date.now() / 1000)) });
 });
 
 // Entitled read (sync): verify the reader, then fetch gated text presenting their entitlement (presenter-bound at the MCP).

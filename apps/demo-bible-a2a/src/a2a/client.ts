@@ -5,13 +5,32 @@
 // the reader supplies a buildA2aGrantCaveats-scoped grant — the BSB auth gate rejects otherwise.
 
 import { keccak256, toHex, type Address, type Hex } from 'viem';
-import { A2aWireAdapter, hashA2aMessage, type A2aTransport, type A2aMessage } from '@agenticprimitives/a2a';
+import { A2aWireAdapter, hashA2aMessage, buildA2aGrantCaveats, skillSelector, type A2aTransport, type A2aMessage } from '@agenticprimitives/a2a';
 import type { Delegation } from '@agenticprimitives/delegation';
 import { agentSigner, AGENT_ADDRESS } from '../lib/trust.js';
 
 export type BsbTargetEnv = { BSB_AGENT_URL?: string; BSB_AGENT_SA?: string };
+export type GrantEnv = BsbTargetEnv & { A2A_ENF_TARGETS?: string; A2A_ENF_METHODS?: string; A2A_ENF_TIMESTAMP?: string };
 
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
+const addr = (v: string | undefined): Address => (v && v.startsWith('0x') ? (v as Address) : ZERO);
+
+/** Build the SCOPED-GRANT spec a reader's home must mint so this Scripture Agent can call the BSB
+ *  agent's `skill` on their behalf: delegate = this agent, allowedTargets = BSB SA, allowedMethods =
+ *  the skill selector, + a timestamp window (buildA2aGrantCaveats). The reader requests a delegation
+ *  with exactly these caveats from their Global.Church home; the agent then presents it (resolveOnBehalf). */
+export function buildGrantSpec(env: GrantEnv, skill: string, nowSec: number): {
+  delegate: Address; recipientAgent: Address; skill: string; methodSelector: Hex; caveats: unknown[];
+} {
+  const recipientAgent = (env.BSB_AGENT_SA ?? ZERO) as Address;
+  const caveats = buildA2aGrantCaveats({
+    recipientAgentSA: recipientAgent,
+    skill,
+    enforcers: { allowedTargets: addr(env.A2A_ENF_TARGETS), allowedMethods: addr(env.A2A_ENF_METHODS), timestamp: addr(env.A2A_ENF_TIMESTAMP) },
+    window: { validAfter: nowSec - 60, validUntil: nowSec + 3600 },
+  });
+  return { delegate: AGENT_ADDRESS as Address, recipientAgent, skill, methodSelector: skillSelector(skill), caveats };
+}
 
 // Transport: POST JSON-RPC to the BSB agent's /api/a2a (single known target in this demo).
 function makeTransport(env: BsbTargetEnv): A2aTransport {

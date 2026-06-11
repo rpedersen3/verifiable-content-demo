@@ -553,7 +553,7 @@ async function loadAccess(){
     const held=(r[0]&&r[0].entitlements)||[],reqs=(r[1]&&r[1].requests)||[];accessEnts=held;
     const heldEd={},pendEd={};held.forEach(e=>heldEd[e.edition]=1);reqs.forEach(q=>{if(q.status==='pending')pendEd[q.edition]=1;});
     let h='';
-    if(held.length)h+='<div style="font-weight:600;font-size:13px;margin-bottom:3px">Entitlements held</div>'+held.map((e,i)=>'<div class="acc-row"><span class="acc-st acc-granted">✓ entitled</span> <b>'+esc(e.edition)+'</b> <span class="muted" style="font-size:11px">until '+esc((e.validUntil||'').slice(0,10))+'</span> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accReadPrompt('+i+')">Read a verse →</button></div>').join('');
+    if(held.length)h+='<div style="font-weight:600;font-size:13px;margin-bottom:3px">Entitlements held</div>'+held.map((e,i)=>'<div class="acc-row"><span class="acc-st acc-granted">✓ entitled</span> <b>'+esc(e.edition)+'</b> <span class="muted" style="font-size:11px">until '+esc((e.validUntil||'').slice(0,10))+'</span> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accReadPrompt('+i+')">Read a verse →</button> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accAsyncRead('+i+')" title="Read via the async A2A bus (spec 269)">async bus ↗</button></div>').join('');
     if(reqs.length)h+='<div style="font-weight:600;font-size:13px;margin:9px 0 3px">Requests</div>'+reqs.map(q=>'<div class="acc-row"><span class="acc-st acc-'+esc(q.status)+'">'+esc(q.status)+'</span> <b>'+esc(q.edition)+'</b> <span class="muted" style="font-size:11px">'+esc((q.created_at||'').slice(0,10))+'</span></div>').join('');
     if(!heldEd['demo-licensed']&&!pendEd['demo-licensed'])h+='<button class="cg-go" style="margin-top:11px;max-width:300px" onclick="accRequest(\\'demo-licensed\\')">Request access to demo-licensed</button>';
     h+='<div id="acc-read" style="margin-top:11px"></div>';
@@ -574,6 +574,18 @@ async function accRead(i,ref){
   const r=await a2aPost('/resolve-licensed',{id_token:session.idToken,reference:ref,edition:e.edition,entitlement:e.entitlement}).catch(er=>({ok:false,error:String(er)}));
   if(r&&r.ok)out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound entitled read</div>':'')+'</div>';
   else out.innerHTML='<div style="color:#c0392b;font-size:13px">Denied: '+esc((r&&r.error)||'failed')+'</div>';
+}
+// Read via the async A2A bus: fetch the scoped-grant spec the home must mint, then submit a
+// get-gated-passage TASK to the BSB agent through the Scripture Agent (resolve-on-behalf).
+async function accAsyncRead(i){
+  const e=accessEnts[i],out=document.getElementById('acc-read');if(!e||!out)return;
+  out.innerHTML='<div class="ghint" style="padding:8px">async bus: building the scoped grant + submitting a task to the corpus agent…</div>';
+  const spec=await fetch(A2A_BASE+'/a2a-grant-spec?skill=get-gated-passage').then(r=>r.json()).catch(()=>null);
+  const r=await a2aPost('/resolve-on-behalf',{id_token:session.idToken,reference:'John 3:16',edition:e.edition,entitlement:e.entitlement,delegation:session.delegation||{}}).catch(er=>({ok:false,error:String(er)}));
+  const cav=(spec&&spec.caveats||[]).length;
+  out.innerHTML='<div class="acc-verse"><b>Async A2A bus</b> <span class="muted">(spec 269)</span>'+
+    '<div class="muted" style="font-size:12px;margin-top:4px">Scoped grant your Global.Church home must mint: delegate <span class="mono">'+esc((spec&&spec.delegate||'').slice(0,12))+'…</span>, target <span class="mono">'+esc((spec&&spec.recipientAgent||'').slice(0,12))+'…</span>, method <span class="mono">'+esc(spec&&spec.methodSelector||'?')+'</span> · '+cav+' caveats (targets+methods+timestamp).</div>'+
+    '<div style="margin-top:7px;font-size:13px">Task submit → BSB agent: '+(r&&r.ok?('<span style="color:#1a8a4f">✓ queued — task <span class="mono">'+esc((r.taskId||'').slice(0,14))+'…</span> state <b>'+esc(r.state)+'</b></span>'):('<span style="color:#b45309">'+esc((r&&r.error)||'rejected')+'</span> — needs a home-minted scoped grant + BSB activation (RPC + claimed SA)'))+'</div></div>';
 }
 // Read the connected user's PII from THEIR demo-mcp vault, via the demo-a2a relayer, using the
 // delegation their Global.Church home minted at sign-in (re-presented; no extra signature).
