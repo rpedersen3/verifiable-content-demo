@@ -568,24 +568,32 @@ app.post('/tools/claim_service', async (c) => {
   if (!b.ownerSub) return c.json({ ok: false, error: 'ownerSub required' }, 400);
   const service = String(b.service ?? 'bsb-archive');
   const existing = await c.env.DB.prepare('SELECT owner_sub FROM service_identity WHERE service=?').bind(service).first<{ owner_sub: string }>();
-  if (existing) {
-    const isOwner = existing.owner_sub.toLowerCase() === b.ownerSub.toLowerCase();
-    return c.json({ ok: true, claimed: false, isOwner, ownerSub: existing.owner_sub });
-  }
-  // Ownership bound to the bsb.impact NAME via LIVE ANS resolution (no hardcoded address): the claimant
-  // must be the agent the name resolves to, OR a custodian of that account (so the controller can sign
-  // in as their personal identity and still prove control). Both read on-chain from agent-naming +
-  // agent-account. Falls back to first-claim-wins only when ANS is unresolvable (no RPC / timeout).
+  // Ownership bound to bsb.impact via LIVE ANS (no hardcoded address): the claimant must be the agent
+  // the name resolves to, OR a custodian of that account (read on-chain from agent-naming + agent-account).
   const resolved = await resolveBsbOwnerId(c.env as never);
-  if (resolved.sa) {
-    const subSa = b.ownerSub.includes(':') ? b.ownerSub.split(':').pop()!.toLowerCase() : b.ownerSub.toLowerCase();
-    const authorized = subSa === resolved.sa.toLowerCase() || (await isBsbCustodian(c.env as never, resolved.sa as Address, subSa));
-    if (!authorized) {
-      return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: resolved.id, reason: 'only bsb.impact (per ANS), or a custodian of its account, may claim this corpus' });
+  const subSa = b.ownerSub.includes(':') ? b.ownerSub.split(':').pop()!.toLowerCase() : b.ownerSub.toLowerCase();
+  const ansAuthorized = resolved.sa ? (subSa === resolved.sa.toLowerCase() || (await isBsbCustodian(c.env as never, resolved.sa as Address, subSa))) : false;
+  const now = new Date().toISOString();
+  if (existing) {
+    if (existing.owner_sub.toLowerCase() === b.ownerSub.toLowerCase()) {
+      return c.json({ ok: true, claimed: false, isOwner: true, ownerSub: existing.owner_sub });
     }
+    // TAKEOVER hardening: the ANS-authorized controller reclaims from a NON-canonical owner (a stale or
+    // wrong claim self-corrects the moment the real bsb.impact controller connects — no DB surgery).
+    const existingIsCanonical = !!resolved.id && existing.owner_sub.toLowerCase() === resolved.id.toLowerCase();
+    if (ansAuthorized && !existingIsCanonical) {
+      await c.env.DB.prepare('UPDATE service_identity SET owner_sub=?, created_at=? WHERE service=?').bind(b.ownerSub, now, service).run();
+      audit('content.service.takeover', 'success', service, { newOwner: b.ownerSub, previousOwner: existing.owner_sub });
+      return c.json({ ok: true, claimed: true, takeover: true, isOwner: true, ownerSub: b.ownerSub, previousOwner: existing.owner_sub });
+    }
+    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: existing.owner_sub, reason: existingIsCanonical ? 'corpus owned by the canonical bsb.impact agent' : 'not the corpus owner' });
+  }
+  // Unclaimed: only the ANS-authorized controller may claim; if ANS is unresolvable (no RPC / timeout) fall back to first-claim-wins.
+  if (resolved.sa && !ansAuthorized) {
+    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: resolved.id, reason: 'only bsb.impact (per ANS), or a custodian of its account, may claim this corpus' });
   }
   await c.env.DB.prepare('INSERT INTO service_identity(service, issuer_agent_id, owner_sub, delegate_address, delegation, created_at) VALUES(?,?,?,?,?,?)')
-    .bind(service, b.issuerAgentId ?? 'bsb.impact', b.ownerSub, '', '', new Date().toISOString()).run();
+    .bind(service, b.issuerAgentId ?? 'bsb.impact', b.ownerSub, '', '', now).run();
   audit('content.service.claim', 'success', service, { ownerSub: b.ownerSub });
   return c.json({ ok: true, claimed: true, isOwner: true, ownerSub: b.ownerSub });
 });
