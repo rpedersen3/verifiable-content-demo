@@ -708,7 +708,7 @@ app.post('/tools/get_trust_signals', async (c) => {
   const unsigned: UnsignedCredential<{ id: string; label: string; dimensions: unknown[]; actions: unknown[] }> = {
     '@context': VC_CONTEXTS,
     type: ['VerifiableCredential', 'TrustProfileCredential'],
-    issuer: 'did:ap:scripture-agent',
+    issuer: `eip155:${trust.credentialSigner.chainId}:${trust.credentialSigner.issuerAddress}`,
     validFrom: new Date(nowMs - 60_000).toISOString(),
     credentialSubject: { id, label: String(n.label ?? ''), dimensions, actions },
   };
@@ -745,7 +745,7 @@ app.post('/tools/submit_feedback', async (c) => {
   const unsigned: UnsignedCredential<typeof subject> = {
     '@context': VC_CONTEXTS,
     type: ['VerifiableCredential', 'TrustSignalFeedback'],
-    issuer: 'did:ap:scripture-agent',
+    issuer: `eip155:${trust.credentialSigner.chainId}:${trust.credentialSigner.issuerAddress}`,
     validFrom: new Date(nowMs - 60_000).toISOString(),
     credentialSubject: subject,
   };

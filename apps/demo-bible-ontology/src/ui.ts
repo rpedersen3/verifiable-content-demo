@@ -538,6 +538,9 @@ function admin(){
    '<div class="card"><h3 class="muted" style="margin-top:0">My access · licensed editions</h3>'+
    '<p class="hint">Request access to a licensed edition; the corpus owner approves and the signed <b>entitlement</b> is issued to you. Held entitlements let you read gated verse text — every read is <b>presenter-bound</b> (only you can use your entitlement) and commitment-verified.</p>'+
    '<div id="accessview"><div class="muted" style="font-size:13px">'+(isConnected()?'loading…':'Connect (top-right) to request and view access.')+'</div></div></div>'+
+   '<div class="card"><h3 class="muted" style="margin-top:0">My feedback · signal challenges</h3>'+
+   '<p class="hint">Trust-signal feedback you have posted — each is a <b>signed feedback assertion</b> (ERC-8004-style) authored by your connected identity, scoped to one (entity, signal, verse) triple. Post new feedback from <b>⚖ Signal Court</b> on any signal in the graph.</p>'+
+   '<div id="myfb">'+vload+'</div></div>'+
    '<div class="card"><h3 class="muted" style="margin-top:0">Admin · data integrity</h3>'+
    '<p class="hint">Every node records how confidently its data is bound to a canonical id. Native Theographic ids are rock-solid (1.0); brought-in data (Wikidata + images) is scored by match strength — exact-unique matches near 1.0, name-collision or label-mismatch matches lower. Suspect bindings are listed here for review, never hidden.</p>'+
    '<div id="ibands" class="gchips"></div>'+
@@ -550,6 +553,19 @@ function admin(){
   loadDelegations();
   loadVaultEnts();
   loadAccess();
+  loadMyFeedback();
+}
+// The connected user's own trust-signal feedback (author_sub filter on the public feedback store).
+async function loadMyFeedback(){
+  const el=document.getElementById('myfb');if(!el)return;
+  if(!isConnected()){el.innerHTML='<div class="muted" style="font-size:13px">Connect to view your feedback.</div>';return;}
+  el.innerHTML='<div class="ghint" style="padding:8px">loading your feedback…</div>';
+  try{
+    const d=await api('/feedback?author='+encodeURIComponent(session.sub||''));
+    const fb=(d&&d.feedback)||[];
+    if(!fb.length){el.innerHTML='<div class="muted" style="font-size:13px">You have not posted any trust-signal feedback yet. Open a signal in the graph and use ⚖ Signal Court to weigh in.</div>';return;}
+    el.innerHTML=fb.map(f=>'<div class="sc-fbitem"><span class="sc-st sc-'+esc(f.stance)+'">'+esc(f.stance)+'</span> '+(f.verdict?'<span class="sc-st" style="background:#475569">'+esc(f.verdict)+'</span> ':'')+'<b>'+esc(f.subject_label||f.subject_id||'')+'</b>'+(f.osis?' <span class="muted" style="font-size:11px">'+esc(f.osis)+'</span>':'')+' '+(f.signed?'<span title="signed feedback assertion" style="color:#1a8a4f;font-size:11px">✓ signed</span> ':'')+'<span class="muted" style="font-size:11px">'+esc((f.created_at||'').slice(0,10))+'</span><div style="margin-top:2px;white-space:pre-wrap;font-size:13px">'+esc(f.comment)+'</div>'+(f.sig_kind?'<div class="muted" style="font-size:11px;margin-top:3px">signal: '+esc(f.sig_kind)+(f.basis?' — '+esc(f.basis):'')+'</div>':'')+'</div>').join('');
+  }catch(e){el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not load your feedback: '+esc(e&&e.message?e.message:String(e))+'</div>';}
 }
 // Show the delegation(s) the connected user holds — the site-login grant their home minted at sign-in,
 // which authorizes this app to read their vault on their behalf (re-presented per read; no app signing).

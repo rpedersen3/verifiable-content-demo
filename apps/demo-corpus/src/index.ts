@@ -100,6 +100,20 @@ app.post('/admin/revoke', async (c) => {
   try { await ownerGate(c.env, String(b.id_token ?? '')); const r = await mcp(c.env, '/tools/revoke_entitlement', { id: b.id }); return c.json(r); }
   catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
+// All trust-signal feedback across the corpus (owner moderation view), with filters. Proxies to the
+// ontology's /api/feedback via the MCP graph_query tool (reuses the MCP service binding).
+app.post('/admin/feedback', async (c) => {
+  const b = await c.req.json<{ id_token?: string; stance?: string; author?: string; subject?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    await ownerGate(c.env, String(b.id_token ?? ''));
+    const qs = new URLSearchParams({ all: '1' });
+    if (b.stance) qs.set('stance', String(b.stance));
+    if (b.author) qs.set('author', String(b.author));
+    if (b.subject) qs.set('subject', String(b.subject));
+    const r = await mcp(c.env, '/tools/graph_query', { path: '/api/feedback?' + qs.toString() });
+    return c.json((r.body as Record<string, unknown>) ?? r);
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
 app.get('/health', (c) => c.json({ ok: true, service: 'demo-corpus' }));
 app.get('/', (c) => c.html(SPA));
 
@@ -124,6 +138,12 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 .ap{background:#1a8a4f;color:#fff;border:0;font-weight:600}.dn{background:#fff;color:#c0392b;border:1px solid #f0c5bd}
 .ownb{border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:14px}
 .own-yes{background:#e9f7ef;border:1px solid #b7e2c8;color:#136c3a}.own-no{background:#fff5e9;border:1px solid #f0d3a8;color:#8a5510}
+.fbfilters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px}
+.fbfilters select,.fbfilters input{padding:6px 9px;border:1px solid var(--line);border-radius:7px;font-size:13px}
+.fbfilters input{flex:1;min-width:170px}
+.fbitem{border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-bottom:8px}
+.fb-st{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:600;color:#fff}
+.fb-challenge{background:#c0392b}.fb-agree{background:#1a8a4f}.fb-note{background:#64748b}
 </style></head><body>
 <div class="hdr"><h1>🗂️ Corpus Manager</h1><span class="sub">BSB · entitlement approvals</span><span id="who"></span></div>
 <main>
@@ -134,6 +154,13 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <div class="card"><h3 style="margin-top:0">Issued entitlements</h3>
 <p class="muted" style="font-size:13px">Live grants. Revoking is immediate — gated reads re-check this ledger and fail closed.</p>
 <div id="issued"></div></div>
+<div class="card"><h3 style="margin-top:0">Trust-signal feedback</h3>
+<p class="muted" style="font-size:13px">Every signed feedback assertion posted across the corpus — readers challenging or affirming a trust signal on a specific (entity, signal, verse) triple. Filter to review.</p>
+<div class="fbfilters">
+<select id="fb-stance" onchange="loadFeedback()"><option value="">all stances</option><option value="challenge">challenge</option><option value="agree">agree</option><option value="note">note</option></select>
+<input id="fb-q" placeholder="filter by author SA / entity id…" oninput="fbDebounce()">
+<button onclick="loadFeedback()">Refresh</button></div>
+<div id="fblist"><p class="muted">Connect as the corpus owner to review feedback.</p></div></div>
 </main>
 <script>
 const esc=(s)=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -199,13 +226,36 @@ async function render(){
   if(!isConnected()){if(ob)ob.innerHTML='';if(q)q.innerHTML='<p class="muted">Connect as the corpus owner to review requests.</p>';if(is)is.innerHTML='';return;}
   if(ob)ob.innerHTML='<div class="ownb">checking corpus ownership…</div>';
   const cl=await post('/admin/claim',{id_token:session.idToken}).catch(e=>({ok:false,error:String(e)}));
+  const fbl=document.getElementById('fblist');
   if(cl&&cl.ok&&cl.isOwner){
+    window.isOwnerNow=true;
     if(ob)ob.innerHTML='<div class="ownb own-yes">'+(cl.claimed?'🎉 You just <b>claimed the BSB corpus</b> — you are the owner.':'✓ You are the <b>BSB corpus owner</b>.')+'</div>';
-    loadQueue();loadIssued();
+    loadQueue();loadIssued();loadFeedback();
   }else{
+    window.isOwnerNow=false;
     if(ob)ob.innerHTML='<div class="ownb own-no">This corpus is owned by <span class="mono">'+esc((cl&&cl.ownerSub||'').slice(0,20))+'…</span> — you are not the owner.</div>';
     if(q)q.innerHTML='<p class="muted">Only the corpus owner can review requests.</p>';if(is)is.innerHTML='';
+    if(fbl)fbl.innerHTML='<p class="muted">Only the corpus owner can review feedback.</p>';
   }
 }
+let fbTimer=null;
+function fbDebounce(){if(fbTimer)clearTimeout(fbTimer);fbTimer=setTimeout(loadFeedback,400);}
+async function loadFeedback(){
+  const el=document.getElementById('fblist');if(!el)return;
+  if(!window.isOwnerNow){el.innerHTML='<p class="muted">Only the corpus owner can review feedback.</p>';return;}
+  const stance=(document.getElementById('fb-stance')||{}).value||'';
+  const q=((document.getElementById('fb-q')||{}).value||'').trim();
+  el.innerHTML='<p class="muted">loading…</p>';
+  const body={id_token:session.idToken,stance:stance};
+  if(q){if(q.indexOf('eip155:')===0||q.indexOf('0x')===0)body.author=q;else body.subject=q;}
+  const r=await post('/admin/feedback',body).catch(e=>({ok:false,error:String(e)}));
+  if(!r||!r.ok){el.innerHTML='<p style="color:#c0392b">'+esc((r&&r.error)||'failed')+'</p>';return;}
+  const fb=r.feedback||[];
+  if(!fb.length){el.innerHTML='<p class="muted">No feedback matches these filters.</p>';return;}
+  el.innerHTML='<div class="muted" style="font-size:12px;margin-bottom:7px">'+fb.length+' item'+(fb.length===1?'':'s')+'</div>'+fb.map(fbRow).join('');
+}
+function fbRow(f){return '<div class="fbitem"><span class="fb-st fb-'+esc(f.stance)+'">'+esc(f.stance)+'</span> '+(f.verdict?'<span class="fb-st" style="background:#475569">'+esc(f.verdict)+'</span> ':'')+'<b>'+esc(f.subject_label||f.subject_id||'')+'</b>'+(f.osis?' <span class="muted" style="font-size:11px">'+esc(f.osis)+'</span>':'')+(f.signed?' <span style="color:#1a8a4f;font-size:11px" title="signed assertion">✓ signed</span>':'')+
+  '<div style="font-size:13px;margin-top:3px;white-space:pre-wrap">'+esc(f.comment||'')+'</div>'+
+  '<div class="muted" style="font-size:11px;margin-top:4px">by <b>'+esc(f.author||'anonymous')+'</b>'+(f.author_sub?' <span class="mono">'+esc(String(f.author_sub).slice(0,18))+'…</span>':'')+' · '+esc((f.created_at||'').slice(0,10))+(f.sig_kind?' · signal '+esc(f.sig_kind):'')+'</div></div>';}
 loadSession();connectCallback().then(()=>render());
 </script></body></html>`;

@@ -328,10 +328,18 @@ app.get('/api/classes', async (c) => {
 app.get('/api/feedback', async (c) => {
   const subject = (c.req.query('subject') ?? '').trim();
   const basis = (c.req.query('basis') ?? '').trim();
-  if (!subject) return c.json({ ok: true, feedback: [] });
-  const where = basis ? 'subject_id=? AND basis=?' : 'subject_id=?';
-  const args = basis ? [subject, basis] : [subject];
-  const fb = await rows(c.env.DB, `SELECT id,subject_label,sig_kind,osis,stance,verdict,suggested,proposed_action,comment,author,author_sub,(assertion IS NOT NULL) signed,created_at FROM signal_feedback WHERE ${where} ORDER BY id DESC LIMIT 100`, ...args);
+  const author = (c.req.query('author') ?? '').trim();   // author_sub — "feedback I've given"
+  const stance = (c.req.query('stance') ?? '').trim();    // agree | challenge | note
+  const all = (c.req.query('all') ?? '') === '1';         // corpus-wide list (owner view)
+  // Require a selector unless explicitly listing all, so a bare call can't dump everything by accident.
+  if (!subject && !author && !all) return c.json({ ok: true, feedback: [] });
+  const conds: string[] = [], args: string[] = [];
+  if (subject) { conds.push('subject_id=?'); args.push(subject); }
+  if (basis) { conds.push('basis=?'); args.push(basis); }
+  if (author) { conds.push('author_sub=?'); args.push(author); }
+  if (stance && ['agree', 'challenge', 'note'].includes(stance)) { conds.push('stance=?'); args.push(stance); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const fb = await rows(c.env.DB, `SELECT id,subject_id,subject_label,sig_kind,basis,osis,stance,verdict,suggested,proposed_action,comment,author,author_sub,(assertion IS NOT NULL) signed,created_at FROM signal_feedback ${where} ORDER BY id DESC LIMIT 200`, ...args);
   return c.json({ ok: true, feedback: fb });
 });
 
