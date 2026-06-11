@@ -530,12 +530,12 @@ app.post('/tools/claim_service', async (c) => {
     const isOwner = existing.owner_sub.toLowerCase() === b.ownerSub.toLowerCase();
     return c.json({ ok: true, claimed: false, isOwner, ownerSub: existing.owner_sub });
   }
-  // Bind ownership to the `bsb.impact` NAME (audit finding #2): only the agent that controls it may
-  // claim. Prefer LIVE on-chain resolution (agent-naming); else a pinned id; else first-claim-wins.
-  const resolved = await resolveBsbOwnerId(c.env as never);
-  const required = resolved.id ?? (String((c.env as { BSB_OWNER_AGENT_ID?: string }).BSB_OWNER_AGENT_ID ?? '') || null);
-  if (required && b.ownerSub.toLowerCase() !== required.toLowerCase()) {
-    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: required, reason: 'only the agent that controls bsb.impact (agent-naming) may claim this corpus' });
+  // Ownership binding (opt-in): if BSB_OWNER_AGENT_ID is pinned, only that agent id may claim; else
+  // first-claim-wins. (Live agent-naming resolution of bsb.impact is exposed via get_owner_id and can
+  // be re-enabled here once the owner signs in as an identity whose sub == bsb.impact's controller.)
+  const pin = String((c.env as { BSB_OWNER_AGENT_ID?: string }).BSB_OWNER_AGENT_ID ?? '');
+  if (pin && b.ownerSub.toLowerCase() !== pin.toLowerCase()) {
+    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: pin, reason: 'only the configured corpus owner may claim' });
   }
   await c.env.DB.prepare('INSERT INTO service_identity(service, issuer_agent_id, owner_sub, delegate_address, delegation, created_at) VALUES(?,?,?,?,?,?)')
     .bind(service, b.issuerAgentId ?? 'bsb.impact', b.ownerSub, '', '', new Date().toISOString()).run();
