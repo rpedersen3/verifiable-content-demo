@@ -508,6 +508,15 @@ app.post('/tools/claim_service', async (c) => {
     const isOwner = existing.owner_sub.toLowerCase() === b.ownerSub.toLowerCase();
     return c.json({ ok: true, claimed: false, isOwner, ownerSub: existing.owner_sub });
   }
+  // Bind ownership to the `bsb.impact` NAME (audit finding #2): only the agent that controls the
+  // name may claim. BSB_OWNER_AGENT_ID pins that canonical agent id (the home only issues a
+  // bsb.impact id_token to its controller). When A2A_RPC_URL is set this should instead be RESOLVED
+  // on-chain via agent-naming (AgentNamingClient.resolveName('bsb.impact')) — TODO at activation.
+  // Unset ⇒ first-claim-wins (demo fallback).
+  const pin = String((c.env as { BSB_OWNER_AGENT_ID?: string }).BSB_OWNER_AGENT_ID ?? '');
+  if (pin && b.ownerSub.toLowerCase() !== pin.toLowerCase()) {
+    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: pin, reason: 'only the agent that controls bsb.impact may claim this corpus' });
+  }
   await c.env.DB.prepare('INSERT INTO service_identity(service, issuer_agent_id, owner_sub, delegate_address, delegation, created_at) VALUES(?,?,?,?,?,?)')
     .bind(service, b.issuerAgentId ?? 'bsb.impact', b.ownerSub, '', '', new Date().toISOString()).run();
   audit('content.service.claim', 'success', service, { ownerSub: b.ownerSub });
