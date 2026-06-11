@@ -528,9 +528,13 @@ async function classQuery(curie){
 }
 // ── Admin: account vault + data-integrity review ──
 function admin(){
-  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">My account · Global.Church vault</h3>'+
-   '<p class="hint">Your connected identity\\'s personal data, read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the scoped delegation your Global.Church home minted at sign-in (your app signs nothing). Note: the demo seeds <b>mock fixtures</b>, not real PII.</p>'+
-   '<div id="acctview"><div class="muted" style="font-size:13px">'+(isConnected()?'loading…':'Connect (top-right) to view your account.')+'</div></div></div>'+
+  const vload=isConnected()?'<div class="ghint" style="padding:8px">loading…</div>':'<div class="muted" style="font-size:13px">Connect (top-right) to view.</div>';
+  const vlab='font-weight:600;font-size:13px;margin:13px 0 4px;color:#3a4658';
+  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">My account · personal vault</h3>'+
+   '<p class="hint">Everything here is read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the delegation your Global.Church home minted at sign-in (your app signs nothing). Demo PII is <b>mock fixtures</b>.</p>'+
+   '<div style="'+vlab+';margin-top:2px">Profile</div><div id="acctview">'+vload+'</div>'+
+   '<div style="'+vlab+'">Delegations</div><div id="delgview">'+vload+'</div>'+
+   '<div style="'+vlab+'">Entitlements in your vault</div><div id="vaultents">'+vload+'</div></div>'+
    '<div class="card"><h3 class="muted" style="margin-top:0">My access · licensed editions</h3>'+
    '<p class="hint">Request access to a licensed edition; the corpus owner approves and the signed <b>entitlement</b> is issued to you. Held entitlements let you read gated verse text — every read is <b>presenter-bound</b> (only you can use your entitlement) and commitment-verified.</p>'+
    '<div id="accessview"><div class="muted" style="font-size:13px">'+(isConnected()?'loading…':'Connect (top-right) to request and view access.')+'</div></div></div>'+
@@ -543,7 +547,42 @@ function admin(){
   const thr=document.getElementById('ithr');thr.onchange=()=>loadIntegrity(thr.value);
   loadIntegrity(thr.value);
   loadAccount();
+  loadDelegations();
+  loadVaultEnts();
   loadAccess();
+}
+// Show the delegation(s) the connected user holds — the site-login grant their home minted at sign-in,
+// which authorizes this app to read their vault on their behalf (re-presented per read; no app signing).
+function loadDelegations(){
+  const el=document.getElementById('delgview');if(!el)return;
+  if(!isConnected()){el.innerHTML='<div class="muted" style="font-size:13px">Connect to view.</div>';return;}
+  const d=session.delegation;
+  if(!d){el.innerHTML='<div class="muted" style="font-size:13px">No delegation in your session — Disconnect &amp; Connect again to grant vault access.</div>';return;}
+  const cav=((d.caveats)||(d.authority&&d.authority.caveats)||[]).length;
+  el.innerHTML='<div class="acc-row"><span class="acc-st acc-granted">active</span> <b>site-login</b> <span class="muted" style="font-size:11px">'+cav+' caveat'+(cav===1?'':'s')+'</span></div>'+
+   '<div class="hint" style="margin-top:3px">delegator <span class="mono">'+esc((d.delegator||'').slice(0,18))+'…</span> → delegate <span class="mono">'+esc((d.delegate||'').slice(0,18))+'…</span><br>Lets this app read your vault on your behalf; re-presented at each read, your app never signs.</div>';
+}
+// Read the entitlements DELIVERED to the user's personal demo-mcp vault (written at grant time as
+// records of type entitlement:bsb:<edition>) — distinct from the issuer ledger. Via the relayer vault API.
+async function loadVaultEnts(){
+  const el=document.getElementById('vaultents');if(!el)return;
+  if(!isConnected()){el.innerHTML='<div class="muted" style="font-size:13px">Connect to view.</div>';return;}
+  if(!session.delegation){el.innerHTML='<div class="muted" style="font-size:13px">No delegation — reconnect to read your vault.</div>';return;}
+  el.innerHTML='<div class="ghint" style="padding:8px">reading your vault…</div>';
+  try{
+    const cj=await fetch(DEMO_A2A_BASE+'/auth/csrf',{credentials:'include'}).then(r=>r.json());
+    const tok=cj.token||cj.csrfToken||cj.csrf||'';
+    const hdr={'content-type':'application/json','X-CSRF-Token':tok};
+    const reqr=session.delegation.delegate;
+    const lst=await fetch(DEMO_A2A_BASE+'/mcp/vault/list',{method:'POST',credentials:'include',headers:hdr,body:JSON.stringify({delegation:session.delegation,requester:reqr})}).then(x=>x.json());
+    if(!lst||!lst.ok)throw new Error((lst&&(lst.detail||lst.error))||'vault list failed');
+    const ents=(lst.records||[]).filter(r=>String(r.record_type||r.recordType||'').indexOf('entitlement:bsb:')===0);
+    if(!ents.length){el.innerHTML='<div class="muted" style="font-size:13px">No entitlements delivered to your vault yet. When the corpus owner approves your request, the signed entitlement is written here automatically.</div>';return;}
+    const got=await Promise.all(ents.map(r=>{const t=r.record_type||r.recordType;return fetch(DEMO_A2A_BASE+'/mcp/vault/get',{method:'POST',credentials:'include',headers:hdr,body:JSON.stringify({delegation:session.delegation,requester:reqr,recordType:t})}).then(x=>x.json()).then(g=>({t:t,upd:r.updated_at,vc:(g&&(g.data||g.record))||{}}));}));
+    el.innerHTML=got.map(function(o){const ed=String(o.t).split('entitlement:bsb:').join('');const subj=(o.vc&&o.vc.credentialSubject)||{};const vu=subj.validUntil||o.vc.validUntil||'';const iss=o.vc&&o.vc.issuer||'';
+      return '<div class="acc-row"><span class="acc-st acc-granted">✓ in vault</span> <b>'+esc(ed)+'</b>'+(vu?' <span class="muted" style="font-size:11px">until '+esc(String(vu).slice(0,10))+'</span>':'')+'</div>'+
+        '<div class="hint" style="margin:2px 0 8px">record <span class="mono">'+esc(o.t)+'</span>'+(iss?' · issuer <span class="mono">'+esc(String(iss).slice(0,16))+'…</span>':'')+(subj.id?' · subject <span class="mono">'+esc(String(subj.id).slice(0,14))+'…</span>':'')+(o.upd?' · delivered '+esc(String(o.upd).slice(0,10)):'')+'</div>';}).join('');
+  }catch(e){el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read vault entitlements: '+esc(e&&e.message?e.message:String(e))+'</div>';}
 }
 // ── My access: request + hold entitlements, do an entitled read — all via the Scripture Agent ──
 let accessEnts=[];
