@@ -38,14 +38,17 @@ CREATE TABLE IF NOT EXISTS node_source (node_id TEXT, source_id TEXT, src_ref TE
 -- Original-language forms (Hebrew/Greek + Strong's), from TIPNR.
 CREATE TABLE IF NOT EXISTS node_form (node_id TEXT, lang TEXT, form TEXT, translit TEXT, strongs TEXT, source_id TEXT);
 -- Legacy categorical trust signal (positive/negative/mixed) — kept for back-compat with the graph viz.
-CREATE TABLE IF NOT EXISTS signal (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT, polarity TEXT, basis TEXT, osis TEXT);
+-- Per-EDITION (corpus): bsb (public) carries the generated set; licensed editions (e.g. lbsb) start
+-- empty and are curated independently.
+CREATE TABLE IF NOT EXISTS signal (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT, polarity TEXT, basis TEXT, osis TEXT, edition TEXT NOT NULL DEFAULT 'bsb');
+CREATE INDEX IF NOT EXISTS idx_signal_subj_ed ON signal(subject_id, edition);
 -- Multi-dimensional trust/alignment scores. One row per (subject, dimension):
 --   moral            good↔evil alignment            −1 … +1   (curated, seeded from signals)
 --   graph_trust      strength of position in graph    0 … 1    (computed: connectivity)
 --   scriptural_trust weight of biblical attestation   0 … 1    (computed: verse coverage)
 --   historical_trust extra-biblical corroboration     0 … 1    (curated: archaeology / records)
 --   source_trust     independent source corroboration 0 … 1    (computed: DnS assertions agreeing)
-CREATE TABLE IF NOT EXISTS score (subject_id TEXT, dimension TEXT, value REAL, basis TEXT, method TEXT, PRIMARY KEY (subject_id, dimension));
+CREATE TABLE IF NOT EXISTS score (subject_id TEXT, dimension TEXT, value REAL, basis TEXT, method TEXT, edition TEXT NOT NULL DEFAULT 'bsb', PRIMARY KEY (subject_id, dimension, edition));
 CREATE TABLE IF NOT EXISTS edge (id INTEGER PRIMARY KEY AUTOINCREMENT, src TEXT, rel TEXT, dst TEXT, ctx TEXT);
 CREATE TABLE IF NOT EXISTS node_verse (node_id TEXT, osis TEXT);
 -- Real Global Church Ontology terms (pulled) for validation against PROV-O + Bible usage.

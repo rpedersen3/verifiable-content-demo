@@ -29,14 +29,15 @@ app.get('/health', (c) => c.json({ ok: true, service: 'demo-bible-ontology' }));
 
 // Overview — totals, PROV-O class counts, GCO→PROV-O alignment tally.
 app.get('/api/overview', async (c) => {
+  const ed = (c.req.query('edition') ?? 'bsb').replace(/[^a-z0-9-]/gi, '') || 'bsb';
   const [tot, prov, kinds, gco, layers, sig, scores, imgs, bands, origins, coverage, srcCov] = await Promise.all([
     rows<{ t: string; n: number }>(c.env.DB, "SELECT 'nodes' t,count(*) n FROM node UNION ALL SELECT 'edges',count(*) FROM edge UNION ALL SELECT 'verseLinks',count(*) FROM node_verse UNION ALL SELECT 'classes',count(*) FROM ontology_class UNION ALL SELECT 'gcoTerms',count(*) FROM gco_term"),
     rows<{ prov_class: string; n: number }>(c.env.DB, 'SELECT prov_class,count(*) n FROM node WHERE prov_class IS NOT NULL GROUP BY prov_class ORDER BY n DESC'),
     rows<{ kind: string; n: number }>(c.env.DB, 'SELECT kind,count(*) n FROM node GROUP BY kind ORDER BY n DESC'),
     rows<{ prov_align: string; n: number }>(c.env.DB, "SELECT prov_align,count(*) n FROM gco_term WHERE type='class' GROUP BY prov_align ORDER BY n DESC"),
     rows<{ layer: string; n: number }>(c.env.DB, 'SELECT layer,count(*) n FROM ontology_class GROUP BY layer'),
-    rows<{ polarity: string; n: number }>(c.env.DB, 'SELECT polarity,count(*) n FROM signal GROUP BY polarity'),
-    rows<{ dimension: string; n: number; avg: number }>(c.env.DB, 'SELECT dimension,count(*) n,round(avg(value),3) avg FROM score GROUP BY dimension'),
+    rows<{ polarity: string; n: number }>(c.env.DB, `SELECT polarity,count(*) n FROM signal WHERE edition='${ed}' GROUP BY polarity`),
+    rows<{ dimension: string; n: number; avg: number }>(c.env.DB, `SELECT dimension,count(*) n,round(avg(value),3) avg FROM score WHERE edition='${ed}' GROUP BY dimension`),
     rows<{ n: number }>(c.env.DB, 'SELECT count(*) n FROM node WHERE image_thumb IS NOT NULL'),
     rows<{ band: string; n: number }>(c.env.DB, "SELECT CASE WHEN canon_method='source' THEN 'native' WHEN canon_confidence>=0.9 THEN 'high' WHEN canon_confidence>=0.7 THEN 'medium' ELSE 'low' END band, count(*) n FROM node WHERE canon_id IS NOT NULL GROUP BY band"),
     rows<{ origin_source: string; n: number }>(c.env.DB, 'SELECT origin_source,count(*) n FROM node WHERE origin_source IS NOT NULL GROUP BY origin_source ORDER BY n DESC'),
@@ -67,8 +68,9 @@ app.get('/api/search', async (c) => {
   const trust = (c.req.query('trust') ?? '').trim();
   const book = (c.req.query('book') ?? '').trim().replace(/[^A-Za-z0-9]/g, '');
   if (!q && !group && !trust && !book) return c.json({ ok: true, results: [] });
-  const MORAL = "(SELECT value FROM score WHERE subject_id=node.id AND dimension='moral')";
-  const NSIG = "(SELECT count(*) FROM signal WHERE subject_id=node.id)";
+  const ed = (c.req.query('edition') ?? 'bsb').replace(/[^a-z0-9-]/gi, '') || 'bsb';
+  const MORAL = "(SELECT value FROM score WHERE subject_id=node.id AND dimension='moral' AND edition='" + ed + "')";
+  const NSIG = "(SELECT count(*) FROM signal WHERE subject_id=node.id AND edition='" + ed + "')";
   const where: string[] = []; const args: unknown[] = [];
   if (q) { where.push('(label LIKE ? OR aka LIKE ?)'); args.push(`%${q}%`, `%${q.toLowerCase()}%`); }
   if (group) { where.push(`kind IN (${group.map(() => '?').join(',')})`); args.push(...group); }
@@ -87,7 +89,7 @@ app.get('/api/search', async (c) => {
   const DIMS = ['wisdom', 'faithfulness', 'courage', 'truthfulness', 'repentance'];
   let order = verseOrd, dimSel = '';
   if (sort === 'good' || sort === 'evil') { where.push(`${MORAL} IS NOT NULL`); order = `${MORAL} ${sort === 'evil' ? 'ASC' : 'DESC'}, ${verseOrd}`; }
-  else if (DIMS.includes(sort)) { const d = `(SELECT value FROM score WHERE subject_id=node.id AND dimension='${sort}')`; where.push(`${d} IS NOT NULL`); order = `${d} DESC, ${verseOrd}`; dimSel = `,${d} dimval`; }
+  else if (DIMS.includes(sort)) { const d = `(SELECT value FROM score WHERE subject_id=node.id AND dimension='${sort}' AND edition='${ed}')`; where.push(`${d} IS NOT NULL`); order = `${d} DESC, ${verseOrd}`; dimSel = `,${d} dimval`; }
   else if (sort === 'signals') order = `${NSIG} DESC, ${verseOrd}`;
   const page = Math.max(0, parseInt(c.req.query('page') ?? '0', 10) || 0);
   const PER = 50, off = page * PER;
@@ -170,14 +172,15 @@ app.get('/api/node/:id', async (c) => {
   if (!node) return c.json({ ok: false, error: 'not found' }, 404);
   const book = (c.req.query('book') ?? '').trim().replace(/[^A-Za-z0-9]/g, '');
   const vord = book ? `ORDER BY (CASE WHEN osis LIKE '${book}.%' THEN 0 ELSE 1 END)` : '';
+  const ed = (c.req.query('edition') ?? 'bsb').trim() || 'bsb';
   const [out, inc, verses, vc, inBook, signals, scores, formsR, xrefsR, sourcesR] = await Promise.all([
     rows(c.env.DB, "SELECT e.rel, e.dst id, n.label, n.kind, e.ctx FROM edge e JOIN node n ON n.id=e.dst WHERE e.src=? AND n.kind!='membership' LIMIT 250", id),
     rows(c.env.DB, "SELECT e.rel, e.src id, n.label, n.kind, e.ctx FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? AND n.kind!='membership' LIMIT 250", id),
     rows<{ osis: string }>(c.env.DB, `SELECT osis FROM node_verse WHERE node_id=? ${vord} LIMIT 80`, id),
     c.env.DB.prepare('SELECT count(*) n FROM node_verse WHERE node_id=?').bind(id).first<{ n: number }>(),
     book ? c.env.DB.prepare(`SELECT count(*) n FROM node_verse WHERE node_id=? AND osis LIKE '${book}.%'`).bind(id).first<{ n: number }>() : Promise.resolve(null),
-    rows(c.env.DB, 'SELECT polarity, basis, osis FROM signal WHERE subject_id=?', id),
-    rows(c.env.DB, 'SELECT dimension, value, basis, method FROM score WHERE subject_id=? ORDER BY dimension', id),
+    rows(c.env.DB, 'SELECT polarity, basis, osis FROM signal WHERE subject_id=? AND edition=?', id, ed),
+    rows(c.env.DB, 'SELECT dimension, value, basis, method FROM score WHERE subject_id=? AND edition=? ORDER BY dimension', id, ed),
     rows(c.env.DB, 'SELECT lang, form, strongs FROM node_form WHERE node_id=?', id),
     rows(c.env.DB, 'SELECT scheme, value, uri, relation, match_confidence, source_id FROM xref WHERE node_id=? ORDER BY scheme', id),
     rows(c.env.DB, 'SELECT ns.source_id, s.name, s.abbrev, s.url, s.license, ns.src_ref, ns.confidence FROM node_source ns JOIN source s ON s.source_id=ns.source_id WHERE ns.node_id=? ORDER BY ns.confidence DESC', id),
@@ -211,7 +214,8 @@ app.get('/api/graph', async (c) => {
   const inc = await rows<NRow>(c.env.DB, `SELECT e.rel, e.src id, n.label, n.kind, n.t_start tStart, n.t_end tEnd, n.image_thumb img FROM edge e JOIN node n ON n.id=e.src WHERE e.dst=? AND ${HIDE} LIMIT 250`, center);
   const self = await c.env.DB.prepare('SELECT id,label,kind,t_start tStart,t_end tEnd,image_thumb img FROM node WHERE id=?').bind(center).first<{ id: string; label: string; kind: string; tStart: number | null; tEnd: number | null; img: string | null }>();
   // trust-signal polarity per node (the signal table is tiny — load it all + map)
-  const sigRows = await rows<{ subject_id: string; polarity: string }>(c.env.DB, 'SELECT subject_id,polarity FROM signal');
+  const gEd = (c.req.query('edition') ?? 'bsb').replace(/[^a-z0-9-]/gi, '') || 'bsb';
+  const sigRows = await rows<{ subject_id: string; polarity: string }>(c.env.DB, `SELECT subject_id,polarity FROM signal WHERE edition='${gEd}'`);
   const sigMap = new Map<string, Set<string>>();
   for (const s of sigRows) (sigMap.get(s.subject_id) ?? sigMap.set(s.subject_id, new Set()).get(s.subject_id)!).add(s.polarity);
   const sigOf = (id: string): string | null => {
@@ -275,13 +279,14 @@ app.get('/api/orgs', async (c) => {
 // locations are returned — no fabricated coordinates.
 app.get('/api/geo', async (c) => {
   const book = (c.req.query('book') ?? '').trim().replace(/[^A-Za-z0-9]/g, '');
+  const gEd = (c.req.query('edition') ?? 'bsb').replace(/[^a-z0-9-]/gi, '') || 'bsb';
   const refsOrd = book ? `ORDER BY (CASE WHEN osis LIKE '${book}.%' THEN 0 ELSE 1 END)` : '';
   const refs = (col: string) => `(SELECT group_concat(osis,'|') FROM (SELECT osis FROM node_verse WHERE node_id=${col} ${refsOrd} LIMIT 6)) refs`;
   const inBook = (col: string) => (book ? ` AND ${col} IN (SELECT node_id FROM node_verse WHERE osis LIKE '${book}.%')` : '');
   const [places, events, people] = await Promise.all([
-    rows(c.env.DB, `SELECT id,canon_id,label,lat,long lon,disambig,image_thumb img,image_url imgFull,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v,${refs('node.id')},CASE WHEN json_extract(meta,'$.featureType')='Region' OR json_extract(meta,'$.obTypes') LIKE '%region%' THEN 1 ELSE 0 END region FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL${inBook('node.id')}`),
-    rows(c.env.DB, `SELECT e.id,e.canon_id,e.label,e.t_start tStart,p.lat,p.long lon,p.label place,(SELECT polarity FROM signal WHERE subject_id=e.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=e.id) v,${refs('e.id')} FROM node e JOIN edge ed ON ed.src=e.id AND ed.rel='dul:hasLocation' JOIN node p ON p.id=ed.dst WHERE e.kind='event' AND p.lat IS NOT NULL${inBook('e.id')}`),
-    rows(c.env.DB, `SELECT pe.id,pe.canon_id,pe.label,pe.t_start tStart,pe.t_end tEnd,pl.lat,pl.long lon,pl.label place,(SELECT polarity FROM signal WHERE subject_id=pe.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=pe.id) v,${refs('pe.id')} FROM node pe JOIN edge ed ON ed.src=pe.id AND ed.rel='gc:bornAt' JOIN node pl ON pl.id=ed.dst WHERE pe.kind='person' AND pl.lat IS NOT NULL${inBook('pe.id')}`),
+    rows(c.env.DB, `SELECT id,canon_id,label,lat,long lon,disambig,image_thumb img,image_url imgFull,(SELECT polarity FROM signal WHERE subject_id=node.id AND edition='${gEd}' LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v,${refs('node.id')},CASE WHEN json_extract(meta,'$.featureType')='Region' OR json_extract(meta,'$.obTypes') LIKE '%region%' THEN 1 ELSE 0 END region FROM node WHERE kind='place' AND lat IS NOT NULL AND long IS NOT NULL${inBook('node.id')}`),
+    rows(c.env.DB, `SELECT e.id,e.canon_id,e.label,e.t_start tStart,p.lat,p.long lon,p.label place,(SELECT polarity FROM signal WHERE subject_id=e.id AND edition='${gEd}' LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=e.id) v,${refs('e.id')} FROM node e JOIN edge ed ON ed.src=e.id AND ed.rel='dul:hasLocation' JOIN node p ON p.id=ed.dst WHERE e.kind='event' AND p.lat IS NOT NULL${inBook('e.id')}`),
+    rows(c.env.DB, `SELECT pe.id,pe.canon_id,pe.label,pe.t_start tStart,pe.t_end tEnd,pl.lat,pl.long lon,pl.label place,(SELECT polarity FROM signal WHERE subject_id=pe.id AND edition='${gEd}' LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=pe.id) v,${refs('pe.id')} FROM node pe JOIN edge ed ON ed.src=pe.id AND ed.rel='gc:bornAt' JOIN node pl ON pl.id=ed.dst WHERE pe.kind='person' AND pl.lat IS NOT NULL${inBook('pe.id')}`),
   ]);
   return c.json({ ok: true, places, events, people });
 });
@@ -290,12 +295,13 @@ app.get('/api/geo', async (c) => {
 // the window if their [birth,death] intersects it; events if their start year is inside it. Both are
 // ranked by verse attestation and capped, with totals reported (no silent truncation).
 app.get('/api/timeline', async (c) => {
+  const tEd = (c.req.query('edition') ?? 'bsb').replace(/[^a-z0-9-]/gi, '') || 'bsb';
   const from = parseInt(c.req.query('from') ?? '-4200', 10);
   const to = parseInt(c.req.query('to') ?? '120', 10);
   const evCap = Math.min(300, Math.max(20, parseInt(c.req.query('events') ?? '150', 10)));
   const book = (c.req.query('book') ?? '').trim().replace(/[^A-Za-z0-9]/g, '');
   const inBook = book ? ` AND id IN (SELECT node_id FROM node_verse WHERE osis LIKE '${book}.%')` : '';
-  const sel = "id,canon_id,label,kind,disambig,t_start tStart,t_end tEnd,image_thumb,json_extract(meta,'$.dateBasis') basis,(SELECT polarity FROM signal WHERE subject_id=node.id LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v";
+  const sel = "id,canon_id,label,kind,disambig,t_start tStart,t_end tEnd,image_thumb,json_extract(meta,'$.dateBasis') basis,(SELECT polarity FROM signal WHERE subject_id=node.id AND edition='${tEd}' LIMIT 1) sig,(SELECT count(*) FROM node_verse WHERE node_id=node.id) v";
   const [people, events, evTot, pplTot] = await Promise.all([
     rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='person' AND t_start IS NOT NULL AND t_start<=? AND COALESCE(t_end,t_start)>=?${inBook} ORDER BY v DESC LIMIT 130`, to, from),
     rows(c.env.DB, `SELECT ${sel} FROM node WHERE kind='event' AND t_start IS NOT NULL AND t_start<=? AND t_start>=?${inBook} ORDER BY v DESC LIMIT ?`, to, from, evCap),

@@ -156,7 +156,9 @@ app.get('/vault/*', async (c) => {
     if (!(acc.body && acc.body.allowed)) return c.json({ ok: false, error: `entitlement required for ${edition}`, gated: edition, reason: (acc.body && acc.body.reason) || 'no entitlement' }, 403);
   }
   const sub = c.req.path.replace(/^\/vault/, '');
-  const search = new URL(c.req.url).search;
+  // Forward the active edition so the ontology can scope signals/scores to the corpus (per-edition).
+  const base = new URL(c.req.url).search;
+  const search = (base ? base + '&' : '?') + 'edition=' + encodeURIComponent(edition || 'bsb');
   const res = await mcpPost(c.env, '/tools/graph_query', { path: `/api${sub}${search}` });
   return c.json(res.body, res.status as 200);
 });
