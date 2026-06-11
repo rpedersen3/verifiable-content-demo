@@ -34,8 +34,40 @@ import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-contex
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
-import { AgentNamingClient } from '@agenticprimitives/agent-naming';
+import { AgentNamingClient, namehash, agentNameRegistryAbi } from '@agenticprimitives/agent-naming';
+import { agentAccountAbi } from '@agenticprimitives/agent-account';
+import { createPublicClient, http } from 'viem';
+import { baseSepolia } from 'viem/chains';
 import type { Hex, Address } from 'viem';
+
+// Is `addr` a custodian of the AgentAccount `agentSa`? (on-chain isCustodian). Lets the controller of
+// bsb.impact claim while signing in as their OWN identity — no hardcoding, all read live on-chain.
+async function isBsbCustodian(env: { A2A_RPC_URL?: string }, agentSa: Address, addr: string): Promise<boolean> {
+  if (!env.A2A_RPC_URL || !agentSa || !addr.startsWith('0x')) return false;
+  try {
+    const client = createPublicClient({ chain: baseSepolia, transport: http(env.A2A_RPC_URL) });
+    const r = await Promise.race([
+      client.readContract({ address: agentSa, abi: agentAccountAbi, functionName: 'isCustodian', args: [addr as Address] }) as Promise<boolean>,
+      new Promise<boolean>((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+    ]);
+    return r === true;
+  } catch { return false; }
+}
+
+// Who CONTROLS the bsb.impact name node on-chain (AgentNameRegistry.owner(namehash)). The corpus
+// owner must be this address (or the resolved agent). Returns null on no-RPC / timeout.
+async function resolveBsbController(env: { A2A_RPC_URL?: string; A2A_NAME_REGISTRY?: string }): Promise<string | null> {
+  if (!env.A2A_RPC_URL) return null;
+  try {
+    const client = createPublicClient({ chain: baseSepolia, transport: http(env.A2A_RPC_URL) });
+    const registry = (env.A2A_NAME_REGISTRY ?? '0x15F7ed064A230C011b0244A14fD9653f011d609B') as Address;
+    const owner = await Promise.race([
+      client.readContract({ address: registry, abi: agentNameRegistryAbi, functionName: 'owner', args: [namehash('bsb.impact')] }) as Promise<string>,
+      new Promise<string>((_, rej) => setTimeout(() => rej(new Error('controller timeout')), 8000)),
+    ]);
+    return owner ? String(owner).toLowerCase() : null;
+  } catch { return null; }
+}
 
 // Resolve the agent that controls `bsb.impact` on-chain (agent-naming). The corpus owner MUST be
 // this agent — its canonical CAIP-10 id. Returns null if no RPC or the name is unregistered.
@@ -518,8 +550,13 @@ app.post('/tools/get_service_identity', async (c) => {
 
 // get_owner_id — resolve who controls bsb.impact on-chain (the required corpus owner). For the UI + tests.
 app.post('/tools/get_owner_id', async (c) => {
+  const b = await c.req.json<{ addr?: string }>().catch(() => ({}) as { addr?: string });
   const r = await resolveBsbOwnerId(c.env as never);
-  return c.json({ ok: true, name: 'bsb.impact', resolvedId: r.id, resolvedSa: r.sa, source: r.id ? 'agent-naming (on-chain)' : 'unresolved (no RPC or name unregistered)' });
+  const controller = await resolveBsbController(c.env as never);
+  // Optionally check whether `addr` (e.g. a connecting user's SA) is a custodian of bsb.impact's account.
+  const addr = b.addr ? (b.addr.includes(':') ? b.addr.split(':').pop()! : b.addr) : null;
+  const isCustodian = addr && r.sa ? await isBsbCustodian(c.env as never, r.sa as Address, addr) : null;
+  return c.json({ ok: true, name: 'bsb.impact', resolvedAgentSa: r.sa, resolvedAgentId: r.id, nameController: controller, queriedAddr: addr, isCustodian, source: r.id || controller ? 'agent-naming (on-chain)' : 'unresolved' });
 });
 
 // claim_service — ownership bound to bsb.impact (live agent-naming): only its controller may claim
@@ -535,12 +572,17 @@ app.post('/tools/claim_service', async (c) => {
     const isOwner = existing.owner_sub.toLowerCase() === b.ownerSub.toLowerCase();
     return c.json({ ok: true, claimed: false, isOwner, ownerSub: existing.owner_sub });
   }
-  // Bind to bsb.impact: the owner signs in AS bsb.impact (custody passkey), so their sub == the LIVE
-  // on-chain agent-naming resolution. Falls back to a pin, else first-claim-wins (e.g. if resolve times out).
+  // Ownership bound to the bsb.impact NAME via LIVE ANS resolution (no hardcoded address): the claimant
+  // must be the agent the name resolves to, OR a custodian of that account (so the controller can sign
+  // in as their personal identity and still prove control). Both read on-chain from agent-naming +
+  // agent-account. Falls back to first-claim-wins only when ANS is unresolvable (no RPC / timeout).
   const resolved = await resolveBsbOwnerId(c.env as never);
-  const required = resolved.id ?? (String((c.env as { BSB_OWNER_AGENT_ID?: string }).BSB_OWNER_AGENT_ID ?? '') || null);
-  if (required && b.ownerSub.toLowerCase() !== required.toLowerCase()) {
-    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: required, reason: 'only the agent that controls bsb.impact (agent-naming) may claim this corpus' });
+  if (resolved.sa) {
+    const subSa = b.ownerSub.includes(':') ? b.ownerSub.split(':').pop()!.toLowerCase() : b.ownerSub.toLowerCase();
+    const authorized = subSa === resolved.sa.toLowerCase() || (await isBsbCustodian(c.env as never, resolved.sa as Address, subSa));
+    if (!authorized) {
+      return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: resolved.id, reason: 'only bsb.impact (per ANS), or a custodian of its account, may claim this corpus' });
+    }
   }
   await c.env.DB.prepare('INSERT INTO service_identity(service, issuer_agent_id, owner_sub, delegate_address, delegation, created_at) VALUES(?,?,?,?,?,?)')
     .bind(service, b.issuerAgentId ?? 'bsb.impact', b.ownerSub, '', '', new Date().toISOString()).run();
