@@ -29,6 +29,16 @@ SCHEME_ID = "bible-verse"
 ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 RELAY_URL = "https://demo-a2a-production.richardpedersen3.workers.dev"
 RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
+# A2A bus (spec 269) — Base Sepolia contracts. INERT until A2A_AGENT_SA (claimed bsb.impact) +
+# A2A_RPC_URL (a Base Sepolia RPC, set as a secret) are configured: on-chain checks fail closed.
+SELF_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
+A2A_CHAIN_ID = "84532"
+A2A_DELEGATION_MANAGER = "0x3a8E2cE74564f699b135db6f266ccDb563979C05"
+A2A_UNIVERSAL_VALIDATOR = "0xe8F3e531429F44D77dC3A331C18032bfa1550D84"
+A2A_ENF_TARGETS = "0xe3909FdEfD8b74B7D006E045DCd678e97D469Bfd"
+A2A_ENF_METHODS = "0xf77cf06aCd8b9e2f3204fe4bE16449B3594c9633"
+A2A_ENF_TIMESTAMP = "0x7c452434314A5bf2048f9263aeCd0cC20Fa07965"
+# A2A_AGENT_SA = "0x..."   # set to the claimed bsb.impact Smart Agent to activate
 
 # Durable full-BSB corpus (verses + precomputed corpusRoot + leaf commitments).
 # The Worker reads from D1 and rebuilds nothing on cold start.

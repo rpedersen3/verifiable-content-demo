@@ -92,6 +92,9 @@ importers:
       '@agenticprimitives/audit':
         specifier: link:../../../agenticprimitives/packages/audit
         version: link:../../../agenticprimitives/packages/audit
+      '@agenticprimitives/connect-auth':
+        specifier: link:../../../agenticprimitives/packages/connect-auth
+        version: link:../../../agenticprimitives/packages/connect-auth
       '@agenticprimitives/content-primitives':
         specifier: link:../../../agenticprimitives/packages/content-primitives
         version: link:../../../agenticprimitives/packages/content-primitives

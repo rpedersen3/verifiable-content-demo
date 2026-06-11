@@ -31,10 +31,12 @@ import { getCorpora, inclusionProof, EDITIONS, type BuiltCorpus } from './editio
 import { loadD1Corpus, findD1Verse, findD1RangeByLeaf, leafIndexFor, chapterBounds, d1InclusionProof, type D1Like } from './editions/d1.js';
 import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-context.js';
+import { handleA2aRpcBody } from '@agenticprimitives/a2a';
+import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 import type { Hex } from 'viem';
 
 type Relay = { fetch: (url: string, init?: RequestInit) => Promise<Response> };
-type Env = McpEnv & { DB?: D1Like; ONT?: Relay; ONT_URL?: string; A2A_RELAY?: Relay; RELAY_URL?: string; RELAY_ORIGIN?: string };
+type Env = McpEnv & { DB?: D1Like; ONT?: Relay; ONT_URL?: string; A2A_RELAY?: Relay; RELAY_URL?: string; RELAY_ORIGIN?: string } & A2aEnv;
 
 // Deliver a granted entitlement VC into the READER's personal demo-mcp vault, RIGHT AWAY at grant
 // time, by presenting the reader's captured connect-delegation to the relayer's set_vault_record
@@ -684,6 +686,20 @@ app.post('/tools/get_passage', async (c) => {
 app.get('/mcp/class_tree', async (c) => {
   const d = await ontFetch(c.env, '/api/classes');
   return c.json({ ok: true, classes: d.classes ?? [] });
+});
+
+// ── BSB Corpus-Manager A2A agent surface (spec 269 async, delegation-authorized bus) ──
+// Inert until A2A_RPC_URL + A2A_AGENT_SA (the claimed bsb.impact) are configured: the on-chain
+// checks fail closed, so every inbound task is denied. Set those to activate the bus.
+app.get('/.well-known/agent-card.json', (c) => c.json(buildBsbAgent(c.env).agentCard()));
+app.post('/api/a2a', async (c) => {
+  const body = await c.req.text();
+  try {
+    const res = await handleA2aRpcBody(buildBsbAgent(c.env), body);
+    return c.json(res);
+  } catch (e) {
+    return c.json({ jsonrpc: '2.0', id: null, error: { code: -32603, message: (e as Error).message } });
+  }
 });
 
 export default app;
