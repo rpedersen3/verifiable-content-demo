@@ -204,11 +204,12 @@ function decodeSeg(seg){return JSON.parse(new TextDecoder().decode(fromB64url(se
 const randB64=(n)=>b64url(crypto.getRandomValues(new Uint8Array(n)));
 async function pkce(){const v=randB64(32);const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v));return {verifier:v,challenge:b64url(new Uint8Array(d))};}
 function isAllowedIssuer(origin){try{const u=new URL(origin);if(u.protocol!=='https:'&&u.hostname!=='localhost'&&u.hostname!=='127.0.0.1')return false;if(u.pathname!=='/'&&u.pathname!=='')return false;const h=u.hostname;return h===CONNECT_DOMAIN||h.endsWith('.'+CONNECT_DOMAIN)||h==='localhost'||h==='127.0.0.1';}catch(e){return false;}}
+// Sign in as the manager's OWN identity at www (NOT "as the agent" — that home hangs). The claim then
+// verifies on-chain that this identity custodies the selected corpus's service agent.
 async function connectStart(){const cp=curCorpus();if(!cp){alert('Pick a corpus to manage first.');return;}
   const state=randB64(16),nonce=randB64(16),pk=await pkce();
-  const home='https://'+cp.short+'.'+CONNECT_DOMAIN;
-  sessionStorage.setItem('corp.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin:home}));
-  const u=new URL('/',home);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',cp.short);u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
+  sessionStorage.setItem('corp.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin:CENTRAL_AUTH_ORIGIN}));
+  const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
 // fetch with a hard timeout so a slow/looping home can never hang the page (browser-kill).
 async function tfetch(url,opts,ms){const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),ms||12000);try{return await fetch(url,Object.assign({signal:ctrl.signal},opts||{}));}finally{clearTimeout(t);}}
 async function verifyIdToken(authOrigin,idToken,expectedNonce){
@@ -268,10 +269,10 @@ async function revoke(id){if(!confirm('Revoke this entitlement? The reader loses
 async function render(){
   const cp=curCorpus();
   const w=document.getElementById('who');
-  if(w)w.innerHTML=!cp?'':(isConnected()?'<span class="muted">● '+esc(session.name||(session.sub||'').slice(0,14))+'</span> <button onclick="disconnect()">Disconnect</button>':'<button class="conn" onclick="connectStart()">🌐 Connect as '+esc(cp.agent)+'</button>');
+  if(w)w.innerHTML=!cp?'':(isConnected()?'<span class="muted">● '+esc(session.name||(session.sub||'').slice(0,14))+'</span> <button onclick="disconnect()">Disconnect</button>':'<button class="conn" onclick="connectStart()">🌐 Connect with Global.Church</button>');
   if(!cp)return;
   const ob=document.getElementById('owner'),q=document.getElementById('queue'),is=document.getElementById('issued');
-  if(!isConnected()){window.isOwnerNow=false;if(ob)ob.innerHTML='<div class="ownb">Connect as <b>'+esc(cp.agent)+'</b> to manage the '+esc(cp.label)+' corpus.</div>';if(q)q.innerHTML='<p class="muted">Connect as the corpus owner to review requests.</p>';if(is)is.innerHTML='';return;}
+  if(!isConnected()){window.isOwnerNow=false;if(ob)ob.innerHTML='<div class="ownb">Connect with your <b>custodian identity</b> for <span class="mono">'+esc(cp.agent)+'</span> to manage the '+esc(cp.label)+' corpus. (We verify custody on-chain — no need to sign in as the agent.)</div>';if(q)q.innerHTML='<p class="muted">Connect as the corpus owner to review requests.</p>';if(is)is.innerHTML='';return;}
   if(ob)ob.innerHTML='<div class="ownb">checking corpus ownership…</div>';
   const cl=await post('/admin/claim',{id_token:session.idToken}).catch(e=>({ok:false,error:String(e)}));
   const fbl=document.getElementById('fblist');
