@@ -249,6 +249,9 @@ function updateSrcUI(){const s=document.getElementById('srcSel');if(s)s.value=ac
 function selectSource(ed){activeEdition=ed;localStorage.setItem('bx.edition',ed);updateSrcUI();
   if(ed==='bsb'){hideLicenseGate();}else if(!isConnected()){licenseGate({gated:ed,reason:'sign-in required'});}
   if(typeof applyHash==='function')applyHash();}
+// Trust signals are only published for the public BSB for now; licensed editions (e.g. lbsb) start
+// WITHOUT signals — cleared here, to be added later per-edition.
+function editionHasSignals(){return activeEdition==='bsb';}
 function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.style.display='none';}
 function licenseGate(info){
   let el=document.getElementById('licbar');
@@ -741,7 +744,7 @@ const DSORTC={wisdom:'#7c5cff',faithfulness:'#2563eb',courage:'#0d9488',truthful
 function tind(r){let h='';
   if(r.dimval!=null&&DSORTC[expSort]){const v=+r.dimval,c=DSORTC[expSort];h+='<span class="tbadge" title="'+esc(expSort)+' signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'+':'')+v.toFixed(2)+' '+esc(expSort)+'</span>';}
   if(r.moral!=null){const v=+r.moral,c=v>0.15?'#1a8a4f':v<-0.15?'#c0392b':'#b45309';h+='<span class="tbadge" title="righteousness character signal" style="background:'+c+'1f;color:'+c+'">'+(v>0?'＋':v<0?'－':'~')+Math.abs(v).toFixed(2)+'</span>';}
-  if(r.nsig>0)h+='<span class="muted" style="font-size:11px" title="'+r.nsig+' character signals">◴ '+r.nsig+'</span>';
+  if(r.nsig>0&&editionHasSignals())h+='<span class="muted" style="font-size:11px" title="'+r.nsig+' character signals">◴ '+r.nsig+'</span>';
   return h?'<span class="trow">'+h+'</span>':'';}
 async function explore(){
   V.innerHTML='<div class="card"><input id="q" placeholder="Search by name or alias… (e.g. Peter, David, Jerusalem, Exodus)"/>'+
@@ -800,7 +803,8 @@ async function renderNode(id){
   const ord=(y)=>y==null?'':('c. '+Math.abs(y)+(y<0?' BC':' AD'));
   const temporal=(()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.lifespan?'<div class="hint">📅 Lived <b>'+m.lifespan+' years</b>'+(m.lifespanRef?' · <a class="vref" onclick="openPassage(\\''+esc(m.lifespanRef)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(m.lifespanRef)+'</a>':'')+' <span class="muted">(stated in Scripture)</span></div>':'';})();
   const sigCss=(p)=>p==='positive'?'background:#e7f6ee;color:#1a8a4f':p==='negative'?'background:#fdeceA;color:#c0392b':'background:#fbf0e6;color:#b45309';
-  const sigs=(d.signals&&d.signals.length)?'<div style="margin-top:8px">'+d.signals.map(s=>'<span class="chip" style="'+sigCss(s.polarity)+'">'+(s.polarity==='positive'?'＋':s.polarity==='negative'?'－':'~')+' '+esc(s.basis)+(s.osis?' · <a class="vref" onclick="openPassage(\\''+esc(s.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(s.osis)+'</a>':'')+sigIcon((s.polarity==='positive'?'+ Act':s.polarity==='negative'?'- Act':'~ Act'),s.basis,s.osis,s.polarity)+'</span>').join('')+'</div>':'';
+  const sigs=(d.signals&&d.signals.length&&editionHasSignals())?'<div style="margin-top:8px">'+d.signals.map(s=>'<span class="chip" style="'+sigCss(s.polarity)+'">'+(s.polarity==='positive'?'＋':s.polarity==='negative'?'－':'~')+' '+esc(s.basis)+(s.osis?' · <a class="vref" onclick="openPassage(\\''+esc(s.osis)+'\\')" style="text-decoration:underline;cursor:pointer">'+esc(s.osis)+'</a>':'')+sigIcon((s.polarity==='positive'?'+ Act':s.polarity==='negative'?'- Act':'~ Act'),s.basis,s.osis,s.polarity)+'</span>').join('')+'</div>':'';
+  const sigNote=editionHasSignals()?'':'<div class="hint" style="margin-top:8px;color:#8a5510">⚖ Trust signals aren\\'t enabled for the <b>'+esc(activeEdition.toUpperCase())+'</b> edition yet — coming soon.</div>';
   const det=document.getElementById('detail')||V;
   const ibName=bookFilter?((BOOKS.find(b=>b[0]===bookFilter)||[])[1]||bookFilter):'';
   const inBookN=bookFilter?(d.inBookCount!=null?d.inBookCount:d.verses.filter(v=>String(v).indexOf(bookFilter+'.')===0).length):0;
@@ -812,7 +816,7 @@ async function renderNode(id){
    '<span class="gchip" style="cursor:pointer" onclick="nav(\\'generations/'+n.id+'\\')">⋔ Generations</span>'+
    (n.kind==='person'?'<span class="gchip" style="cursor:pointer" onclick="genMovementFor(\\''+n.id+'\\')">↳ Movement</span>':'')+'</div>'+
    portrait(n)+
-   '<div style="margin:2px 0 6px;line-height:2">'+((d.classChain&&d.classChain.length)?d.classChain.map((c,i)=>'<span title="inheritance" style="font:11px ui-monospace,monospace;background:'+(i===d.classChain.length-1?'#dbe8ff;color:#1d4ed8;font-weight:700':'#eef2fb;color:#3a4a63')+';border-radius:5px;padding:2px 7px;white-space:nowrap">'+esc(c.curie)+'</span>').join('<span style="color:#94a3b8;margin:0 3px">›</span>'):cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join(''))+'</div>'+temporal+geo+sigs+scoreBars(d.scores)+
+   '<div style="margin:2px 0 6px;line-height:2">'+((d.classChain&&d.classChain.length)?d.classChain.map((c,i)=>'<span title="inheritance" style="font:11px ui-monospace,monospace;background:'+(i===d.classChain.length-1?'#dbe8ff;color:#1d4ed8;font-weight:700':'#eef2fb;color:#3a4a63')+';border-radius:5px;padding:2px 7px;white-space:nowrap">'+esc(c.curie)+'</span>').join('<span style="color:#94a3b8;margin:0 3px">›</span>'):cls.map(c=>'<span class="chip" style="background:#eef2fb;color:#3a4a63">'+c[0]+': '+esc(c[1])+'</span>').join(''))+'</div>'+temporal+geo+sigs+sigNote+(editionHasSignals()?scoreBars(d.scores):'')+
    (d.out.length?'<h3 class="muted" style="margin-top:16px">Relationships</h3>'+grp(d.out,'out'):'')+
    (d.in.length?grp(d.in,'in'):'')+
    '<h3 class="muted" style="margin-top:16px">Attested in '+(d.verseCount!=null?d.verseCount:d.verses.length)+' verses <span style="font-weight:400;text-transform:none">· click to read'+(bookFilter?' · <b style="color:#7a5c00">'+inBookN+' in '+esc(ibName)+'</b>':'')+((()=>{let m={};try{m=JSON.parse(n.meta||'{}')}catch(z){}return m.verseMatch==='name'?' · matched by name (approximate)':'';})())+'</span></h3><div class="verses">'+vlist.map(v=>'<span class="vref'+(bookFilter&&String(v).indexOf(bookFilter+'.')===0?' bk':'')+'" onclick="openPassage(\\''+esc(v)+'\\')">'+esc(v)+'</span>').join('')+'</div>'+
