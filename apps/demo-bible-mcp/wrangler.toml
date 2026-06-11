@@ -58,3 +58,13 @@ service = "demo-bible-ontology-production"
 [[env.production.services]]
 binding = "A2A_RELAY"
 service = "demo-a2a-production"
+
+# A2A async task mailbox — one Durable Object instance per agent SA (idFromName). Persists tasks
+# + drives processing via alarm() (spec 269 FR-3.2).
+[[migrations]]
+tag = "v1"
+new_classes = ["BsbTaskDO"]
+
+[[env.production.durable_objects.bindings]]
+name = "BSB_TASK_DO"
+class_name = "BsbTaskDO"

@@ -33,10 +33,11 @@ import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
+export { BsbTaskDO } from './a2a/task-do.js';
 import type { Hex } from 'viem';
 
 type Relay = { fetch: (url: string, init?: RequestInit) => Promise<Response> };
-type Env = McpEnv & { DB?: D1Like; ONT?: Relay; ONT_URL?: string; A2A_RELAY?: Relay; RELAY_URL?: string; RELAY_ORIGIN?: string } & A2aEnv;
+type Env = McpEnv & { DB?: D1Like; ONT?: Relay; ONT_URL?: string; A2A_RELAY?: Relay; RELAY_URL?: string; RELAY_ORIGIN?: string; BSB_TASK_DO?: DurableObjectNamespace } & A2aEnv;
 
 // Deliver a granted entitlement VC into the READER's personal demo-mcp vault, RIGHT AWAY at grant
 // time, by presenting the reader's captured connect-delegation to the relayer's set_vault_record
@@ -693,10 +694,16 @@ app.get('/mcp/class_tree', async (c) => {
 // checks fail closed, so every inbound task is denied. Set those to activate the bus.
 app.get('/.well-known/agent-card.json', (c) => c.json(buildBsbAgent(c.env).agentCard()));
 app.post('/api/a2a', async (c) => {
+  // Durable per-agent task mailbox (one DO per agent SA) → tasks persist + alarm-driven processing.
+  const ns = c.env.BSB_TASK_DO;
+  if (ns) {
+    const agentSA = String(c.env.A2A_AGENT_SA ?? '0x0000000000000000000000000000000000000000').toLowerCase();
+    return ns.get(ns.idFromName(agentSA)).fetch(c.req.raw);
+  }
+  // Fallback (no DO bound): in-memory, non-persistent.
   const body = await c.req.text();
   try {
-    const res = await handleA2aRpcBody(buildBsbAgent(c.env), body);
-    return c.json(res);
+    return c.json(await handleA2aRpcBody(buildBsbAgent(c.env), body));
   } catch (e) {
     return c.json({ jsonrpc: '2.0', id: null, error: { code: -32603, message: (e as Error).message } });
   }

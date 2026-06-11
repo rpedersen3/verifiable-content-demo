@@ -19,6 +19,7 @@ import {
   type VaultClient,
   type McpClient,
   type A2aMessage,
+  type TaskStore,
 } from '@agenticprimitives/a2a';
 import { BSB_AGENT_SKILLS } from './skills.js';
 
@@ -78,7 +79,7 @@ function makeVaultClient(): VaultClient {
   };
 }
 
-export function buildBsbAgent(env: A2aEnv): A2aAgent {
+export function buildBsbAgent(env: A2aEnv, taskStore?: TaskStore): A2aAgent {
   const chainId = Number(env.A2A_CHAIN_ID ?? '84532');
   const delegationManager = addr(env.A2A_DELEGATION_MANAGER);
   const universalValidator = addr(env.A2A_UNIVERSAL_VALIDATOR);
@@ -88,7 +89,7 @@ export function buildBsbAgent(env: A2aEnv): A2aAgent {
     chainId,
     delegationManager,
     enforcers,
-    taskStore: createInMemoryTaskStore(),
+    taskStore: taskStore ?? createInMemoryTaskStore(),
     checks: makeChecks(env, chainId, delegationManager, universalValidator),
     handlers: BSB_AGENT_SKILLS,
     vault: makeVaultClient(),
