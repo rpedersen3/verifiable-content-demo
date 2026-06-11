@@ -144,16 +144,23 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 .fbitem{border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-bottom:8px}
 .fb-st{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:600;color:#fff}
 .fb-challenge{background:#c0392b}.fb-agree{background:#1a8a4f}.fb-note{background:#64748b}
+.topnav{display:flex;gap:2px;background:#fff;border-bottom:1px solid var(--line);padding:0 20px}
+.navlink{padding:11px 16px;cursor:pointer;font-size:14px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;user-select:none}
+.navlink:hover{color:#1a2433}.navlink.active{color:var(--accent);border-bottom-color:var(--accent)}
 </style></head><body>
 <div class="hdr"><h1>🗂️ Corpus Manager</h1><span class="sub">BSB · entitlement approvals</span><span id="who"></span></div>
+<nav class="topnav"><a id="nav-ent" class="navlink active" onclick="showPage('ent')">Entitlements</a><a id="nav-fb" class="navlink" onclick="showPage('fb')">Feedback</a></nav>
 <main>
 <div id="owner"></div>
+<div id="page-ent">
 <div class="card"><h3 style="margin-top:0">Requests queue</h3>
 <p class="muted" style="font-size:13px">Readers request access to licensed editions from inside the Bible Explorer. Approve to issue a signed, time-boxed entitlement to that reader; deny to decline. Only the corpus owner may act.</p>
 <div id="queue"></div></div>
 <div class="card"><h3 style="margin-top:0">Issued entitlements</h3>
 <p class="muted" style="font-size:13px">Live grants. Revoking is immediate — gated reads re-check this ledger and fail closed.</p>
 <div id="issued"></div></div>
+</div>
+<div id="page-fb" style="display:none">
 <div class="card"><h3 style="margin-top:0">Trust-signal feedback</h3>
 <p class="muted" style="font-size:13px">Every signed feedback assertion posted across the corpus — readers challenging or affirming a trust signal on a specific (entity, signal, verse) triple. Filter to review.</p>
 <div class="fbfilters">
@@ -161,6 +168,7 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <input id="fb-q" placeholder="filter by author SA / entity id…" oninput="fbDebounce()">
 <button onclick="loadFeedback()">Refresh</button></div>
 <div id="fblist"><p class="muted">Connect as the corpus owner to review feedback.</p></div></div>
+</div>
 </main>
 <script>
 const esc=(s)=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -257,5 +265,15 @@ async function loadFeedback(){
 function fbRow(f){return '<div class="fbitem"><span class="fb-st fb-'+esc(f.stance)+'">'+esc(f.stance)+'</span> '+(f.verdict?'<span class="fb-st" style="background:#475569">'+esc(f.verdict)+'</span> ':'')+'<b>'+esc(f.subject_label||f.subject_id||'')+'</b>'+(f.osis?' <span class="muted" style="font-size:11px">'+esc(f.osis)+'</span>':'')+(f.signed?' <span style="color:#1a8a4f;font-size:11px" title="signed assertion">✓ signed</span>':'')+
   '<div style="font-size:13px;margin-top:3px;white-space:pre-wrap">'+esc(f.comment||'')+'</div>'+
   '<div class="muted" style="font-size:11px;margin-top:4px">by <b>'+esc(f.author||'anonymous')+'</b>'+(f.author_sub?' <span class="mono">'+esc(String(f.author_sub).slice(0,18))+'…</span>':'')+' · '+esc((f.created_at||'').slice(0,10))+(f.sig_kind?' · signal '+esc(f.sig_kind):'')+'</div></div>';}
-loadSession();connectCallback().then(()=>render());
+// Client-side pages: Entitlements (default) and Feedback (#feedback) — toggle + hash-route.
+function showPage(name){const fb=name==='fb';
+  const pe=document.getElementById('page-ent'),pf=document.getElementById('page-fb');
+  if(pe)pe.style.display=fb?'none':'';if(pf)pf.style.display=fb?'':'none';
+  const ne=document.getElementById('nav-ent'),nf=document.getElementById('nav-fb');
+  if(ne)ne.className='navlink'+(fb?'':' active');if(nf)nf.className='navlink'+(fb?' active':'');
+  const want=fb?'#feedback':'#entitlements';if(location.hash!==want)history.replaceState(null,'',location.pathname+want);
+  if(fb&&window.isOwnerNow)loadFeedback();}
+function route(){showPage(location.hash==='#feedback'?'fb':'ent');}
+window.addEventListener('hashchange',route);
+loadSession();connectCallback().then(()=>render()).then(route);
 </script></body></html>`;
