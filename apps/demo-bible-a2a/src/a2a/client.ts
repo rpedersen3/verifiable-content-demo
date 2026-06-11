@@ -9,7 +9,7 @@ import { A2aWireAdapter, hashA2aMessage, buildA2aGrantCaveats, skillSelector, ty
 import type { Delegation } from '@agenticprimitives/delegation';
 import { agentSigner, AGENT_ADDRESS } from '../lib/trust.js';
 
-export type BsbTargetEnv = { BSB_AGENT_URL?: string; BSB_AGENT_SA?: string };
+export type BsbTargetEnv = { BSB_AGENT_URL?: string; BSB_AGENT_SA?: string; MCP?: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> } };
 export type GrantEnv = BsbTargetEnv & { A2A_ENF_TARGETS?: string; A2A_ENF_METHODS?: string; A2A_ENF_TIMESTAMP?: string };
 
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
@@ -32,12 +32,14 @@ export function buildGrantSpec(env: GrantEnv, skill: string, nowSec: number): {
   return { delegate: AGENT_ADDRESS as Address, recipientAgent, skill, methodSelector: skillSelector(skill), caveats };
 }
 
-// Transport: POST JSON-RPC to the BSB agent's /api/a2a (single known target in this demo).
+// Transport: POST JSON-RPC to the BSB agent's /api/a2a. Prefer the MCP SERVICE BINDING (worker-to-worker,
+// no public hop) — a direct fetch() to another workers.dev Worker hits Cloudflare error 1042.
 function makeTransport(env: BsbTargetEnv): A2aTransport {
   const url = `${env.BSB_AGENT_URL ?? 'https://demo-bible-mcp-production.richardpedersen3.workers.dev'}/api/a2a`;
   return {
     async rpc(_target: Address, request) {
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) });
+      const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) };
+      const r = env.MCP ? await env.MCP.fetch('https://mcp/api/a2a', init) : await fetch(url, init);
       return r.json() as ReturnType<A2aTransport['rpc']>;
     },
   };
