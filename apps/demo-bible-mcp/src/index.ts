@@ -34,7 +34,23 @@ import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-contex
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
-import type { Hex } from 'viem';
+import { AgentNamingClient } from '@agenticprimitives/agent-naming';
+import type { Hex, Address } from 'viem';
+
+// Resolve the agent that controls `bsb.impact` on-chain (agent-naming). The corpus owner MUST be
+// this agent — its canonical CAIP-10 id. Returns null if no RPC or the name is unregistered.
+async function resolveBsbOwnerId(env: { A2A_RPC_URL?: string; A2A_CHAIN_ID?: string; A2A_NAME_REGISTRY?: string; A2A_NAME_RESOLVER?: string }): Promise<{ id: string | null; sa: string | null }> {
+  if (!env.A2A_RPC_URL) return { id: null, sa: null };
+  const chainId = Number(env.A2A_CHAIN_ID ?? '84532');
+  const client = new AgentNamingClient({
+    rpcUrl: env.A2A_RPC_URL,
+    chainId,
+    registry: (env.A2A_NAME_REGISTRY ?? '0x15F7ed064A230C011b0244A14fD9653f011d609B') as Address,
+    universalResolver: (env.A2A_NAME_RESOLVER ?? '0x7d777d2d0bbc1806B9Cc779121C27fbaAaFDb60b') as Address,
+  });
+  const sa = await client.resolveName('bsb.impact');
+  return { id: sa ? `eip155:${chainId}:${sa.toLowerCase()}` : null, sa: sa ? sa.toLowerCase() : null };
+}
 
 type Relay = { fetch: (url: string, init?: RequestInit) => Promise<Response> };
 type Env = McpEnv & { DB?: D1Like; ONT?: Relay; ONT_URL?: string; A2A_RELAY?: Relay; RELAY_URL?: string; RELAY_ORIGIN?: string; BSB_TASK_DO?: DurableObjectNamespace } & A2aEnv;
@@ -495,7 +511,13 @@ app.post('/tools/get_service_identity', async (c) => {
   return c.json({ ok: true, identity: row ?? null });
 });
 
-// claim_service — FIRST-CLAIM-WINS: the first connected user becomes the owner of the corpus
+// get_owner_id — resolve who controls bsb.impact on-chain (the required corpus owner). For the UI + tests.
+app.post('/tools/get_owner_id', async (c) => {
+  const r = await resolveBsbOwnerId(c.env as never);
+  return c.json({ ok: true, name: 'bsb.impact', resolvedId: r.id, resolvedSa: r.sa, source: r.id ? 'agent-naming (on-chain)' : 'unresolved (no RPC or name unregistered)' });
+});
+
+// claim_service — ownership bound to bsb.impact (live agent-naming): only its controller may claim
 // (records owner_sub from their verified id_token). Re-claim only by the same owner. The operational
 // KMS delegate + on-chain delegation (Flow A / P0) fill delegate_address + delegation later.
 app.post('/tools/claim_service', async (c) => {
@@ -508,14 +530,12 @@ app.post('/tools/claim_service', async (c) => {
     const isOwner = existing.owner_sub.toLowerCase() === b.ownerSub.toLowerCase();
     return c.json({ ok: true, claimed: false, isOwner, ownerSub: existing.owner_sub });
   }
-  // Bind ownership to the `bsb.impact` NAME (audit finding #2): only the agent that controls the
-  // name may claim. BSB_OWNER_AGENT_ID pins that canonical agent id (the home only issues a
-  // bsb.impact id_token to its controller). When A2A_RPC_URL is set this should instead be RESOLVED
-  // on-chain via agent-naming (AgentNamingClient.resolveName('bsb.impact')) — TODO at activation.
-  // Unset ⇒ first-claim-wins (demo fallback).
-  const pin = String((c.env as { BSB_OWNER_AGENT_ID?: string }).BSB_OWNER_AGENT_ID ?? '');
-  if (pin && b.ownerSub.toLowerCase() !== pin.toLowerCase()) {
-    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: pin, reason: 'only the agent that controls bsb.impact may claim this corpus' });
+  // Bind ownership to the `bsb.impact` NAME (audit finding #2): only the agent that controls it may
+  // claim. Prefer LIVE on-chain resolution (agent-naming); else a pinned id; else first-claim-wins.
+  const resolved = await resolveBsbOwnerId(c.env as never);
+  const required = resolved.id ?? (String((c.env as { BSB_OWNER_AGENT_ID?: string }).BSB_OWNER_AGENT_ID ?? '') || null);
+  if (required && b.ownerSub.toLowerCase() !== required.toLowerCase()) {
+    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: required, reason: 'only the agent that controls bsb.impact (agent-naming) may claim this corpus' });
   }
   await c.env.DB.prepare('INSERT INTO service_identity(service, issuer_agent_id, owner_sub, delegate_address, delegation, created_at) VALUES(?,?,?,?,?,?)')
     .bind(service, b.issuerAgentId ?? 'bsb.impact', b.ownerSub, '', '', new Date().toISOString()).run();
