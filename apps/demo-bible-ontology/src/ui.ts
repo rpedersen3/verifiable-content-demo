@@ -341,17 +341,21 @@ function isAllowedIssuer(origin){try{const u=new URL(origin);if(u.protocol!=='ht
 async function connectStart(name){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(name);
   sessionStorage.setItem('sa.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin,name:name||''}));
   const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
-async function verifyIdToken(authOrigin,idToken,expectedNonce){if(!isAllowedIssuer(authOrigin))throw new Error('issuer not allowed');
+async function verifyIdToken(authOrigin,idToken,expectedNonce){
   const parts=idToken.split('.');if(parts.length!==3)throw new Error('id_token malformed');
   const header=decodeSeg(parts[0]),claims=decodeSeg(parts[1]);
-  const base=authOrigin.endsWith('/')?authOrigin.slice(0,-1):authOrigin;
+  // Verify against the token's OWN issuer (the user's home) provided it's a valid Global.Church home.
+  // An established user signing in at www gets a token issued by their personal *.impact-agent.me home,
+  // so trusting claims.iss (allow-listed) rather than the origin we bounced through is correct.
+  const iss=String(claims.iss||'');if(!isAllowedIssuer(iss))throw new Error('issuer not allowed: '+iss);
+  const base=iss.endsWith('/')?iss.slice(0,-1):iss;
   const jwks=await fetch(base+'/jwks').then(r=>r.json());
   const jwk=(jwks.keys||[]).find(k=>k.kid===header.kid);if(!jwk)throw new Error('no JWKS key');
   if(jwk.alg!=='ES256'||header.alg!=='ES256')throw new Error('alg not ES256');
   const key=await crypto.subtle.importKey('jwk',jwk,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
   const ok=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,fromB64url(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1]));
   if(!ok)throw new Error('signature invalid');
-  if(claims.iss!==authOrigin)throw new Error('iss mismatch');if(claims.aud!==CLIENT_ID)throw new Error('aud mismatch');
+  if(claims.aud!==CLIENT_ID)throw new Error('aud mismatch');
   if(expectedNonce&&claims.nonce!==expectedNonce)throw new Error('nonce mismatch');
   if(typeof claims.exp!=='number'||claims.exp*1000<Date.now())throw new Error('id_token expired');return claims;}
 async function connectCallback(){const p=new URLSearchParams(location.search);const code=p.get('code'),state=p.get('state');if(!code||!state)return false;
