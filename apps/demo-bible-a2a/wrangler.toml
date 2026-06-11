@@ -20,6 +20,10 @@ workers_dev = true
 MCP_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
 VALIDATOR_URL = "https://demo-validator-rpedersen3s-projects.vercel.app"
 AGENT_NAME = "scripture-resolver.impact"
+# Async A2A bus target: the BSB Corpus-Manager agent. INERT until BSB_AGENT_SA = the claimed
+# bsb.impact Smart Agent is set (and the BSB agent itself is activated with RPC + its claimed SA).
+BSB_AGENT_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
+# BSB_AGENT_SA = "0x..."
 
 # Worker-to-Worker via a service binding (avoids CF error 1042).
 [[env.production.services]]

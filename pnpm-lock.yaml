@@ -49,9 +49,18 @@ importers:
 
   apps/demo-bible-a2a:
     dependencies:
+      '@agenticprimitives/a2a':
+        specifier: link:../../../agenticprimitives/packages/a2a
+        version: link:../../../agenticprimitives/packages/a2a
       '@agenticprimitives/content-primitives':
         specifier: link:../../../agenticprimitives/packages/content-primitives
         version: link:../../../agenticprimitives/packages/content-primitives
+      '@agenticprimitives/delegation':
+        specifier: link:../../../agenticprimitives/packages/delegation
+        version: link:../../../agenticprimitives/packages/delegation
+      '@agenticprimitives/fulfillment':
+        specifier: link:../../../agenticprimitives/packages/fulfillment
+        version: link:../../../agenticprimitives/packages/fulfillment
       '@agenticprimitives/types':
         specifier: link:../../../agenticprimitives/packages/types
         version: link:../../../agenticprimitives/packages/types

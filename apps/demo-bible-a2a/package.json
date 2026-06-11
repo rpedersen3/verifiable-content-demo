@@ -14,6 +14,9 @@
     "@agenticprimitives/types": "^1.0.0-alpha.6",
     "@agenticprimitives/content-primitives": "^1.0.0-alpha.6",
     "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.2",
+    "@agenticprimitives/a2a": "0.0.0-alpha.1",
+    "@agenticprimitives/fulfillment": "0.0.0-alpha.3",
+    "@agenticprimitives/delegation": "^1.0.0-alpha.7",
     "viem": "^2.52.2",
     "hono": "^4.12.23"
   },

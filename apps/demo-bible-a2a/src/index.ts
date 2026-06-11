@@ -9,6 +9,9 @@ import { buildCitationAssertion, verifyCommitment, type Entitlement } from '@age
 import { signCredential, verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT } from '@agenticprimitives/verifiable-credentials';
 import { recoverAddress, keccak256, toBytes } from 'viem';
 import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
+import { resolveOnBehalf, pollTask } from './a2a/client.js';
+import type { Delegation } from '@agenticprimitives/delegation';
+import type { Hex } from 'viem';
 
 interface Env {
   MCP_URL?: string;
@@ -18,6 +21,8 @@ interface Env {
   ANALYZE_MODEL?: string;
   MCP?: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> };
   A2A_PUBLIC_ORIGIN?: string;
+  BSB_AGENT_URL?: string;
+  BSB_AGENT_SA?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -191,7 +196,27 @@ app.post('/my-requests', async (c) => {
   try { const { sub } = await verifyIdToken(String(b.id_token ?? '')); const res = await mcpPost(c.env, '/tools/list_requests', { subject: sub }); return c.json(res.body, res.status as 200); }
   catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
-// Entitled read: verify the reader, then fetch gated text presenting their entitlement (presenter-bound at the MCP).
+// Entitled read on the ASYNC A2A BUS: verify the reader, then submit a get-gated-passage TASK to the
+// BSB Corpus-Manager agent presenting the reader's scoped delegation. Returns the task handle; the
+// reader polls /task-status until terminal, then the verse artifact + a signed citation are available.
+// Inert until the BSB agent is activated (RPC + claimed SA) and the grant is buildA2aGrantCaveats-scoped.
+app.post('/resolve-on-behalf', async (c) => {
+  const b = await c.req.json<{ id_token?: string; reference?: string; edition?: string; entitlement?: unknown; delegation?: Delegation }>().catch(() => ({}) as Record<string, never>);
+  try {
+    await verifyIdToken(String(b.id_token ?? '')); // the reader must be verified
+    if (!b.reference || !b.edition || !b.delegation) return c.json({ ok: false, error: 'reference, edition, delegation required' }, 400);
+    const res = await resolveOnBehalf(c.env, { reference: b.reference, edition: b.edition, entitlement: b.entitlement, delegation: b.delegation, createdAt: Date.now() });
+    return c.json({ ok: true, ...res });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+app.get('/task-status', async (c) => {
+  const taskId = c.req.query('taskId');
+  if (!taskId) return c.json({ ok: false, error: 'taskId required' }, 400);
+  try { return c.json({ ok: true, task: await pollTask(c.env, taskId as Hex) }); }
+  catch (e) { return c.json({ ok: false, error: (e as Error).message }, 502); }
+});
+
+// Entitled read (sync): verify the reader, then fetch gated text presenting their entitlement (presenter-bound at the MCP).
 app.post('/resolve-licensed', async (c) => {
   const b = await c.req.json<{ id_token?: string; reference?: string; edition?: string; entitlement?: unknown }>().catch(() => ({}) as Record<string, never>);
   try {
