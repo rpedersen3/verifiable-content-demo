@@ -48,8 +48,13 @@ async function resolveBsbOwnerId(env: { A2A_RPC_URL?: string; A2A_CHAIN_ID?: str
     registry: (env.A2A_NAME_REGISTRY ?? '0x15F7ed064A230C011b0244A14fD9653f011d609B') as Address,
     universalResolver: (env.A2A_NAME_RESOLVER ?? '0x7d777d2d0bbc1806B9Cc779121C27fbaAaFDb60b') as Address,
   });
-  const sa = await client.resolveName('bsb.impact');
-  return { id: sa ? `eip155:${chainId}:${sa.toLowerCase()}` : null, sa: sa ? sa.toLowerCase() : null };
+  try {
+    const sa = await Promise.race([
+      client.resolveName('bsb.impact'),
+      new Promise<null>((_, rej) => setTimeout(() => rej(new Error('resolve timeout')), 8000)),
+    ]);
+    return { id: sa ? `eip155:${chainId}:${sa.toLowerCase()}` : null, sa: sa ? sa.toLowerCase() : null };
+  } catch { return { id: null, sa: null }; }
 }
 
 type Relay = { fetch: (url: string, init?: RequestInit) => Promise<Response> };
@@ -530,12 +535,12 @@ app.post('/tools/claim_service', async (c) => {
     const isOwner = existing.owner_sub.toLowerCase() === b.ownerSub.toLowerCase();
     return c.json({ ok: true, claimed: false, isOwner, ownerSub: existing.owner_sub });
   }
-  // Ownership binding (opt-in): if BSB_OWNER_AGENT_ID is pinned, only that agent id may claim; else
-  // first-claim-wins. (Live agent-naming resolution of bsb.impact is exposed via get_owner_id and can
-  // be re-enabled here once the owner signs in as an identity whose sub == bsb.impact's controller.)
-  const pin = String((c.env as { BSB_OWNER_AGENT_ID?: string }).BSB_OWNER_AGENT_ID ?? '');
-  if (pin && b.ownerSub.toLowerCase() !== pin.toLowerCase()) {
-    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: pin, reason: 'only the configured corpus owner may claim' });
+  // Bind to bsb.impact: the owner signs in AS bsb.impact (custody passkey), so their sub == the LIVE
+  // on-chain agent-naming resolution. Falls back to a pin, else first-claim-wins (e.g. if resolve times out).
+  const resolved = await resolveBsbOwnerId(c.env as never);
+  const required = resolved.id ?? (String((c.env as { BSB_OWNER_AGENT_ID?: string }).BSB_OWNER_AGENT_ID ?? '') || null);
+  if (required && b.ownerSub.toLowerCase() !== required.toLowerCase()) {
+    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: required, reason: 'only the agent that controls bsb.impact (agent-naming) may claim this corpus' });
   }
   await c.env.DB.prepare('INSERT INTO service_identity(service, issuer_agent_id, owner_sub, delegate_address, delegation, created_at) VALUES(?,?,?,?,?,?)')
     .bind(service, b.issuerAgentId ?? 'bsb.impact', b.ownerSub, '', '', new Date().toISOString()).run();
