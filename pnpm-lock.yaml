@@ -58,9 +58,6 @@ importers:
       '@agenticprimitives/delegation':
         specifier: link:../../../agenticprimitives/packages/delegation
         version: link:../../../agenticprimitives/packages/delegation
-      '@agenticprimitives/fulfillment':
-        specifier: link:../../../agenticprimitives/packages/fulfillment
-        version: link:../../../agenticprimitives/packages/fulfillment
       '@agenticprimitives/types':
         specifier: link:../../../agenticprimitives/packages/types
         version: link:../../../agenticprimitives/packages/types
@@ -110,9 +107,6 @@ importers:
       '@agenticprimitives/delegation':
         specifier: link:../../../agenticprimitives/packages/delegation
         version: link:../../../agenticprimitives/packages/delegation
-      '@agenticprimitives/fulfillment':
-        specifier: link:../../../agenticprimitives/packages/fulfillment
-        version: link:../../../agenticprimitives/packages/fulfillment
       '@agenticprimitives/scripture-content-extension':
         specifier: ^1.0.0-alpha.6
         version: 1.0.0-alpha.6(@agenticprimitives/content-primitives@agenticprimitives+packages+content-primitives)
