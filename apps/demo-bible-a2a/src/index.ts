@@ -144,6 +144,17 @@ app.get('/passage', async (c) => { const osis = c.req.query('osis') ?? ''; const
 // classes) flow through the agent → vault, so clients never call the data Worker directly.
 // e.g. GET /vault/node/David  ·  GET /vault/search?q=David&kind=person
 app.get('/vault/*', async (c) => {
+  // ENTITLEMENT GATE: when a LICENSED edition is the active Bible source, EVERY graph query requires the
+  // reader's valid entitlement (subject from their verified id_token). Public `bsb` (or no header) is open.
+  const edition = c.req.header('x-edition') || '';
+  if (edition && edition !== 'bsb') {
+    let subject = '';
+    const idt = c.req.header('x-id-token') || '';
+    if (idt) { try { subject = (await verifyIdToken(idt)).sub; } catch { /* unverified → treated as anon */ } }
+    if (!subject) return c.json({ ok: false, error: `sign in to access ${edition}`, gated: edition, reason: 'sign-in required' }, 401);
+    const acc = await mcpPost(c.env, '/tools/verify_access', { edition, subject });
+    if (!(acc.body && acc.body.allowed)) return c.json({ ok: false, error: `entitlement required for ${edition}`, gated: edition, reason: (acc.body && acc.body.reason) || 'no entitlement' }, 403);
+  }
   const sub = c.req.path.replace(/^\/vault/, '');
   const search = new URL(c.req.url).search;
   const res = await mcpPost(c.env, '/tools/graph_query', { path: `/api${sub}${search}` });

@@ -15,6 +15,11 @@ export const UI = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 .brand-name:hover{color:var(--accent)}
 .brand-sub{font-size:12px;color:var(--muted)}
 .book-sel{margin-left:auto;align-self:center;font:13px system-ui;padding:5px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);cursor:pointer;max-width:180px}
+#bookSel{margin-left:6px}
+.licbar{position:fixed;left:0;right:0;bottom:0;background:#3a2a12;color:#ffe8c2;padding:11px 18px;display:none;align-items:center;justify-content:space-between;gap:12px;font-size:14px;z-index:200;box-shadow:0 -2px 12px rgba(0,0,0,.25)}
+.licbar button{background:#f0a020;color:#1a1206;border:0;border-radius:7px;padding:6px 13px;font-weight:600;cursor:pointer;margin-left:6px}
+.licbar .lic-x{background:transparent;color:#ffe8c2;border:1px solid #6b5a3a}
+.licacts{flex-shrink:0;white-space:nowrap}
 nav{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--line)}
 nav button{background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:7px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .1s,color .1s,border-color .1s}
 nav button:hover{background:#eef2fb;color:var(--accent);border-color:#d0dbf5}
@@ -199,7 +204,7 @@ svg#tsvg{display:block;background:#fbfcfe}
 .tnode{cursor:pointer}.tnode:hover rect,.tnode:hover polygon{fill-opacity:1;stroke:#1f2733;stroke-width:1.2}
 .tnode:hover text{font-weight:600}
 </style></head><body><div class="wrap">
-<div class="site-header"><span class="brand-name" onclick="nav('home')" title="Home">Bible Explorer</span><span class="brand-sub" id="brandsub"></span><select id="bookSel" class="book-sel" title="Filter the Explore list by book"></select><span id="connectBtn" style="margin-left:10px;display:inline-flex;gap:6px;align-items:center"></span></div>
+<div class="site-header"><span class="brand-name" onclick="nav('home')" title="Home">Bible Explorer</span><span class="brand-sub" id="brandsub"></span><select id="srcSel" class="book-sel" title="Bible source — a licensed source gates every query on your entitlement" onchange="selectSource(this.value)"><option value="bsb">📖 BSB · public</option><option value="lbsb">🔒 LBSB · licensed</option></select><select id="bookSel" class="book-sel" title="Filter the Explore list by book"></select><span id="connectBtn" style="margin-left:10px;display:inline-flex;gap:6px;align-items:center"></span></div>
 <nav>
  <button data-t="home" class="on">Home</button>
  <button data-t="explore">Explore</button>
@@ -229,7 +234,33 @@ const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
 // demo-mcp vault via the delegation their Global.Church home minted at sign-in.
 const DEMO_A2A_BASE='https://demo-a2a-production.richardpedersen3.workers.dev';
 // All knowledge-graph reads go through the Scripture Agent → MCP vault (not the data Worker directly).
-const api=(p)=>fetch(A2A_BASE+'/vault'+p).then(r=>r.json());
+// Active Bible source. Public 'bsb' is open; a licensed source (e.g. 'lbsb') makes EVERY backend query
+// carry the reader's edition + id_token so the agent can gate on their entitlement.
+let activeEdition=localStorage.getItem('bx.edition')||'bsb';
+function apiHeaders(){const h={};if(activeEdition&&activeEdition!=='bsb'){h['x-edition']=activeEdition;if(session&&session.idToken)h['x-id-token']=session.idToken;}return h;}
+async function api(p){
+  const r=await fetch(A2A_BASE+'/vault'+p,{headers:apiHeaders()});
+  let j={};try{j=await r.json();}catch(e){}
+  if((r.status===401||r.status===403)&&j&&j.gated){licenseGate(j);}
+  else if(activeEdition!=='bsb'&&r.ok){hideLicenseGate();}
+  return j;
+}
+function updateSrcUI(){const s=document.getElementById('srcSel');if(s)s.value=activeEdition;}
+function selectSource(ed){activeEdition=ed;localStorage.setItem('bx.edition',ed);updateSrcUI();
+  if(ed==='bsb'){hideLicenseGate();}else if(!isConnected()){licenseGate({gated:ed,reason:'sign-in required'});}
+  if(typeof applyHash==='function')applyHash();}
+function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.style.display='none';}
+function licenseGate(info){
+  let el=document.getElementById('licbar');
+  if(!el){el=document.createElement('div');el.id='licbar';el.className='licbar';document.body.appendChild(el);}
+  const ed=String(info.gated||activeEdition);
+  if(info.reason==='sign-in required'||!isConnected()){
+    el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> is a licensed Bible — connect to request access. Every query is verified against your entitlement.</span> <span class="licacts"><button onclick="promptConnect()">Connect</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Use public BSB</button></span>';
+  }else{
+    el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> needs an entitlement ('+esc(info.reason||'no entitlement')+') — the corpus owner approves your request.</span> <span class="licacts"><button onclick="accRequest(\\''+esc(ed)+'\\')">Request access</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Use public BSB</button></span>';
+  }
+  el.style.display='flex';
+}
 const esc=(s)=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const dot=(k)=>'<span class="kdot" style="background:'+(KC[k]||'#888')+'"></span>';
 let tab='overview';
@@ -382,7 +413,7 @@ function openConnectGate(reason){const m=document.getElementById('connectGate');
 function promptConnect(){openConnectGate('');}
 function requireConnect(action){if(isConnected())return true;openConnectGate(action);return false;}
 function renderConnect(){const el=document.getElementById('connectBtn');if(!el)return;el.innerHTML=isConnected()?'<span class="muted" style="font-size:12px">● '+esc(session.name||(session.sub||'').slice(0,12))+'</span><button class="map-basbtn" style="border:1px solid var(--line);border-radius:8px" onclick="disconnect()">Disconnect</button>':'<button class="map-basbtn on" style="border:1px solid var(--accent);border-radius:8px" onclick="promptConnect()">Connect</button>';}
-loadSession();renderConnect();connectCallback().then(ok=>{if(ok)renderConnect();});
+loadSession();renderConnect();updateSrcUI();connectCallback().then(ok=>{if(ok){renderConnect();if(activeEdition!=='bsb')applyHash();}});
 
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';

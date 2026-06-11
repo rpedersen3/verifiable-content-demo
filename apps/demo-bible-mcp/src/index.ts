@@ -546,6 +546,23 @@ app.post('/tools/list_requests', async (c) => {
   return c.json({ ok: true, requests: rows });
 });
 
+// verify_access — does `subject` have access to `edition`? Public editions: always. Licensed: requires
+// a granted, non-expired, non-revoked entitlement. The gate behind ALL Explorer queries when a licensed
+// Bible is active (the reader's content access is bound to their entitlement).
+app.post('/tools/verify_access', async (c) => {
+  const b = await c.req.json<{ edition?: string; subject?: string }>().catch(() => ({}) as { edition?: string; subject?: string });
+  const edition = String(b.edition ?? 'bsb');
+  const entry = EDITIONS.find((e) => e.edition === edition);
+  const policy = entry?.accessPolicy ?? (edition === 'bsb' ? 'public' : 'licensed');
+  if (policy === 'public') return c.json({ ok: true, allowed: true, edition, policy: 'public' });
+  if (!b.subject) return c.json({ ok: true, allowed: false, edition, policy, reason: 'sign-in required' });
+  if (!c.env.DB) return c.json({ ok: true, allowed: false, edition, policy, reason: 'no store' });
+  const led = await c.env.DB.prepare("SELECT status, valid_until FROM entitlements_issued WHERE subject=? AND edition=? AND status='granted' ORDER BY id DESC LIMIT 1").bind(b.subject, edition).first<{ status: string; valid_until: string | null }>();
+  if (!led) return c.json({ ok: true, allowed: false, edition, policy, reason: 'no entitlement' });
+  if (led.valid_until && new Date(led.valid_until).getTime() < Date.now()) return c.json({ ok: true, allowed: false, edition, policy, reason: 'entitlement expired' });
+  return c.json({ ok: true, allowed: true, edition, policy: 'licensed' });
+});
+
 // get_service_identity — who (if anyone) owns a service. Public read (the owner_sub is an agent id).
 app.post('/tools/get_service_identity', async (c) => {
   const b = await c.req.json<{ service?: string }>().catch(() => ({}) as { service?: string });
