@@ -111,6 +111,12 @@ app.post('/admin/revoke', async (c) => {
   try { await ownerGate(c.env, String(b.id_token ?? ''), b.corpus); const r = await mcp(c.env, '/tools/revoke_entitlement', { id: b.id }); return c.json(r); }
   catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
+// x402 treasury: the settlements ledger for this corpus's edition (reader → lbsb treasury charges).
+app.post('/admin/treasury', async (c) => {
+  const b = await c.req.json<{ id_token?: string; corpus?: string }>().catch(() => ({}) as Record<string, never>);
+  try { await ownerGate(c.env, String(b.id_token ?? ''), b.corpus); const r = await mcp(c.env, '/tools/list_settlements', { edition: corpusOf(b.corpus).edition }); return c.json(r); }
+  catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
 // All trust-signal feedback across the corpus (owner moderation view), with filters. Proxies to the
 // ontology's /api/feedback via the MCP graph_query tool (reuses the MCP service binding).
 app.post('/admin/feedback', async (c) => {
@@ -165,7 +171,7 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 .chipbtn{cursor:pointer;color:var(--accent);font-weight:600}
 </style></head><body>
 <div class="hdr"><h1>🗂️ Corpus Manager</h1><span class="sub" id="hsub">entitlement approvals</span><span id="who"></span></div>
-<nav class="topnav" id="topnav"><a id="nav-ent" class="navlink active" onclick="showPage('ent')">Entitlements</a><a id="nav-fb" class="navlink" onclick="showPage('fb')">Feedback</a><span id="corpchip" style="margin-left:auto;align-self:center;font-size:13px"></span></nav>
+<nav class="topnav" id="topnav"><a id="nav-ent" class="navlink active" onclick="showPage('ent')">Entitlements</a><a id="nav-fb" class="navlink" onclick="showPage('fb')">Feedback</a><a id="nav-tre" class="navlink" onclick="showPage('tre')">Treasury</a><span id="corpchip" style="margin-left:auto;align-self:center;font-size:13px"></span></nav>
 <main>
 <div id="corpuspick" style="display:none"></div>
 <div id="owner"></div>
@@ -185,6 +191,12 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <input id="fb-q" placeholder="filter by author SA / entity id…" oninput="fbDebounce()">
 <button onclick="loadFeedback()">Refresh</button></div>
 <div id="fblist"><p class="muted">Connect as the corpus owner to review feedback.</p></div></div>
+</div>
+<div id="page-tre" style="display:none">
+<div class="card"><h3 style="margin-top:0">Treasury · x402 settlements</h3>
+<p class="muted" style="font-size:13px">Per-use payments collected for this corpus's licensed edition — each reader's agent wallet pays a fee to the <b>lbsb treasury</b> agent on access. Pay-per-use is <b>inert</b> until the treasury agent + PaymentEnforcer + fee asset are configured; this ledger fills as charges settle.</p>
+<div id="trestat" class="ownb" style="background:#eef3fb;border:1px solid #d4e0f5;color:#27457e">—</div>
+<div id="trelist"><p class="muted">Connect as the corpus owner to view the treasury.</p></div></div>
 </div>
 </main>
 <script>
@@ -279,12 +291,13 @@ async function render(){
   if(cl&&cl.ok&&cl.isOwner){
     window.isOwnerNow=true;
     if(ob)ob.innerHTML='<div class="ownb own-yes">'+(cl.claimed?'🎉 You just <b>claimed the '+esc(cp.label)+' corpus</b> — you are the owner.':'✓ You are the <b>'+esc(cp.label)+' corpus owner</b> ('+esc(cp.agent)+').')+'</div>';
-    loadQueue();loadIssued();loadFeedback();
+    loadQueue();loadIssued();loadFeedback();loadTreasury();
   }else{
     window.isOwnerNow=false;
     if(ob)ob.innerHTML='<div class="ownb own-no">'+esc(cp.label)+' is owned by <span class="mono">'+esc((cl&&cl.ownerSub||'').slice(0,20))+'…</span> — you are not the owner'+((cl&&cl.reason)?' ('+esc(cl.reason)+')':'')+'.</div>';
     if(q)q.innerHTML='<p class="muted">Only the corpus owner can review requests.</p>';if(is)is.innerHTML='';
     if(fbl)fbl.innerHTML='<p class="muted">Only the corpus owner can review feedback.</p>';
+    const tr=document.getElementById('trelist');if(tr)tr.innerHTML='<p class="muted">Only the corpus owner can view the treasury.</p>';
   }
 }
 let fbTimer=null;
@@ -307,14 +320,23 @@ function fbRow(f){return '<div class="fbitem"><span class="fb-st fb-'+esc(f.stan
   '<div style="font-size:13px;margin-top:3px;white-space:pre-wrap">'+esc(f.comment||'')+'</div>'+
   '<div class="muted" style="font-size:11px;margin-top:4px">by <b>'+esc(f.author||'anonymous')+'</b>'+(f.author_sub?' <span class="mono">'+esc(String(f.author_sub).slice(0,18))+'…</span>':'')+' · '+esc((f.created_at||'').slice(0,10))+(f.sig_kind?' · signal '+esc(f.sig_kind):'')+'</div></div>';}
 // Client-side pages: Entitlements (default) and Feedback (#feedback) — toggle + hash-route.
-function showPage(name){const fb=name==='fb';
-  const pe=document.getElementById('page-ent'),pf=document.getElementById('page-fb');
-  if(pe)pe.style.display=fb?'none':'';if(pf)pf.style.display=fb?'':'none';
-  const ne=document.getElementById('nav-ent'),nf=document.getElementById('nav-fb');
-  if(ne)ne.className='navlink'+(fb?'':' active');if(nf)nf.className='navlink'+(fb?' active':'');
-  const want=fb?'#feedback':'#entitlements';if(location.hash!==want)history.replaceState(null,'',location.pathname+want);
-  if(fb&&window.isOwnerNow)loadFeedback();}
-function route(){showPage(location.hash==='#feedback'?'fb':'ent');}
+const PAGES={ent:['page-ent','nav-ent','#entitlements'],fb:['page-fb','nav-fb','#feedback'],tre:['page-tre','nav-tre','#treasury']};
+function showPage(name){
+  if(!PAGES[name])name='ent';
+  Object.keys(PAGES).forEach(function(k){const p=document.getElementById(PAGES[k][0]);if(p)p.style.display=(k===name)?'':'none';const n=document.getElementById(PAGES[k][1]);if(n)n.className='navlink'+(k===name?' active':'');});
+  const want=PAGES[name][2];if(location.hash!==want)history.replaceState(null,'',location.pathname+want);
+  if(name==='fb'&&window.isOwnerNow)loadFeedback();
+  if(name==='tre'&&window.isOwnerNow)loadTreasury();}
+function route(){const h=location.hash;showPage(h==='#feedback'?'fb':h==='#treasury'?'tre':'ent');}
+async function loadTreasury(){
+  const el=document.getElementById('trelist'),st=document.getElementById('trestat');if(!el)return;
+  if(!window.isOwnerNow){el.innerHTML='<p class="muted">Only the corpus owner can view the treasury.</p>';if(st)st.innerHTML='—';return;}
+  el.innerHTML='<p class="muted">loading…</p>';
+  const r=await post('/admin/treasury',{id_token:session.idToken}).catch(e=>({ok:false,error:String(e)}));
+  if(!r||!r.ok){el.innerHTML='<p style="color:#c0392b">'+esc((r&&r.error)||'failed')+'</p>';return;}
+  const s=r.settlements||[];
+  if(st)st.innerHTML='Gross collected: <b>'+esc(r.total||'0')+'</b> atomic units · <b>'+s.length+'</b> settlement'+(s.length===1?'':'s')+' (this edition)';
+  el.innerHTML=s.length?s.map(x=>'<div class="req"><div><b>'+esc(x.amount||'?')+'</b> <span class="muted">'+esc(x.asset||'')+'</span> · <span class="fb-st" style="background:#475569;color:#fff">'+esc(x.lane||'settlement')+'</span> '+esc(x.reference||'')+'<div class="muted" style="font-size:11px">from <span class="mono">'+esc(String(x.payer||'').slice(0,18))+'…</span>'+(x.settlement_hash?' · tx <span class="mono">'+esc(String(x.settlement_hash).slice(0,12))+'…</span>':'')+' · '+esc((x.created_at||'').slice(0,16))+'</div></div></div>').join(''):'<p class="muted">No settlements yet. They appear here once pay-per-use is activated and readers pay to access the licensed edition.</p>';}
 window.addEventListener('hashchange',route);
 loadSession();renderPicker();connectCallback().then(()=>render()).then(route);
 </script></body></html>`;
