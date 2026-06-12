@@ -28,17 +28,21 @@ BSB_AGENT_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
 A2A_ENF_TARGETS = "0xe3909FdEfD8b74B7D006E045DCd678e97D469Bfd"
 A2A_ENF_METHODS = "0xf77cf06aCd8b9e2f3204fe4bE16449B3594c9633"
 A2A_ENF_TIMESTAMP = "0x7c452434314A5bf2048f9263aeCd0cC20Fa07965"
-# x402 pay-per-use SETTLEMENT lane (spec 272). INERT until ALL of PAY_TREASURY_SA + PAY_ENFORCER +
-# PAY_ASSET + PAY_PRICE are set; then a reader with no grant/prepaid is 402'd and pays per access.
-# PAY_CHAIN_ID = "84532"
-# PAY_TREASURY_SA = "0x..."          # lbsb-treasury.impact Smart Account (payee)
-# PAY_ENFORCER = "0x..."             # deployed PaymentEnforcer
-# PAY_DELEGATION_MANAGER = "0x3a8E2cE74564f699b135db6f266ccDb563979C05"
-# PAY_ASSET = "0x..."                # test USDC token
-# PAY_PRICE = "1000"                  # per-access fee, atomic units (e.g. 0.001 USDC @ 6 decimals)
-# PAY_PASS_USES = "1"                 # reads one settlement buys (prepay)
-# PAY_PASS_TTL_SECONDS = "3600"
-# PAY_RELAY_URL = "https://..."       # service relayer for the sponsored submitRedemption
+# x402 pay-per-use SETTLEMENT lane (spec 272). Addresses WIRED (Base Sepolia deployments); the lane
+# stays INERT until PAY_ENABLED="1" — flip it only once settleLbsbPayment is implemented, readers can
+# mint an x402-pay budget delegation, and the reader + treasury SAs are funded with mock USDC.
+PAY_ENABLED = "0"
+PAY_CHAIN_ID = "84532"
+PAY_TREASURY_SA = "0xa9e0acecfbce08548358b4f5681b13a00a5cab7a"        # lbsb-treasury.impact (payee)
+PAY_ENFORCER = "0xAF48273e11435cC2D56f4AFBfD091Abb162458E9"          # PaymentEnforcer
+PAY_DELEGATION_MANAGER = "0x3a8E2cE74564f699b135db6f266ccDb563979C05"
+PAY_PAYMASTER = "0x8eF92B9D62826052D8F7e6dcaB630dC3890bF540"         # smartAgentPaymaster (sponsors settle UserOp)
+PAY_ENTRY_POINT = "0x9B33De9d9597de82Eb56b5B26C478Dc0a6955388"
+PAY_RECEIPT_REGISTRY = "0x366616E265cd3cDE0F042A592C17838fe210D1d4"  # paymentReceiptRegistry
+PAY_ASSET = "0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C"             # mock USDC (6 decimals)
+PAY_PRICE = "1000"                                                    # 0.001 USDC per access
+PAY_PASS_USES = "5"                                                   # reads one settlement buys (prepay)
+PAY_PASS_TTL_SECONDS = "3600"
 
 # Worker-to-Worker via a service binding (avoids CF error 1042).
 [[env.production.services]]

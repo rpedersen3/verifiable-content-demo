@@ -8,15 +8,18 @@
 import { x402, entitlement } from '@agenticprimitives/payments';
 
 export type PayEnv = {
+  PAY_ENABLED?: string;            // master switch — addresses can be set WITHOUT enabling 402s
   PAY_CHAIN_ID?: string;
   PAY_TREASURY_SA?: string;        // lbsb-treasury.impact Smart Account (payee)
   PAY_ENFORCER?: string;           // PaymentEnforcer contract
   PAY_DELEGATION_MANAGER?: string;
+  PAY_PAYMASTER?: string;          // smartAgentPaymaster (sponsors the settlement UserOp)
+  PAY_ENTRY_POINT?: string;
+  PAY_RECEIPT_REGISTRY?: string;   // paymentReceiptRegistry
   PAY_ASSET?: string;              // fee token (USDC)
   PAY_PRICE?: string;              // per-access price, atomic units
   PAY_PASS_USES?: string;          // reads a single settlement buys (prepay), default 1
   PAY_PASS_TTL_SECONDS?: string;   // pass lifetime, default 3600
-  PAY_RELAY_URL?: string;          // service relayer for the sponsored submitRedemption (X402-D4)
   A2A_RPC_URL?: string;
 };
 
@@ -25,9 +28,10 @@ export type PayEnv = {
 const _x402 = x402, _entitlement = entitlement;
 void _x402; void _entitlement;
 
-/** True once the settlement lane is configured. Until then the gate falls back to grant/prepaid only. */
+/** True only when the master switch PAY_ENABLED=1 AND the addresses are set — so the real addresses can
+ *  be wired in config WITHOUT 402-ing readers until the settle path + reader auto-pay are complete. */
 export function payConfigured(env: PayEnv): boolean {
-  return !!(env.PAY_TREASURY_SA && env.PAY_ENFORCER && env.PAY_ASSET && env.PAY_PRICE);
+  return env.PAY_ENABLED === '1' && !!(env.PAY_TREASURY_SA && env.PAY_ENFORCER && env.PAY_ASSET && env.PAY_PRICE);
 }
 
 /** The 402 PaymentRequired body for an unpaid lbsb access (x402 wire shape; erc7710-delegation rail).
