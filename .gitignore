@@ -12,3 +12,4 @@ packages/zk-membership/build/*
 !packages/zk-membership/build/merkle.zkey
 !packages/zk-membership/build/merkle.wasm
 .data/
+apps/demo-bible-mcp/.faucet-mock.json
