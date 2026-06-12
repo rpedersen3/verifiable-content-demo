@@ -17,7 +17,8 @@
     "@agenticprimitives/a2a": "0.0.0-alpha.1",
     "@agenticprimitives/delegation": "^1.0.0-alpha.7",
     "viem": "^2.52.2",
-    "hono": "^4.12.23"
+    "hono": "^4.12.23",
+    "@agenticprimitives/payments": "^1.0.0-alpha.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260604.1",

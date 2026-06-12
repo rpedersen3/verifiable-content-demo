@@ -20,6 +20,7 @@ overrides:
   '@agenticprimitives/tool-policy': link:../agenticprimitives/packages/tool-policy
   '@agenticprimitives/types': link:../agenticprimitives/packages/types
   '@agenticprimitives/verifiable-credentials': link:../agenticprimitives/packages/verifiable-credentials
+  '@agenticprimitives/payments': link:../agenticprimitives/packages/payments
 
 importers:
 
@@ -58,6 +59,9 @@ importers:
       '@agenticprimitives/delegation':
         specifier: link:../../../agenticprimitives/packages/delegation
         version: link:../../../agenticprimitives/packages/delegation
+      '@agenticprimitives/payments':
+        specifier: link:../../../agenticprimitives/packages/payments
+        version: link:../../../agenticprimitives/packages/payments
       '@agenticprimitives/types':
         specifier: link:../../../agenticprimitives/packages/types
         version: link:../../../agenticprimitives/packages/types

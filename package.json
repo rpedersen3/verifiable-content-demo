@@ -42,7 +42,8 @@
       "@agenticprimitives/mcp-runtime": "link:../agenticprimitives/packages/mcp-runtime",
       "@agenticprimitives/tool-policy": "link:../agenticprimitives/packages/tool-policy",
       "@agenticprimitives/types": "link:../agenticprimitives/packages/types",
-      "@agenticprimitives/verifiable-credentials": "link:../agenticprimitives/packages/verifiable-credentials"
+      "@agenticprimitives/verifiable-credentials": "link:../agenticprimitives/packages/verifiable-credentials",
+      "@agenticprimitives/payments": "link:../agenticprimitives/packages/payments"
     }
   },
   "packageManager": "pnpm@9.0.0"
