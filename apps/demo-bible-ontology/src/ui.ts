@@ -239,7 +239,14 @@ const DEMO_A2A_BASE='https://demo-a2a-production.richardpedersen3.workers.dev';
 let activeEdition=localStorage.getItem('bx.edition')||'bsb';
 function apiHeaders(){const h={};if(activeEdition&&activeEdition!=='bsb'){h['x-edition']=activeEdition;if(session&&session.idToken)h['x-id-token']=session.idToken;}return h;}
 async function api(p){
-  const r=await fetch(A2A_BASE+'/vault'+p,{headers:apiHeaders()});
+  let r=await fetch(A2A_BASE+'/vault'+p,{headers:apiHeaders()});
+  // x402 AUTO-PAY: a 402 + a held budget delegation → present a payment (delegation + fresh nonce) and
+  // retry once. No per-call popup — the budget already consented.
+  if(r.status===402&&session&&session.payDelegation){
+    const h=apiHeaders();h['PAYMENT-SIGNATURE']=btoa(JSON.stringify({delegation:session.payDelegation,nonce:Date.now()}));
+    r=await fetch(A2A_BASE+'/vault'+p,{headers:h});
+    if(r.ok)toastPaid();
+  }
   let j={};try{j=await r.json();}catch(e){}
   if((r.status===401||r.status===402||r.status===403)&&j&&j.gated){licenseGate(j);}
   else if(activeEdition!=='bsb'&&r.ok){hideLicenseGate();}
@@ -255,7 +262,9 @@ function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.s
 // per access (reader agent wallet → lbsb treasury), auto-paying on a 402 with no per-call popup.
 function buyLbsbAccess(ed){
   if(!requireConnect('buy '+ed+' access'))return;
-  alert('Pay-per-use for '+String(ed).toUpperCase()+' is wired but inert until the lbsb treasury agent + PaymentEnforcer + fee asset (USDC) are configured.\\n\\nOnce live: (1) approve a one-time spend budget (an x402-pay delegation your home mints), then (2) every licensed access auto-pays a small fee from your agent wallet to the lbsb treasury — settling on-chain, no per-call popup — and the receipt + budget meter show here.');
+  if(session&&session.payDelegation){alert('You already hold an x402-pay budget for this session — licensed access auto-pays on demand (no popup). Open a licensed query to trigger it.');return;}
+  if(!confirm('Approve a spend budget for '+String(ed).toUpperCase()+'?\\n\\nYour home mints a one-time x402-pay delegation (payee = lbsb treasury, USDC, capped per-charge + per-session). After that, every licensed access auto-pays a small fee from your agent wallet to the lbsb treasury — settling on-chain via the paymaster, no per-call popup.\\n\\n(Requires your home to support the x402-pay delegation template.)'))return;
+  connectStartPay(ed);
 }
 function licenseGate(info){
   let el=document.getElementById('licbar');
@@ -380,6 +389,14 @@ function isAllowedIssuer(origin){try{const u=new URL(origin);if(u.protocol!=='ht
 async function connectStart(name){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(name);
   sessionStorage.setItem('sa.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin,name:name||''}));
   const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','site-login');location.href=u.toString();}
+// x402-pay budget connect: the reader approves a SPEND BUDGET once — the home mints an x402-pay payment
+// delegation (payee = lbsb treasury, USDC, per-charge + session caps). Attached to the session as payDelegation.
+const LBSB_TREASURY='0xa9e0acecfbce08548358b4f5681b13a00a5cab7a',LBSB_USDC='0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C';
+async function connectStartPay(ed){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(session.name||'');
+  sessionStorage.setItem('sa.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin,name:session.name||'',pay:1,ed:ed||'lbsb'}));
+  const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',session.name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','x402-pay');
+  u.searchParams.set('pay_payee',LBSB_TREASURY);u.searchParams.set('pay_asset',LBSB_USDC);u.searchParams.set('pay_max_per_charge','1000');u.searchParams.set('pay_budget','100000');location.href=u.toString();}
+function toastPaid(){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.textContent='✓ paid 0.001 USDC → lbsb treasury';el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},3500);}
 async function verifyIdToken(authOrigin,idToken,expectedNonce){
   const parts=idToken.split('.');if(parts.length!==3)throw new Error('id_token malformed');
   const header=decodeSeg(parts[0]),claims=decodeSeg(parts[1]);
@@ -404,6 +421,11 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
   try{const tr=await fetch((pend.authOrigin.endsWith('/')?pend.authOrigin.slice(0,-1):pend.authOrigin)+'/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant_type:'authorization_code',code,code_verifier:pend.verifier,client_id:CLIENT_ID,redirect_uri:location.origin+'/'})}).then(r=>r.json());
     if(!tr.id_token)throw new Error(tr.error||'no id_token returned');
     const claims=await verifyIdToken(pend.authOrigin,tr.id_token,pend.nonce);
+    if(pend.pay){
+      // x402-pay budget connect — ATTACH the payment (budget) delegation to the existing session.
+      if(session){session.payDelegation=tr.delegation||null;localStorage.setItem('sa.session',JSON.stringify(session));}
+      sessionStorage.removeItem('sa.pending');hideLicenseGate();if(typeof applyHash==='function')applyHash();return true;
+    }
     session={idToken:tr.id_token,delegation:tr.delegation||null,name:claims.agent_name||pend.name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp};
     localStorage.setItem('sa.session',JSON.stringify(session));sessionStorage.removeItem('sa.pending');return true;
   }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));sessionStorage.removeItem('sa.pending');return false;}}

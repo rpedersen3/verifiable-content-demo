@@ -43,11 +43,19 @@ PAY_ASSET = "0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C"             # mock USDC
 PAY_PRICE = "1000"                                                    # 0.001 USDC per access
 PAY_PASS_USES = "5"                                                   # reads one settlement buys (prepay)
 PAY_PASS_TTL_SECONDS = "3600"
-# At activation (PAY_ENABLED="1") set these SECRETS too (wrangler secret put …):
-#   PAY_RELAY_KEY  — a funded EOA private key; the service submits redeemDelegation from it (pays gas).
-#   A2A_RPC_URL    — Base Sepolia RPC (same as demo-bible-mcp) for the relayer's wallet client.
+PAY_EXECUTOR_SA = "0x91b43817d8f9ff449a4c68cb187821b13b5feabe"       # lbsb.impact executes redeemDelegation (gasless)
+PAY_RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
+# At activation (PAY_ENABLED="1") set this SECRET (wrangler secret put PAY_RELAY_KEY):
+#   PAY_RELAY_KEY — the executor SA's CUSTODIAN key; SIGNS the userOpHash only (NO gas, NO USDC — the
+#                   smartAgentPaymaster sponsors gas via the demo-a2a relayer service binding below).
 
 # Worker-to-Worker via a service binding (avoids CF error 1042).
 [[env.production.services]]
 binding = "MCP"
 service = "demo-bible-mcp-production"
+
+# The agenticprimitives demo-a2a relayer — for the gasless x402 settlement UserOp (build/submit-call-userop,
+# paymaster-sponsored). Same relayer demo-bible-mcp uses for vault delivery.
+[[env.production.services]]
+binding = "PAY_RELAY"
+service = "demo-a2a-production"
