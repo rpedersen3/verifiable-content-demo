@@ -563,6 +563,65 @@ app.post('/tools/verify_access', async (c) => {
   return c.json({ ok: true, allowed: true, edition, policy: 'licensed' });
 });
 
+// ── x402 pay-per-use ledger (spec 272 consumer) ──
+// record_settlement — the lbsb scripture service records an on-chain charge (reader → treasury).
+app.post('/tools/record_settlement', async (c) => {
+  const b = await c.req.json<{ edition?: string; payer?: string; payee?: string; asset?: string; amount?: string; reference?: string; resourceHash?: string; mandateId?: string; nonce?: string; settlementHash?: string; lane?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  if (!b.edition || !b.payer || !b.payee) return c.json({ ok: false, error: 'edition, payer, payee required' }, 400);
+  await c.env.DB.prepare('INSERT INTO payments_settled(edition,payer,payee,asset,amount,reference,resource_hash,mandate_id,nonce,settlement_hash,lane,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(b.edition, b.payer, b.payee, b.asset ?? null, b.amount ?? null, b.reference ?? null, b.resourceHash ?? null, b.mandateId ?? null, b.nonce ?? null, b.settlementHash ?? null, b.lane ?? 'settlement', new Date().toISOString()).run();
+  audit('content.payment.settle', 'success', b.edition, { payer: b.payer, amount: b.amount ?? null, lane: b.lane ?? 'settlement' });
+  return c.json({ ok: true });
+});
+
+// list_settlements — the treasury ledger for an edition (owner Treasury tab) or a reader's own charges.
+app.post('/tools/list_settlements', async (c) => {
+  const b = await c.req.json<{ edition?: string; payer?: string; limit?: number }>().catch(() => ({}) as { edition?: string; payer?: string; limit?: number });
+  if (!c.env.DB) return c.json({ ok: true, settlements: [], total: '0' });
+  const edition = String(b.edition ?? 'lbsb');
+  const lim = Math.min(500, Math.max(1, Number(b.limit ?? 200)));
+  const rows = b.payer
+    ? (await c.env.DB.prepare('SELECT id,edition,payer,payee,asset,amount,reference,settlement_hash,lane,created_at FROM payments_settled WHERE edition=? AND payer=? ORDER BY id DESC LIMIT ?').bind(edition, b.payer, lim).all()).results
+    : (await c.env.DB.prepare('SELECT id,edition,payer,payee,asset,amount,reference,settlement_hash,lane,created_at FROM payments_settled WHERE edition=? ORDER BY id DESC LIMIT ?').bind(edition, lim).all()).results;
+  const tot = await c.env.DB.prepare('SELECT COALESCE(SUM(CAST(amount AS INTEGER)),0) t FROM payments_settled WHERE edition=?').bind(edition).first<{ t: number }>();
+  return c.json({ ok: true, settlements: rows, total: String(tot?.t ?? 0) });
+});
+
+// mint_prepaid — record a prepaid entitlement (one settlement → N reads; the x402 'entitlement' lane).
+app.post('/tools/mint_prepaid', async (c) => {
+  const b = await c.req.json<{ edition?: string; subject?: string; maxUses?: number; validUntil?: string; record?: unknown; settlementHash?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  if (!b.edition || !b.subject) return c.json({ ok: false, error: 'edition, subject required' }, 400);
+  await c.env.DB.prepare('INSERT INTO prepaid_entitlements(edition,subject,record,max_uses,used,valid_until,status,settlement_hash,created_at) VALUES(?,?,?,?,0,?,?,?,?)')
+    .bind(b.edition, b.subject, b.record ? JSON.stringify(b.record) : null, Math.max(1, Number(b.maxUses ?? 1)), b.validUntil ?? null, 'active', b.settlementHash ?? null, new Date().toISOString()).run();
+  audit('content.payment.prepaid', 'success', b.edition, { subject: b.subject, maxUses: b.maxUses ?? 1 });
+  return c.json({ ok: true });
+});
+
+// consume_prepaid — spend one read off an active prepaid balance (no on-chain tx).
+app.post('/tools/consume_prepaid', async (c) => {
+  const b = await c.req.json<{ edition?: string; subject?: string }>().catch(() => ({}) as { edition?: string; subject?: string });
+  if (!c.env.DB) return c.json({ ok: true, allowed: false, reason: 'no store' });
+  if (!b.subject || !b.edition) return c.json({ ok: true, allowed: false, reason: 'subject, edition required' });
+  const now = new Date().toISOString();
+  const row = await c.env.DB.prepare("SELECT id, max_uses, used FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?) ORDER BY id ASC LIMIT 1").bind(b.subject, b.edition, now).first<{ id: number; max_uses: number; used: number }>();
+  if (!row) return c.json({ ok: true, allowed: false, reason: 'no prepaid balance' });
+  const used = row.used + 1;
+  await c.env.DB.prepare('UPDATE prepaid_entitlements SET used=?, status=? WHERE id=?').bind(used, used >= row.max_uses ? 'exhausted' : 'active', row.id).run();
+  return c.json({ ok: true, allowed: true, remaining: row.max_uses - used });
+});
+
+// list_prepaid — a reader's prepaid balances (the budget meter).
+app.post('/tools/list_prepaid', async (c) => {
+  const b = await c.req.json<{ subject?: string; edition?: string }>().catch(() => ({}) as { subject?: string; edition?: string });
+  if (!c.env.DB || !b.subject) return c.json({ ok: true, prepaid: [] });
+  const rows = b.edition
+    ? (await c.env.DB.prepare("SELECT id, edition, max_uses, used, valid_until, status, created_at FROM prepaid_entitlements WHERE subject=? AND edition=? ORDER BY id DESC LIMIT 50").bind(b.subject, b.edition).all()).results
+    : (await c.env.DB.prepare("SELECT id, edition, max_uses, used, valid_until, status, created_at FROM prepaid_entitlements WHERE subject=? ORDER BY id DESC LIMIT 50").bind(b.subject).all()).results;
+  return c.json({ ok: true, prepaid: rows });
+});
+
 // get_service_identity — who (if anyone) owns a service. Public read (the owner_sub is an agent id).
 app.post('/tools/get_service_identity', async (c) => {
   const b = await c.req.json<{ service?: string }>().catch(() => ({}) as { service?: string });
