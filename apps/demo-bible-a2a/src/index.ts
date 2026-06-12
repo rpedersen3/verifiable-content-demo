@@ -162,7 +162,9 @@ app.get('/vault/*', async (c) => {
       if (payConfigured(env)) {
         const settled = await settleLbsbPayment(env, { edition, subject, headers: c.req.raw.headers, resource });
         if (!settled) return c.json({ ok: false, error: `payment required for ${edition}`, gated: edition, reason: 'payment required', lane: 'settlement', x402: buildLbsbPaymentRequired(env, edition, resource) }, 402);
-        await mcpPost(c.env, '/tools/record_settlement', { edition, payer: subject, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: env.PAY_PRICE, settlementHash: settled.settlementHash, lane: 'settlement', reference: c.req.path });
+        // Settled reader→treasury: record the charge + mint a short prepaid PASS (so the reader browses freely).
+        await mcpPost(c.env, '/tools/record_settlement', { edition, payer: subject, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: settled.amount, mandateId: settled.mandateId, settlementHash: settled.settlementHash, lane: 'settlement', reference: c.req.path });
+        await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject, maxUses: settled.passUses, validUntil: new Date(Date.now() + settled.passTtl * 1000).toISOString(), settlementHash: settled.settlementHash });
       } else {
         return c.json({ ok: false, error: `entitlement required for ${edition}`, gated: edition, reason: (acc.body && acc.body.reason) || 'no entitlement' }, 403);
       }

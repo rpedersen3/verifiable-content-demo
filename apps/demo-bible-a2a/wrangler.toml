@@ -43,6 +43,9 @@ PAY_ASSET = "0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C"             # mock USDC
 PAY_PRICE = "1000"                                                    # 0.001 USDC per access
 PAY_PASS_USES = "5"                                                   # reads one settlement buys (prepay)
 PAY_PASS_TTL_SECONDS = "3600"
+# At activation (PAY_ENABLED="1") set these SECRETS too (wrangler secret put …):
+#   PAY_RELAY_KEY  — a funded EOA private key; the service submits redeemDelegation from it (pays gas).
+#   A2A_RPC_URL    — Base Sepolia RPC (same as demo-bible-mcp) for the relayer's wallet client.
 
 # Worker-to-Worker via a service binding (avoids CF error 1042).
 [[env.production.services]]
