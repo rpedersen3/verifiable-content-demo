@@ -10,6 +10,7 @@ import { signCredential, verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2
 import { recoverAddress, keccak256, toBytes } from 'viem';
 import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
 import { resolveOnBehalf, pollTask, buildGrantSpec } from './a2a/client.js';
+import { payConfigured, buildLbsbPaymentRequired, settleLbsbPayment, type PayEnv } from './a2a/payment.js';
 import type { Delegation } from '@agenticprimitives/delegation';
 import type { Hex } from 'viem';
 
@@ -152,8 +153,20 @@ app.get('/vault/*', async (c) => {
     const idt = c.req.header('x-id-token') || '';
     if (idt) { try { subject = (await verifyIdToken(idt)).sub; } catch { /* unverified → treated as anon */ } }
     if (!subject) return c.json({ ok: false, error: `sign in to access ${edition}`, gated: edition, reason: 'sign-in required' }, 401);
+    // Lane resolver: verify_access covers GRANT (owner entitlement) + PREPAID (paid pass). If neither,
+    // try the SETTLEMENT lane (x402) when configured — pay-per-access; else 403 (entitlement required).
     const acc = await mcpPost(c.env, '/tools/verify_access', { edition, subject });
-    if (!(acc.body && acc.body.allowed)) return c.json({ ok: false, error: `entitlement required for ${edition}`, gated: edition, reason: (acc.body && acc.body.reason) || 'no entitlement' }, 403);
+    if (!(acc.body && acc.body.allowed)) {
+      const env = c.env as unknown as PayEnv;
+      const resource = { method: 'GET', url: c.req.url };
+      if (payConfigured(env)) {
+        const settled = await settleLbsbPayment(env, { edition, subject, headers: c.req.raw.headers, resource });
+        if (!settled) return c.json({ ok: false, error: `payment required for ${edition}`, gated: edition, reason: 'payment required', lane: 'settlement', x402: buildLbsbPaymentRequired(env, edition, resource) }, 402);
+        await mcpPost(c.env, '/tools/record_settlement', { edition, payer: subject, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: env.PAY_PRICE, settlementHash: settled.settlementHash, lane: 'settlement', reference: c.req.path });
+      } else {
+        return c.json({ ok: false, error: `entitlement required for ${edition}`, gated: edition, reason: (acc.body && acc.body.reason) || 'no entitlement' }, 403);
+      }
+    }
   }
   const sub = c.req.path.replace(/^\/vault/, '');
   // Forward the active edition so the ontology can scope signals/scores to the corpus (per-edition).

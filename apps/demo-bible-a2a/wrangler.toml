@@ -28,6 +28,17 @@ BSB_AGENT_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
 A2A_ENF_TARGETS = "0xe3909FdEfD8b74B7D006E045DCd678e97D469Bfd"
 A2A_ENF_METHODS = "0xf77cf06aCd8b9e2f3204fe4bE16449B3594c9633"
 A2A_ENF_TIMESTAMP = "0x7c452434314A5bf2048f9263aeCd0cC20Fa07965"
+# x402 pay-per-use SETTLEMENT lane (spec 272). INERT until ALL of PAY_TREASURY_SA + PAY_ENFORCER +
+# PAY_ASSET + PAY_PRICE are set; then a reader with no grant/prepaid is 402'd and pays per access.
+# PAY_CHAIN_ID = "84532"
+# PAY_TREASURY_SA = "0x..."          # lbsb-treasury.impact Smart Account (payee)
+# PAY_ENFORCER = "0x..."             # deployed PaymentEnforcer
+# PAY_DELEGATION_MANAGER = "0x3a8E2cE74564f699b135db6f266ccDb563979C05"
+# PAY_ASSET = "0x..."                # test USDC token
+# PAY_PRICE = "1000"                  # per-access fee, atomic units (e.g. 0.001 USDC @ 6 decimals)
+# PAY_PASS_USES = "1"                 # reads one settlement buys (prepay)
+# PAY_PASS_TTL_SECONDS = "3600"
+# PAY_RELAY_URL = "https://..."       # service relayer for the sponsored submitRedemption
 
 # Worker-to-Worker via a service binding (avoids CF error 1042).
 [[env.production.services]]
