@@ -240,12 +240,16 @@ let activeEdition=localStorage.getItem('bx.edition')||'bsb';
 function apiHeaders(){const h={};if(activeEdition&&activeEdition!=='bsb'){h['x-edition']=activeEdition;if(session&&session.idToken)h['x-id-token']=session.idToken;}return h;}
 async function api(p){
   let r=await fetch(A2A_BASE+'/vault'+p,{headers:apiHeaders()});
-  // x402 AUTO-PAY: a 402 + a held budget delegation → present a payment (delegation + fresh nonce) and
-  // retry once. No per-call popup — the budget already consented.
+  // x402 AUTO-PAY (verify path): a 402 + a vault budget delegation → the person SA settles one charge
+  // (treasury SA → lbsb treasury) and we present the settlementHash; the service verifies it on-chain.
+  // No per-call popup. INERT until submitRedemption (home gasless / wallet) is wired.
   if(r.status===402&&session&&session.payDelegation){
-    const h=apiHeaders();h['PAYMENT-SIGNATURE']=btoa(JSON.stringify({delegation:session.payDelegation,nonce:Date.now()}));
-    r=await fetch(A2A_BASE+'/vault'+p,{headers:h});
-    if(r.ok)toastPaid();
+    const settlementHash=await lbsbSettle(activeEdition);
+    if(settlementHash){
+      const h=apiHeaders();h['PAYMENT-RESPONSE']=btoa(JSON.stringify({settlementHash:settlementHash}));
+      r=await fetch(A2A_BASE+'/vault'+p,{headers:h});
+      if(r.ok)toastPaid();
+    }
   }
   let j={};try{j=await r.json();}catch(e){}
   if((r.status===401||r.status===402||r.status===403)&&j&&j.gated){licenseGate(j);}
@@ -260,10 +264,11 @@ function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.s
 // x402 pay-per-use (Phase 4). INERT until the lbsb treasury + PaymentEnforcer + fee asset are
 // configured; then this approves a spend budget (x402-pay delegation) and buys a prepaid pass / pays
 // per access (reader agent wallet → lbsb treasury), auto-paying on a 402 with no per-call popup.
-function buyLbsbAccess(ed){
+async function buyLbsbAccess(ed){
   if(!requireConnect('buy '+ed+' access'))return;
-  if(session&&session.payDelegation){alert('You already hold an x402-pay budget for this session — licensed access auto-pays on demand (no popup). Open a licensed query to trigger it.');return;}
-  if(!confirm('Approve a spend budget for '+String(ed).toUpperCase()+'?\\n\\nYour home mints a one-time x402-pay delegation (payee = lbsb treasury, USDC, capped per-charge + per-session). After that, every licensed access auto-pays a small fee from your agent wallet to the lbsb treasury — settling on-chain via the paymaster, no per-call popup.\\n\\n(Requires your home to support the x402-pay delegation template.)'))return;
+  const budget=session.payDelegation||await loadPayBudget();
+  if(budget){alert('You have an x402-pay budget in your vault (treasury → person, capped). Licensed access auto-pays from your nameless treasury SA on demand — open a licensed query to trigger a charge. No popup, no per-mint.');return;}
+  if(!confirm('No x402-pay budget found in your vault yet.\\n\\nYour home provisions a one-time treasury → person payment delegation into your vault (payee = lbsb treasury, USDC, capped per-charge + per-session). After that, every licensed access auto-pays from your treasury SA — settling on-chain — with no popup.\\n\\nProvision one now?'))return;
   connectStartPay(ed);
 }
 function licenseGate(info){
@@ -397,6 +402,29 @@ async function connectStartPay(ed){const state=randB64(16),nonce=randB64(16),pk=
   const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',session.name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','x402-pay');
   u.searchParams.set('pay_payee',LBSB_TREASURY);u.searchParams.set('pay_asset',LBSB_USDC);u.searchParams.set('pay_max_per_charge','1000');u.searchParams.set('pay_budget','100000');location.href=u.toString();}
 function toastPaid(){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.textContent='✓ paid 0.001 USDC → lbsb treasury';el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},3500);}
+// VAULT-BACKED budget: read the reader's x402-pay budget delegation (delegator = their nameless TREASURY
+// SA) from THEIR vault — provisioned once by the home. The PERSON SA redeems it to pay (no per-mint).
+async function loadPayBudget(){
+  if(!isConnected()||!session.delegation)return null;
+  try{
+    const cj=await fetch(DEMO_A2A_BASE+'/auth/csrf',{credentials:'include'}).then(r=>r.json());const tok=cj.token||cj.csrfToken||cj.csrf||'';
+    const r=await fetch(DEMO_A2A_BASE+'/mcp/vault/get',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({delegation:session.delegation,requester:session.delegation.delegate,recordType:'x402-budget'})}).then(x=>x.json());
+    const budget=(r&&(r.data||r.record))||null;
+    if(budget){session.payDelegation=budget;localStorage.setItem('sa.session',JSON.stringify(session));}
+    return budget;
+  }catch(e){return null;}
+}
+// Settle one charge: the A2A builds the redemption (it has the payments pkg); the PERSON SA submits it
+// (home gasless / wallet) → USDC moves TREASURY SA → lbsb treasury → returns the settlementHash to verify.
+async function lbsbSettle(ed){
+  if(!session.payDelegation)return null;
+  const r=await fetch(A2A_BASE+'/pay/redeem',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id_token:session.idToken,edition:ed||'lbsb',delegation:session.payDelegation})}).then(x=>x.json()).catch(function(){return null;});
+  if(!r||!r.ok)return null;
+  return await submitRedemption(r); // the person SA executes r.executeCallData; returns the settlementHash (or null)
+}
+// Submit the redemption AS the person SA. Home-custody → the home's gasless submit-call-userop (sponsored);
+// SIWE wallet → the wallet sends the tx directly. INERT here until one of those signing paths is wired.
+async function submitRedemption(r){ void r; return null; }
 async function verifyIdToken(authOrigin,idToken,expectedNonce){
   const parts=idToken.split('.');if(parts.length!==3)throw new Error('id_token malformed');
   const header=decodeSeg(parts[0]),claims=decodeSeg(parts[1]);

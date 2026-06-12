@@ -74,6 +74,24 @@ function buildLbsbCharge(env: PayEnv, readerSa: Address, edition: string, nonce:
 
 export type LbsbSettlement = { settlementHash: string; lane: 'settlement'; mandateId: string; amount: string; passUses: number; passTtl: number };
 
+/** Build the redemption a reader's PERSON SA must execute to pay (the browser can't — no payments pkg).
+ *  Given the vault budget delegation (delegator = TREASURY SA), returns the `AgentAccount.execute(DM,
+ *  redeemDelegation(...))` callData for `personSa` to submit (via the home gasless or a wallet), moving
+ *  USDC TREASURY SA → lbsb treasury. The reader then presents the resulting settlementHash to verify. */
+export function buildLbsbRedemption(env: PayEnv, args: { delegation: unknown; edition: string; nonce?: bigint }): { sender: null; to: Address; value: string; executeCallData: Hex; mandateId: string; nonce: string; resourceHash: Hex32 } | null {
+  const deleg = args.delegation as { delegator?: string };
+  if (!deleg || typeof deleg.delegator !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(deleg.delegator)) return null;
+  if (!env.PAY_DELEGATION_MANAGER || !env.PAY_ENFORCER || !env.PAY_ASSET || !env.PAY_TREASURY_SA || !env.PAY_PRICE) return null;
+  const nonce = args.nonce ?? BigInt(Date.now());
+  const { mandate, resourceHash } = buildLbsbCharge(env, deleg.delegator as Address, args.edition, nonce);
+  const plan = x402.buildRedemptionCalldata({
+    mandate, delegation: args.delegation as never,
+    delegationManager: env.PAY_DELEGATION_MANAGER as Address, paymentEnforcer: env.PAY_ENFORCER as Address,
+    asset: env.PAY_ASSET as Address, resourceHash,
+  });
+  return { sender: null, to: env.PAY_DELEGATION_MANAGER as Address, value: '0', executeCallData: encodeExecute(plan.to, plan.value, plan.data), mandateId: mandate.mandateId, nonce: nonce.toString(), resourceHash };
+}
+
 /** The 402 PaymentRequired body for an unpaid lbsb access (x402 erc7710-delegation wire shape). */
 export function buildLbsbPaymentRequired(env: PayEnv, edition: string, resource: { method: string; url: string }): unknown {
   const chainId = Number(env.PAY_CHAIN_ID ?? '84532');
