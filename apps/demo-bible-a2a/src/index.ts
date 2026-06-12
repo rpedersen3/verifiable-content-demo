@@ -220,6 +220,23 @@ app.post('/pay/ensure-treasury', async (c) => {
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
+// pay/treasury-status — read-only: the connected user's associated treasury SA + its mock-USDC balance,
+// for the Explorer admin "My treasury" lane. The treasury is the budget delegation's delegator (where
+// USDC leaves); until a dedicated treasury SA is provisioned it falls back to the person SA (the entity
+// the connect-time faucet funds). No mint, no gas.
+app.post('/pay/treasury-status', async (c) => {
+  const b = await c.req.json<{ id_token?: string; treasury?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const claims = await verifyIdToken(String(b.id_token ?? ''));
+    const personSa = claims.sub.includes(':') ? claims.sub.split(':').pop()! : claims.sub;
+    const dedicated = b.treasury && /^0x[0-9a-fA-F]{40}$/.test(b.treasury);
+    const treasury = dedicated ? b.treasury! : personSa;
+    const r = await mcpPost(c.env, '/tools/usdc_balance', { address: treasury });
+    const bal = r.body as { configured?: boolean; usdc?: string; balance?: string };
+    return c.json({ ok: true, personSa, treasury, provisioned: !!dedicated, configured: !!bal.configured, usdc: bal.usdc ?? '0', balance: bal.balance ?? '0', asset: (c.env as unknown as { PAY_ASSET?: string }).PAY_ASSET ?? null });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
 // ── Entitlements (P1): subjects come ONLY from a server-side-verified id_token, never client input ──
 const CONNECT_DOMAIN = 'impact-agent.me';
 const ALLOWED_AUD = ['bible-explorer', 'demo-corpus'];

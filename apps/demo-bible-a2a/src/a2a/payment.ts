@@ -13,6 +13,7 @@ import { encodeFunctionData, keccak256, toBytes, toEventSelector, createPublicCl
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
 import { x402, computeMandateId, type PaymentMandate, type Hex32 } from '@agenticprimitives/payments';
+import { DelegationClient, buildPaymentMandateCaveats } from '@agenticprimitives/delegation';
 
 type Relay = { fetch: (url: string, init?: RequestInit) => Promise<Response> };
 
@@ -194,4 +195,38 @@ export async function verifyLbsbPayment(env: VerifyEnv, args: { edition: string;
     }
     return null; // no qualifying USDC → treasury transfer in this tx
   } catch { return null; }
+}
+
+export type ProvisionEnv = VerifyEnv & { FAUCET_PK?: string; A2A_ENF_TIMESTAMP?: string; A2A_ENF_TARGETS?: string; A2A_ENF_METHODS?: string; PAY_RELAY?: { fetch: (url: string, init?: RequestInit) => Promise<Response> }; PAY_RELAY_URL?: string; PAY_RELAY_ORIGIN?: string };
+export function provisionConfigured(env: ProvisionEnv): boolean {
+  return !!(env.FAUCET_PK && env.PAY_ENFORCER && env.PAY_TREASURY_SA && env.PAY_ASSET && env.PAY_DELEGATION_MANAGER && (env.PAY_RELAY || env.PAY_RELAY_URL) && env.A2A_ENF_TIMESTAMP && env.A2A_ENF_TARGETS && env.A2A_ENF_METHODS);
+}
+/** App-side TREASURY provisioning: 1) gasless-deploy a fresh AgentAccount (custodian = the demo FAUCET,
+ *  salt = the person SA → a distinct treasury per user) via the demo-a2a relayer; 2) the FAUCET signs a
+ *  `treasury → person` x402-pay budget delegation (PaymentEnforcer-caveated, payee = lbsb treasury,
+ *  capped). The caller funds the treasury + stores the budget in the user's vault. */
+export async function provisionTreasury(env: ProvisionEnv, args: { personSa: string }): Promise<{ treasury: string; budget: unknown } | { error: string }> {
+  if (!provisionConfigured(env)) return { error: 'provisioning not configured' };
+  const account = privateKeyToAccount(env.FAUCET_PK as Hex);
+  const chainId = Number(env.PAY_CHAIN_ID ?? '84532');
+  const origin = env.PAY_RELAY_ORIGIN ?? '';
+  const csrf = await relayJson(env, '/auth/csrf', { headers: { origin } });
+  const tok = String(csrf.token ?? '');
+  const salt = BigInt(keccak256(toBytes('treasury:' + args.personSa))).toString();
+  const zero = ('0x' + '00'.repeat(32)) as Hex;
+  // 1) gasless deploy the treasury SA (mode-0 EOA-only, custodian = FAUCET)
+  const dep = await relayJson(env, '/session/direct-deploy', { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': tok, origin }, body: JSON.stringify({ mode: 0, custodians: [account.address], trustees: [], initialPasskeyCredentialIdDigest: zero, initialPasskeyX: '0', initialPasskeyY: '0', initialPasskeyRpIdHash: zero, timelockOverrides: [], salt }) });
+  const treasury = dep.deployedAddress as string | undefined;
+  if (!treasury || !/^0x[0-9a-fA-F]{40}$/.test(treasury)) return { error: 'deploy failed: ' + String(dep.error ?? dep.detail ?? 'no address') };
+  // 2) FAUCET signs the treasury → person x402-pay budget delegation
+  const signer = { address: account.address, signTypedData: (a: Parameters<typeof account.signTypedData>[0]) => account.signTypedData(a) };
+  const client = new DelegationClient({ signer, smartAccount: treasury as Address, chainId, delegationManager: env.PAY_DELEGATION_MANAGER as Address } as never);
+  const caveats = buildPaymentMandateCaveats({
+    enforcers: { payment: env.PAY_ENFORCER as Address, timestamp: env.A2A_ENF_TIMESTAMP as Address, allowedTargets: env.A2A_ENF_TARGETS as Address, allowedMethods: env.A2A_ENF_METHODS as Address },
+    payee: env.PAY_TREASURY_SA as Address, asset: env.PAY_ASSET as Address,
+    maxAmountPerCharge: BigInt(env.PAY_PRICE ?? '0'), maxAggregate: BigInt(env.PAY_PRICE ?? '0') * 1000n,
+    maxRedemptionsPerWindow: 100, windowSeconds: 3600, validUntil: Math.floor(Date.now() / 1000) + 86_400,
+  } as never);
+  const budget = await client.issueDelegation({ delegate: args.personSa as Address, caveats } as never);
+  return { treasury, budget };
 }

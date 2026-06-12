@@ -612,6 +612,20 @@ app.post('/tools/faucet_usdc', async (c) => {
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }); }
 });
 
+// usdc_balance — read-only mock-USDC balance of an address (no mint, no gas). For the Explorer admin
+// "my treasury" lane. INERT (configured:false) until the RPC + token are set.
+app.post('/tools/usdc_balance', async (c) => {
+  const b = await c.req.json<{ address?: string }>().catch(() => ({}) as Record<string, never>);
+  const env = c.env as unknown as { A2A_RPC_URL?: string; PAY_ASSET?: string };
+  if (!env.A2A_RPC_URL || !env.PAY_ASSET) return c.json({ ok: true, configured: false, balance: '0', usdc: '0' });
+  if (!b.address || !/^0x[0-9a-fA-F]{40}$/.test(b.address)) return c.json({ ok: false, error: 'address required' }, 400);
+  try {
+    const pc = createPublicClient({ chain: baseSepolia, transport: http(env.A2A_RPC_URL) });
+    const bal = (await pc.readContract({ address: env.PAY_ASSET as `0x${string}`, abi: FAUCET_ERC20, functionName: 'balanceOf', args: [b.address as `0x${string}`] })) as bigint;
+    return c.json({ ok: true, configured: true, address: b.address, asset: env.PAY_ASSET, balance: bal.toString(), usdc: (Number(bal) / 1e6).toString() });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message, configured: true }); }
+});
+
 // list_settlements — the treasury ledger for an edition (owner Treasury tab) or a reader's own charges.
 app.post('/tools/list_settlements', async (c) => {
   const b = await c.req.json<{ edition?: string; payer?: string; limit?: number }>().catch(() => ({}) as { edition?: string; payer?: string; limit?: number });

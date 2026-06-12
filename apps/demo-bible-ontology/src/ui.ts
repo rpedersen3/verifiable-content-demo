@@ -635,6 +635,7 @@ function admin(){
    '<p class="hint">Everything here is read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the delegation your Global.Church home minted at sign-in (your app signs nothing). Demo PII is <b>mock fixtures</b>.</p>'+
    '<div style="'+vlab+';margin-top:2px">Profile</div><div id="acctview">'+vload+'</div>'+
    '<div style="'+vlab+'">Delegations</div><div id="delgview">'+vload+'</div>'+
+   '<div style="'+vlab+'">My treasury · pay-per-access wallet</div><div id="treasview">'+vload+'</div>'+
    '<div style="'+vlab+'">Entitlements in your vault</div><div id="vaultents">'+vload+'</div></div>'+
    '<div class="card"><h3 class="muted" style="margin-top:0">My access · licensed editions</h3>'+
    '<p class="hint">Request access to a licensed edition; the corpus owner approves and the signed <b>entitlement</b> is issued to you. Held entitlements let you read gated verse text — every read is <b>presenter-bound</b> (only you can use your entitlement) and commitment-verified.</p>'+
@@ -652,9 +653,32 @@ function admin(){
   loadIntegrity(thr.value);
   loadAccount();
   loadDelegations();
+  loadTreasury();
   loadVaultEnts();
   loadAccess();
   loadMyFeedback();
+}
+// The connected user's associated treasury smart account + its mock-USDC balance — the wallet that pays
+// the x402 pay-per-access fee for licensed editions. Read live from the a2a /pay/treasury-status (which
+// reads the on-chain ERC-20 balance). Until a dedicated treasury SA is provisioned this is the person SA.
+async function loadTreasury(){
+  const el=document.getElementById('treasview');if(!el)return;
+  if(!isConnected()){el.innerHTML='<div class="muted" style="font-size:13px">Connect to view.</div>';return;}
+  el.innerHTML='<div class="ghint" style="padding:8px">reading your treasury…</div>';
+  try{
+    const budget=session.payDelegation||await loadPayBudget();
+    const treasury=(budget&&budget.delegator)||'';
+    const r=await fetch(A2A_BASE+'/pay/treasury-status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id_token:session.idToken,treasury:treasury||undefined})}).then(x=>x.json());
+    if(!r||!r.ok){el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read treasury: '+esc((r&&r.error)||'unknown')+'</div>';return;}
+    const addr=r.treasury||'';
+    const provisioned=r.provisioned;
+    const bal=r.configured?(r.usdc||'0'):null;
+    el.innerHTML='<div class="acc-row"><span class="acc-st '+(provisioned?'acc-granted':'acc-pending')+'">'+(provisioned?'dedicated SA':'person SA')+'</span> '+
+      '<b>'+(bal===null?'—':(Number(bal).toLocaleString()+' mock USDC'))+'</b></div>'+
+      '<div class="hint" style="margin-top:3px">treasury <span class="mono">'+esc(addr.slice(0,22))+'…</span>'+
+      (bal===null?'<br><span class="muted">balance unavailable — faucet/RPC not configured</span>':'<br>This wallet pays the per-access fee for licensed editions; the connect-time faucet tops it up with mock USDC.')+
+      (provisioned?'':'<br><span class="muted">No dedicated treasury SA yet — your person SA acts as the treasury until one is provisioned.</span>')+'</div>';
+  }catch(e){el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read treasury: '+esc(e&&e.message?e.message:String(e))+'</div>';}
 }
 // The connected user's own trust-signal feedback (author_sub filter on the public feedback store).
 async function loadMyFeedback(){
