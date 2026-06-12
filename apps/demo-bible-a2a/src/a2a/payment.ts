@@ -9,8 +9,9 @@
 // PAY_RELAY_KEY is a SIGNING key (the executor SA's custodian) — it never holds USDC and never pays gas
 // (the paymaster does). INERT until PAY_ENABLED="1" + the relay/executor/key are set. Modeled on
 // agenticprimitives/apps/demo-web-payment/src/lib/{x402-pay,agent-pay}.ts.
-import { encodeFunctionData, keccak256, toBytes, type Address, type Hex } from 'viem';
+import { encodeFunctionData, keccak256, toBytes, toEventSelector, createPublicClient, http, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { baseSepolia } from 'viem/chains';
 import { x402, computeMandateId, type PaymentMandate, type Hex32 } from '@agenticprimitives/payments';
 
 type Relay = { fetch: (url: string, init?: RequestInit) => Promise<Response> };
@@ -109,11 +110,14 @@ export async function settleLbsbPayment(
   if (!raw) return null; // no payment presented → 402
   let payload: { delegation?: unknown; nonce?: string | number };
   try { payload = JSON.parse(typeof atob === 'function' ? atob(raw) : Buffer.from(raw, 'base64').toString()); } catch { return null; }
-  const readerSa = subjectSa(args.subject);
-  if (!payload.delegation || !readerSa) return null;
+  const deleg = payload.delegation as { delegator?: string };
+  const personSa = subjectSa(args.subject); // the person SA (redeemer / delegate)
+  // PAYER = the budget delegation's DELEGATOR = the user's nameless TREASURY SA — the USDC leaves THERE.
+  const payerSa = (deleg && typeof deleg.delegator === 'string' && /^0x[0-9a-fA-F]{40}$/.test(deleg.delegator)) ? (deleg.delegator as Address) : personSa;
+  if (!deleg || !payerSa) return null;
 
   const nonce = BigInt(payload.nonce ?? Date.now()); // fresh per-charge nonce (PaymentEnforcer rejects reuse)
-  const { mandate, resourceHash } = buildLbsbCharge(env, readerSa, args.edition, nonce);
+  const { mandate, resourceHash } = buildLbsbCharge(env, payerSa, args.edition, nonce);
   const plan = x402.buildRedemptionCalldata({
     mandate, delegation: payload.delegation as never,
     delegationManager: env.PAY_DELEGATION_MANAGER as Address, paymentEnforcer: env.PAY_ENFORCER as Address,
@@ -138,4 +142,38 @@ export async function settleLbsbPayment(
     settlementHash, lane: 'settlement', mandateId: mandate.mandateId, amount: env.PAY_PRICE ?? '0',
     passUses: Number(env.PAY_PASS_USES ?? '1'), passTtl: Number(env.PAY_PASS_TTL_SECONDS ?? '3600'),
   };
+}
+
+export type VerifyEnv = PayEnv & { A2A_RPC_URL?: string };
+/** Verify mode (reader settles, service CONFIRMS) needs only an RPC + the payee + asset + price — NO
+ *  service key, NO relayer. The clean path for the per-user treasury triad: the reader's PERSON SA
+ *  already redeemed its vault budget delegation (`treasury → person`), so the USDC has moved from the
+ *  user's nameless TREASURY SA → the lbsb treasury. */
+export function verifyConfigured(env: VerifyEnv): boolean {
+  return env.PAY_ENABLED === '1' && !!(env.PAY_TREASURY_SA && env.PAY_ASSET && env.PAY_PRICE && env.A2A_RPC_URL);
+}
+const TRANSFER_TOPIC = toEventSelector('Transfer(address,address,uint256)');
+/** Confirm a presented settlement on-chain: a successful tx (the reader's `PAYMENT-RESPONSE`) that
+ *  contains a USDC `Transfer(to = lbsb treasury, value ≥ price)`. Returns the payer = the `from`
+ *  address = the user's nameless TREASURY SA (where the funds left). null ⇒ no/invalid receipt. */
+export async function verifyLbsbPayment(env: VerifyEnv, args: { edition: string; headers: Headers }): Promise<{ settlementHash: string; payer: string; amount: string; lane: 'settlement'; passUses: number; passTtl: number } | null> {
+  if (!verifyConfigured(env)) return null;
+  const raw = args.headers.get('PAYMENT-RESPONSE') || args.headers.get('x-payment-receipt') || '';
+  let receipt: { settlementHash?: string };
+  try { receipt = JSON.parse(typeof atob === 'function' ? atob(raw) : Buffer.from(raw, 'base64').toString()); } catch { return null; }
+  const hash = receipt.settlementHash;
+  if (!hash || !/^0x[0-9a-fA-F]{64}$/.test(hash)) return null;
+  try {
+    const client = createPublicClient({ chain: baseSepolia, transport: http(env.A2A_RPC_URL!) });
+    const rcpt = await Promise.race([client.getTransactionReceipt({ hash: hash as Hex }), new Promise<null>((_, r) => setTimeout(() => r(new Error('timeout')), 8000))]);
+    if (!rcpt || rcpt.status !== 'success') return null;
+    const treasury = String(env.PAY_TREASURY_SA).toLowerCase(), usdc = String(env.PAY_ASSET).toLowerCase(), price = BigInt(env.PAY_PRICE ?? '0');
+    for (const log of rcpt.logs) {
+      if (log.address.toLowerCase() !== usdc || log.topics[0] !== TRANSFER_TOPIC || !log.topics[1] || !log.topics[2]) continue;
+      if (('0x' + log.topics[2].slice(26)).toLowerCase() !== treasury) continue; // to == lbsb treasury
+      const val = BigInt(log.data);
+      if (val >= price) return { settlementHash: hash, payer: '0x' + log.topics[1].slice(26), amount: val.toString(), lane: 'settlement', passUses: Number(env.PAY_PASS_USES ?? '1'), passTtl: Number(env.PAY_PASS_TTL_SECONDS ?? '3600') };
+    }
+    return null; // no qualifying USDC → treasury transfer in this tx
+  } catch { return null; }
 }

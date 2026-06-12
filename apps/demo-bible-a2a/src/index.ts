@@ -10,7 +10,7 @@ import { signCredential, verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2
 import { recoverAddress, keccak256, toBytes } from 'viem';
 import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
 import { resolveOnBehalf, pollTask, buildGrantSpec } from './a2a/client.js';
-import { payConfigured, buildLbsbPaymentRequired, settleLbsbPayment, type PayEnv } from './a2a/payment.js';
+import { payConfigured, buildLbsbPaymentRequired, settleLbsbPayment, verifyLbsbPayment, verifyConfigured, type VerifyEnv } from './a2a/payment.js';
 import type { Delegation } from '@agenticprimitives/delegation';
 import type { Hex } from 'viem';
 
@@ -157,17 +157,28 @@ app.get('/vault/*', async (c) => {
     // try the SETTLEMENT lane (x402) when configured — pay-per-access; else 403 (entitlement required).
     const acc = await mcpPost(c.env, '/tools/verify_access', { edition, subject });
     if (!(acc.body && acc.body.allowed)) {
-      const env = c.env as unknown as PayEnv;
+      const env = c.env as unknown as VerifyEnv;
       const resource = { method: 'GET', url: c.req.url };
-      if (payConfigured(env)) {
+      // SETTLEMENT lane. Prefer VERIFY (the reader's PERSON SA already redeemed its vault budget → USDC
+      // moved from their nameless TREASURY SA → lbsb treasury; we just confirm on-chain — trustless). Fall
+      // back to server-side SETTLE (OPEN-delegate). Else 402 (pay enabled) / 403 (inert).
+      const verified = await verifyLbsbPayment(env, { edition, headers: c.req.raw.headers });
+      let charged: { payer: string; amount: string; settlementHash: string; mandateId: string; passUses: number; passTtl: number } | null =
+        verified ? { payer: verified.payer, amount: verified.amount, settlementHash: verified.settlementHash, mandateId: '', passUses: verified.passUses, passTtl: verified.passTtl } : null;
+      if (verified) {
+        const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
+        if (dup.body && (dup.body as { seen?: boolean }).seen) return c.json({ ok: false, error: 'settlement already used', gated: edition, reason: 'replay' }, 402);
+      } else if (payConfigured(env)) {
         const settled = await settleLbsbPayment(env, { edition, subject, headers: c.req.raw.headers, resource });
-        if (!settled) return c.json({ ok: false, error: `payment required for ${edition}`, gated: edition, reason: 'payment required', lane: 'settlement', x402: buildLbsbPaymentRequired(env, edition, resource) }, 402);
-        // Settled reader→treasury: record the charge + mint a short prepaid PASS (so the reader browses freely).
-        await mcpPost(c.env, '/tools/record_settlement', { edition, payer: subject, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: settled.amount, mandateId: settled.mandateId, settlementHash: settled.settlementHash, lane: 'settlement', reference: c.req.path });
-        await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject, maxUses: settled.passUses, validUntil: new Date(Date.now() + settled.passTtl * 1000).toISOString(), settlementHash: settled.settlementHash });
-      } else {
+        if (settled) charged = { payer: subject, amount: settled.amount, settlementHash: settled.settlementHash, mandateId: settled.mandateId, passUses: settled.passUses, passTtl: settled.passTtl };
+      }
+      if (!charged) {
+        if (verifyConfigured(env) || payConfigured(env)) return c.json({ ok: false, error: `payment required for ${edition}`, gated: edition, reason: 'payment required', lane: 'settlement', x402: buildLbsbPaymentRequired(env, edition, resource) }, 402);
         return c.json({ ok: false, error: `entitlement required for ${edition}`, gated: edition, reason: (acc.body && acc.body.reason) || 'no entitlement' }, 403);
       }
+      // Charge recorded + a short prepaid PASS minted (so the reader browses freely until it expires).
+      await mcpPost(c.env, '/tools/record_settlement', { edition, payer: charged.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: charged.amount, mandateId: charged.mandateId, settlementHash: charged.settlementHash, lane: 'settlement', reference: c.req.path });
+      await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject, maxUses: charged.passUses, validUntil: new Date(Date.now() + charged.passTtl * 1000).toISOString(), settlementHash: charged.settlementHash });
     }
   }
   const sub = c.req.path.replace(/^\/vault/, '');

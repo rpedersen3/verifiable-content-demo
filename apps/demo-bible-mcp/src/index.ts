@@ -579,6 +579,14 @@ app.post('/tools/record_settlement', async (c) => {
   return c.json({ ok: true });
 });
 
+// check_settlement — replay guard: has this on-chain settlement already been consumed for a pass?
+app.post('/tools/check_settlement', async (c) => {
+  const b = await c.req.json<{ settlementHash?: string }>().catch(() => ({}) as { settlementHash?: string });
+  if (!c.env.DB || !b.settlementHash) return c.json({ ok: true, seen: false });
+  const row = await c.env.DB.prepare('SELECT id FROM payments_settled WHERE settlement_hash=? LIMIT 1').bind(b.settlementHash).first();
+  return c.json({ ok: true, seen: !!row });
+});
+
 // list_settlements — the treasury ledger for an edition (owner Treasury tab) or a reader's own charges.
 app.post('/tools/list_settlements', async (c) => {
   const b = await c.req.json<{ edition?: string; payer?: string; limit?: number }>().catch(() => ({}) as { edition?: string; payer?: string; limit?: number });
