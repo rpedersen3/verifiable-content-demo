@@ -29,21 +29,21 @@
   "pnpm": {
     "overrides": {
       "esbuild": "0.28.0",
-      "@agenticprimitives/a2a": "link:../agenticprimitives/packages/a2a",
-      "@agenticprimitives/fulfillment": "link:../agenticprimitives/packages/fulfillment",
-      "@agenticprimitives/delegation": "link:../agenticprimitives/packages/delegation",
-      "@agenticprimitives/agent-account": "link:../agenticprimitives/packages/agent-account",
-      "@agenticprimitives/agent-naming": "link:../agenticprimitives/packages/agent-naming",
-      "@agenticprimitives/audit": "link:../agenticprimitives/packages/audit",
-      "@agenticprimitives/connect": "link:../agenticprimitives/packages/connect",
-      "@agenticprimitives/connect-auth": "link:../agenticprimitives/packages/connect-auth",
-      "@agenticprimitives/content-primitives": "link:../agenticprimitives/packages/content-primitives",
-      "@agenticprimitives/identity-directory": "link:../agenticprimitives/packages/identity-directory",
-      "@agenticprimitives/mcp-runtime": "link:../agenticprimitives/packages/mcp-runtime",
-      "@agenticprimitives/tool-policy": "link:../agenticprimitives/packages/tool-policy",
-      "@agenticprimitives/types": "link:../agenticprimitives/packages/types",
-      "@agenticprimitives/verifiable-credentials": "link:../agenticprimitives/packages/verifiable-credentials",
-      "@agenticprimitives/payments": "link:../agenticprimitives/packages/payments"
+      "@agenticprimitives/a2a": "0.0.0-alpha.5",
+      "@agenticprimitives/fulfillment": "0.0.0-alpha.6",
+      "@agenticprimitives/delegation": "1.0.0-alpha.9",
+      "@agenticprimitives/agent-account": "1.0.0-alpha.9",
+      "@agenticprimitives/agent-naming": "1.0.0-alpha.9",
+      "@agenticprimitives/audit": "1.0.0-alpha.9",
+      "@agenticprimitives/connect": "1.0.0-alpha.9",
+      "@agenticprimitives/connect-auth": "1.0.0-alpha.9",
+      "@agenticprimitives/content-primitives": "1.0.0-alpha.9",
+      "@agenticprimitives/identity-directory": "1.0.0-alpha.9",
+      "@agenticprimitives/mcp-runtime": "1.0.0-alpha.9",
+      "@agenticprimitives/tool-policy": "1.0.0-alpha.9",
+      "@agenticprimitives/types": "1.0.0-alpha.9",
+      "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.5",
+      "@agenticprimitives/payments": "0.0.0-alpha.5"
     }
   },
   "packageManager": "pnpm@9.0.0"
