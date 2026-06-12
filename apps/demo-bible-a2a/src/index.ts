@@ -204,6 +204,22 @@ app.post('/pay/redeem', async (c) => {
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
+// pay/ensure-treasury — at connect: confirm the user's treasury SA exists + has mock USDC; top it up if
+// empty (demo faucet). SA PROVISIONING (deploy + custody) is the home's job — if the user has no treasury
+// yet we flag `needsProvision`; we only FUND. `treasury` is the budget delegation's delegator (where USDC
+// leaves); falls back to the person SA when no budget is provisioned yet.
+app.post('/pay/ensure-treasury', async (c) => {
+  const b = await c.req.json<{ id_token?: string; treasury?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const claims = await verifyIdToken(String(b.id_token ?? ''));
+    const personSa = claims.sub.includes(':') ? claims.sub.split(':').pop()! : claims.sub;
+    const treasury = (b.treasury && /^0x[0-9a-fA-F]{40}$/.test(b.treasury)) ? b.treasury : personSa;
+    const needsProvision = !(b.treasury && /^0x[0-9a-fA-F]{40}$/.test(b.treasury)); // no dedicated treasury SA yet
+    const r = await mcpPost(c.env, '/tools/faucet_usdc', { address: treasury, minUsdc: 10, mintUsdc: 1000 });
+    return c.json({ ok: true, personSa, treasury, needsProvision, fund: r.body });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
 // ── Entitlements (P1): subjects come ONLY from a server-side-verified id_token, never client input ──
 const CONNECT_DOMAIN = 'impact-agent.me';
 const ALLOWED_AUD = ['bible-explorer', 'demo-corpus'];

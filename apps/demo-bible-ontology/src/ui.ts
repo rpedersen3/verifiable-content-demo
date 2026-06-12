@@ -425,6 +425,18 @@ async function lbsbSettle(ed){
 // Submit the redemption AS the person SA. Home-custody → the home's gasless submit-call-userop (sponsored);
 // SIWE wallet → the wallet sends the tx directly. INERT here until one of those signing paths is wired.
 async function submitRedemption(r){ void r; return null; }
+// On connect: confirm the user's nameless TREASURY SA has mock USDC; top it up if empty (demo faucet).
+// Treasury = the vault budget delegation's delegator (where USDC leaves); falls back to the person SA.
+// SA provisioning itself is the home's job — we only fund. INERT until the MCP FAUCET_PK is set.
+async function ensureTreasuryFunded(){
+  if(!isConnected())return;
+  try{
+    const budget=session.payDelegation||await loadPayBudget();
+    const treasury=(budget&&budget.delegator)||'';
+    const r=await fetch(A2A_BASE+'/pay/ensure-treasury',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id_token:session.idToken,treasury:treasury||undefined})}).then(x=>x.json()).catch(function(){return null;});
+    if(r&&r.ok&&r.fund&&r.fund.funded){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.textContent='✓ funded your treasury with '+(r.fund.minted||'1000')+' mock USDC';el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},4000);}
+  }catch(e){}
+}
 async function verifyIdToken(authOrigin,idToken,expectedNonce){
   const parts=idToken.split('.');if(parts.length!==3)throw new Error('id_token malformed');
   const header=decodeSeg(parts[0]),claims=decodeSeg(parts[1]);
@@ -471,7 +483,7 @@ function openConnectGate(reason){const m=document.getElementById('connectGate');
 function promptConnect(){openConnectGate('');}
 function requireConnect(action){if(isConnected())return true;openConnectGate(action);return false;}
 function renderConnect(){const el=document.getElementById('connectBtn');if(!el)return;el.innerHTML=isConnected()?'<span class="muted" style="font-size:12px">● '+esc(session.name||(session.sub||'').slice(0,12))+'</span><button class="map-basbtn" style="border:1px solid var(--line);border-radius:8px" onclick="disconnect()">Disconnect</button>':'<button class="map-basbtn on" style="border:1px solid var(--accent);border-radius:8px" onclick="promptConnect()">Connect</button>';}
-loadSession();renderConnect();updateSrcUI();connectCallback().then(ok=>{if(ok){renderConnect();if(activeEdition!=='bsb')applyHash();}});
+loadSession();renderConnect();updateSrcUI();if(isConnected())ensureTreasuryFunded();connectCallback().then(ok=>{if(ok){renderConnect();ensureTreasuryFunded();if(activeEdition!=='bsb')applyHash();}});
 
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
