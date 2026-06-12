@@ -241,7 +241,7 @@ function apiHeaders(){const h={};if(activeEdition&&activeEdition!=='bsb'){h['x-e
 async function api(p){
   const r=await fetch(A2A_BASE+'/vault'+p,{headers:apiHeaders()});
   let j={};try{j=await r.json();}catch(e){}
-  if((r.status===401||r.status===403)&&j&&j.gated){licenseGate(j);}
+  if((r.status===401||r.status===402||r.status===403)&&j&&j.gated){licenseGate(j);}
   else if(activeEdition!=='bsb'&&r.ok){hideLicenseGate();}
   return j;
 }
@@ -250,6 +250,13 @@ function selectSource(ed){activeEdition=ed;localStorage.setItem('bx.edition',ed)
   if(ed==='bsb'){hideLicenseGate();}else if(!isConnected()){licenseGate({gated:ed,reason:'sign-in required'});}
   if(typeof applyHash==='function')applyHash();}
 function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.style.display='none';}
+// x402 pay-per-use (Phase 4). INERT until the lbsb treasury + PaymentEnforcer + fee asset are
+// configured; then this approves a spend budget (x402-pay delegation) and buys a prepaid pass / pays
+// per access (reader agent wallet → lbsb treasury), auto-paying on a 402 with no per-call popup.
+function buyLbsbAccess(ed){
+  if(!requireConnect('buy '+ed+' access'))return;
+  alert('Pay-per-use for '+String(ed).toUpperCase()+' is wired but inert until the lbsb treasury agent + PaymentEnforcer + fee asset (USDC) are configured.\\n\\nOnce live: (1) approve a one-time spend budget (an x402-pay delegation your home mints), then (2) every licensed access auto-pays a small fee from your agent wallet to the lbsb treasury — settling on-chain, no per-call popup — and the receipt + budget meter show here.');
+}
 function licenseGate(info){
   let el=document.getElementById('licbar');
   if(!el){el=document.createElement('div');el.id='licbar';el.className='licbar';document.body.appendChild(el);}
@@ -257,7 +264,8 @@ function licenseGate(info){
   if(info.reason==='sign-in required'||!isConnected()){
     el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> is a licensed Bible — connect to request access. Every query is verified against your entitlement.</span> <span class="licacts"><button onclick="promptConnect()">Connect</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Use public BSB</button></span>';
   }else{
-    el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> needs an entitlement ('+esc(info.reason||'no entitlement')+') — the corpus owner approves your request.</span> <span class="licacts"><button onclick="accRequest(\\''+esc(ed)+'\\')">Request access</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Use public BSB</button></span>';
+    const pay=info.reason==='payment required';
+    el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> '+(pay?'is <b>pay-per-use</b> — your agent wallet pays a small fee per access to the lbsb treasury.':'needs access ('+esc(info.reason||'no entitlement')+'). Three ways in: a free owner <b>grant</b>, a prepaid <b>pass</b>, or <b>pay-per-access</b> (x402).')+'</span> <span class="licacts"><button onclick="accRequest(\\''+esc(ed)+'\\')">Request grant</button> <button onclick="buyLbsbAccess(\\''+esc(ed)+'\\')">Buy access</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Use public BSB</button></span>';
   }
   el.style.display='flex';
 }
