@@ -43,9 +43,8 @@ A2A_ENF_TIMESTAMP = "0x7c452434314A5bf2048f9263aeCd0cC20Fa07965"
 # (the home only issues a bsb.impact id_token to its controller). Resolve it from agent-naming
 # (resolveName('bsb.impact')) and pin it here. Unset ⇒ first-claim-wins (demo fallback).
 # BSB_OWNER_AGENT_ID = "eip155:84532:0x..."
-# Demo USDC faucet — auto-fund a connected user's treasury at connect (faucet_usdc tool). A2A_RPC_URL is
-# already a secret; PAY_ASSET = the mock USDC token. Set the SECRET: wrangler secret put FAUCET_PK
-#   FAUCET_PK — a Base-Sepolia-funded EOA private key; submits MockUSDC.mint (pays gas only).
+# Mock USDC token — for the KEYLESS usdc_balance read (treasury balance in the Explorer admin lane).
+# No faucet, no FAUCET_PK: funding a treasury is a client-side custodian mint (the reader's own wallet).
 PAY_ASSET = "0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C"
 
 # Durable full-BSB corpus (verses + precomputed corpusRoot + leaf commitments).

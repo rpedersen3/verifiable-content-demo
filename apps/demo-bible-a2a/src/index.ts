@@ -10,7 +10,7 @@ import { signCredential, verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2
 import { recoverAddress, keccak256, toBytes } from 'viem';
 import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
 import { resolveOnBehalf, pollTask, buildGrantSpec } from './a2a/client.js';
-import { payConfigured, buildLbsbPaymentRequired, settleLbsbPayment, verifyLbsbPayment, verifyConfigured, buildLbsbRedemption, chargeLbsbTreasury, chargeConfigured, resolveTreasurySa, type VerifyEnv, type ChargeEnv } from './a2a/payment.js';
+import { buildLbsbPaymentRequired, verifyLbsbPayment, verifyConfigured, buildLbsbRedemption, type VerifyEnv } from './a2a/payment.js';
 import type { Delegation } from '@agenticprimitives/delegation';
 import type { Hex } from 'viem';
 
@@ -159,21 +159,17 @@ app.get('/vault/*', async (c) => {
     if (!(acc.body && acc.body.allowed)) {
       const env = c.env as unknown as VerifyEnv;
       const resource = { method: 'GET', url: c.req.url };
-      // SETTLEMENT lane. Prefer VERIFY (the reader's PERSON SA already redeemed its vault budget → USDC
-      // moved from their nameless TREASURY SA → lbsb treasury; we just confirm on-chain — trustless). Fall
-      // back to server-side SETTLE (OPEN-delegate). Else 402 (pay enabled) / 403 (inert).
+      // SETTLEMENT lane — KEYLESS VERIFY only. The reader already redeemed their stored person-treasury →
+      // lbsb-treasury delegation with their OWN wallet (USDC moved on-chain); we just confirm the transfer
+      // (no service key). No qualifying payment ⇒ 402 (pay enabled) / 403 (inert).
       const verified = await verifyLbsbPayment(env, { edition, headers: c.req.raw.headers });
-      let charged: { payer: string; amount: string; settlementHash: string; mandateId: string; passUses: number; passTtl: number } | null =
-        verified ? { payer: verified.payer, amount: verified.amount, settlementHash: verified.settlementHash, mandateId: '', passUses: verified.passUses, passTtl: verified.passTtl } : null;
+      const charged = verified ? { payer: verified.payer, amount: verified.amount, settlementHash: verified.settlementHash, mandateId: '', passUses: verified.passUses, passTtl: verified.passTtl } : null;
       if (verified) {
         const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
         if (dup.body && (dup.body as { seen?: boolean }).seen) return c.json({ ok: false, error: 'settlement already used', gated: edition, reason: 'replay' }, 402);
-      } else if (payConfigured(env)) {
-        const settled = await settleLbsbPayment(env, { edition, subject, headers: c.req.raw.headers, resource });
-        if (settled) charged = { payer: subject, amount: settled.amount, settlementHash: settled.settlementHash, mandateId: settled.mandateId, passUses: settled.passUses, passTtl: settled.passTtl };
       }
       if (!charged) {
-        if (verifyConfigured(env) || payConfigured(env)) return c.json({ ok: false, error: `payment required for ${edition}`, gated: edition, reason: 'payment required', lane: 'settlement', x402: buildLbsbPaymentRequired(env, edition, resource) }, 402);
+        if (verifyConfigured(env)) return c.json({ ok: false, error: `payment required for ${edition}`, gated: edition, reason: 'payment required', lane: 'settlement', x402: buildLbsbPaymentRequired(env, edition, resource) }, 402);
         return c.json({ ok: false, error: `entitlement required for ${edition}`, gated: edition, reason: (acc.body && acc.body.reason) || 'no entitlement' }, 403);
       }
       // Charge recorded + a short prepaid PASS minted (so the reader browses freely until it expires).
@@ -204,56 +200,21 @@ app.post('/pay/redeem', async (c) => {
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
-// pay/ensure-treasury — at connect: confirm the user's treasury SA exists + has mock USDC; top it up if
-// empty (demo faucet). SA PROVISIONING (deploy + custody) is the home's job — if the user has no treasury
-// yet we flag `needsProvision`; we only FUND. `treasury` is the budget delegation's delegator (where USDC
-// leaves); falls back to the person SA when no budget is provisioned yet.
-app.post('/pay/ensure-treasury', async (c) => {
-  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as Record<string, never>);
-  try {
-    const claims = await verifyIdToken(String(b.id_token ?? ''));
-    const personSa = claims.sub.includes(':') ? claims.sub.split(':').pop()! : claims.sub;
-    // Provision (idempotent CREATE2-deploy) the user's FAUCET-custodied treasury SA, then fund THAT (not
-    // the person SA) — the treasury is where the pay-per-use fee leaves from. Falls back to the person SA
-    // only when charging isn't configured (the faucet still tops up something to display).
-    const treasury = (await resolveTreasurySa(c.env as unknown as ChargeEnv, personSa!)) ?? personSa;
-    const provisioned = treasury !== personSa;
-    const r = await mcpPost(c.env, '/tools/faucet_usdc', { address: treasury, minUsdc: 10, mintUsdc: 1000 });
-    return c.json({ ok: true, personSa, treasury, provisioned, needsProvision: !provisioned, fund: r.body });
-  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
-});
-
-// pay/charge — pay-per-use: move the access fee USDC from the connected reader's FAUCET-custodied
-// treasury SA → the lbsb treasury (gasless), then record the settlement. Fires when a reader USES the
-// lbsb scripture service (reads licensed verse text). Inert (400) unless PAY_CHARGE_ENABLED + FAUCET.
-app.post('/pay/charge', async (c) => {
-  const b = await c.req.json<{ id_token?: string; edition?: string }>().catch(() => ({}) as Record<string, never>);
-  try {
-    const claims = await verifyIdToken(String(b.id_token ?? ''));
-    const personSa = claims.sub.includes(':') ? claims.sub.split(':').pop()! : claims.sub;
-    const edition = String(b.edition ?? 'lbsb');
-    if (!chargeConfigured(c.env as unknown as ChargeEnv)) return c.json({ ok: false, error: 'pay-per-use not enabled', configured: false }, 400);
-    const r = await chargeLbsbTreasury(c.env as unknown as ChargeEnv, { personSa: personSa! });
-    if ('error' in r) return c.json({ ok: false, error: r.error }, 400);
-    await mcpPost(c.env, '/tools/record_settlement', { edition, payer: r.treasury, payee: r.payee, asset: r.asset, amount: r.amount, settlementHash: r.settlementHash, lane: 'settlement', reference: '/pay/charge' });
-    return c.json({ ok: true, edition, personSa, treasury: r.treasury, payee: r.payee, asset: r.asset, amount: r.amount, settlementHash: r.settlementHash });
-  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
-});
-
-// pay/treasury-status — read-only: the connected user's associated treasury SA + its mock-USDC balance,
-// for the Explorer admin "My treasury" lane. The treasury is the budget delegation's delegator (where
-// USDC leaves); until a dedicated treasury SA is provisioned it falls back to the person SA (the entity
-// the connect-time faucet funds). No mint, no gas.
+// pay/treasury-status — read-only: the connected user's person-treasury SA + its mock-USDC balance, for
+// the Explorer admin "My treasury" lane. The treasury is the payment delegation's `delegator` (where USDC
+// leaves), passed in by the client; falls back to the person SA when no payment delegation is set up yet.
+// KEYLESS: an on-chain balanceOf read, no mint, no gas, no held key. (The treasury SA itself is created by
+// the HOME in the member's Portal; funding it is a client-side custodian mint — never a service faucet.)
 app.post('/pay/treasury-status', async (c) => {
-  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as Record<string, never>);
+  const b = await c.req.json<{ id_token?: string; treasury?: string }>().catch(() => ({}) as Record<string, never>);
   try {
     const claims = await verifyIdToken(String(b.id_token ?? ''));
     const personSa = claims.sub.includes(':') ? claims.sub.split(':').pop()! : claims.sub;
-    const resolved = await resolveTreasurySa(c.env as unknown as ChargeEnv, personSa!);
-    const treasury = resolved ?? personSa;
+    const dedicated = b.treasury && /^0x[0-9a-fA-F]{40}$/.test(b.treasury);
+    const treasury = dedicated ? b.treasury! : personSa;
     const r = await mcpPost(c.env, '/tools/usdc_balance', { address: treasury });
     const bal = r.body as { configured?: boolean; usdc?: string; balance?: string };
-    return c.json({ ok: true, personSa, treasury, provisioned: !!resolved, configured: !!bal.configured, usdc: bal.usdc ?? '0', balance: bal.balance ?? '0', asset: (c.env as unknown as { PAY_ASSET?: string }).PAY_ASSET ?? null });
+    return c.json({ ok: true, personSa, treasury, provisioned: !!dedicated, configured: !!bal.configured, usdc: bal.usdc ?? '0', balance: bal.balance ?? '0', asset: (c.env as unknown as { PAY_ASSET?: string }).PAY_ASSET ?? null });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 

@@ -480,16 +480,22 @@ async function submitRedemption(r){
   return hash;
 }
 // On connect: confirm the user's nameless TREASURY SA has mock USDC; top it up if empty (demo faucet).
-// Treasury = the vault budget delegation's delegator (where USDC leaves); falls back to the person SA.
-// SA provisioning itself is the home's job — we only fund. INERT until the MCP FAUCET_PK is set.
-async function ensureTreasuryFunded(){
-  if(!isConnected())return;
+// Fund a person-treasury with mock USDC via a CUSTODIAN MINT — NO service faucet, NO held key: the
+// reader's OWN wallet calls MockUSDC.mint(treasury, amount) and pays gas (mint is permissionless). The
+// treasury SA itself is created by the home in the member's Portal; we only top it up, on demand.
+async function fundTreasury(treasury){
+  const t=treasury||(session.payDelegation&&session.payDelegation.delegator)||'';
+  if(!t||!/^0x[0-9a-fA-F]{40}$/.test(t)){alert('No treasury yet — connect with a payment budget (Buy access) first.');return;}
+  if(typeof window==='undefined'||!window.ethereum){alert('A wallet is needed to fund your treasury (mint mock USDC).');return;}
   try{
-    const budget=session.payDelegation||await loadPayBudget();
-    const treasury=(budget&&budget.delegator)||'';
-    const r=await fetch(A2A_BASE+'/pay/ensure-treasury',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id_token:session.idToken,treasury:treasury||undefined})}).then(x=>x.json()).catch(function(){return null;});
-    if(r&&r.ok&&r.fund&&r.fund.funded){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.textContent='✓ funded your treasury with '+(r.fund.minted||'1000')+' mock USDC';el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},4000);}
-  }catch(e){}
+    const accts=await window.ethereum.request({method:'eth_requestAccounts'});const owner=accts&&accts[0];if(!owner)return;
+    // MockUSDC.mint(address,uint256) = selector 0x40c10f19 + padded(treasury) + padded(1000 USDC @ 6dp)
+    const to=t.toLowerCase().replace('0x','').padStart(64,'0');
+    const amt=(1000000000).toString(16).padStart(64,'0');
+    const txHash=await window.ethereum.request({method:'eth_sendTransaction',params:[{from:owner,to:LBSB_USDC,data:'0x40c10f19'+to+amt}]});
+    alert('Minting 1000 mock USDC to your treasury — tx '+String(txHash).slice(0,12)+'…');
+    setTimeout(function(){if(typeof loadTreasury==='function')loadTreasury();},5000);
+  }catch(e){alert('Funding failed: '+(e&&e.message?e.message:e));}
 }
 async function verifyIdToken(authOrigin,idToken,expectedNonce){
   const parts=idToken.split('.');if(parts.length!==3)throw new Error('id_token malformed');
@@ -550,7 +556,7 @@ function renderConnect(){const el=document.getElementById('connectBtn');if(!el)r
 function toggleAcctMenu(e){if(e){e.stopPropagation();}const p=document.getElementById('acctmenuPop');if(p)p.classList.toggle('open');}
 function closeAcctMenu(){const p=document.getElementById('acctmenuPop');if(p)p.classList.remove('open');}
 document.addEventListener('click',function(e){const p=document.getElementById('acctmenuPop');if(p&&p.classList.contains('open')&&!e.target.closest('.acctmenu'))p.classList.remove('open');});
-loadSession();renderConnect();updateSrcUI();if(isConnected())ensureTreasuryFunded();connectCallback().then(ok=>{if(ok){renderConnect();ensureTreasuryFunded();if(activeEdition!=='bsb')applyHash();}});
+loadSession();renderConnect();updateSrcUI();connectCallback().then(ok=>{if(ok){renderConnect();if(activeEdition!=='bsb')applyHash();}});
 
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
@@ -761,11 +767,12 @@ async function loadTreasury(){
     const addr=r.treasury||'';
     const provisioned=r.provisioned;
     const bal=r.configured?(r.usdc||'0'):null;
-    el.innerHTML='<div class="acc-row"><span class="acc-st '+(provisioned?'acc-granted':'acc-pending')+'">'+(provisioned?'dedicated SA':'person SA')+'</span> '+
-      '<b>'+(bal===null?'—':(Number(bal).toLocaleString()+' mock USDC'))+'</b></div>'+
+    el.innerHTML='<div class="acc-row"><span class="acc-st '+(provisioned?'acc-granted':'acc-pending')+'">'+(provisioned?'person-treasury':'person SA')+'</span> '+
+      '<b>'+(bal===null?'—':(Number(bal).toLocaleString()+' mock USDC'))+'</b>'+
+      (addr?' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="fundTreasury(\\''+esc(addr)+'\\')">Fund (mint mock USDC)</button>':'')+'</div>'+
       '<div class="hint" style="margin-top:3px">treasury <span class="mono">'+esc(addr.slice(0,22))+'…</span>'+
-      (bal===null?'<br><span class="muted">balance unavailable — faucet/RPC not configured</span>':'<br>This wallet pays the per-access fee for licensed editions; the connect-time faucet tops it up with mock USDC.')+
-      (provisioned?'':'<br><span class="muted">No dedicated treasury SA yet — your person SA acts as the treasury until one is provisioned.</span>')+'</div>';
+      (bal===null?'<br><span class="muted">balance unavailable — RPC not configured</span>':'<br>Your person-treasury pays the per-access fee for licensed editions. Top it up with a <b>custodian mint</b> — your own wallet mints mock USDC (no service faucet, no held key).')+
+      (provisioned?'':'<br><span class="muted">No person-treasury authorized yet — create one in your Global.Church Portal, then Buy access to authorize a payment delegation.</span>')+'</div>';
   }catch(e){el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read treasury: '+esc(e&&e.message?e.message:String(e))+'</div>';}
 }
 // The connected user's own trust-signal feedback (author_sub filter on the public feedback store).

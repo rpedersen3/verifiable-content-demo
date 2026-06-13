@@ -28,42 +28,22 @@ BSB_AGENT_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
 A2A_ENF_TARGETS = "0xe3909FdEfD8b74B7D006E045DCd678e97D469Bfd"
 A2A_ENF_METHODS = "0xf77cf06aCd8b9e2f3204fe4bE16449B3594c9633"
 A2A_ENF_TIMESTAMP = "0x7c452434314A5bf2048f9263aeCd0cC20Fa07965"
-# x402 pay-per-use SETTLEMENT lane (spec 272). Addresses WIRED (Base Sepolia deployments); the lane
-# stays INERT until PAY_ENABLED="1" — flip it only once settleLbsbPayment is implemented, readers can
-# mint an x402-pay budget delegation, and the reader + treasury SAs are funded with mock USDC.
-# Step 5 — payments live via the KEYLESS verify path: the reader settles client-side (redeems their
-# stored person-treasury → lbsb-treasury delegation, wallet-signed, gasless), and the gate confirms the
-# on-chain transfer (verifyLbsbPayment — RPC only, no key). The server-side settle path stays inert
-# (PAY_RELAY_KEY removed in step 6), so the gate uses verify, not the held-key settle.
+# x402 pay-per-use for lbsb (spec 272) — KEYLESS. With PAY_ENABLED="1" the gate challenges an unpaid
+# licensed read with 402; the reader settles CLIENT-SIDE (redeems their stored person-treasury →
+# lbsb-treasury delegation with their OWN wallet, gasless via the demo-a2a relayer + paymaster), and the
+# gate confirms the on-chain transfer (verifyLbsbPayment — RPC only). NO service-held key anywhere: there
+# is no server-side settle and no faucet. Funding a treasury is a client-side custodian mint.
 PAY_ENABLED = "1"
-# Pay-per-use lane (app-provisioned, FAUCET-custodied treasury → lbsb treasury, gasless). Independent of
-# PAY_ENABLED (the ERC-7710 redemption lane): this moves the fee via the treasury SA's app-custodian, so
-# it needs no reader home/wallet signature. ON — fires when a connected reader reads licensed lbsb text.
-PAY_CHARGE_ENABLED = "1"
 PAY_CHAIN_ID = "84532"
 PAY_TREASURY_SA = "0xa9e0acecfbce08548358b4f5681b13a00a5cab7a"        # lbsb-treasury.impact (payee)
 PAY_ENFORCER = "0xAF48273e11435cC2D56f4AFBfD091Abb162458E9"          # PaymentEnforcer
 PAY_DELEGATION_MANAGER = "0x3a8E2cE74564f699b135db6f266ccDb563979C05"
-PAY_PAYMASTER = "0x8eF92B9D62826052D8F7e6dcaB630dC3890bF540"         # smartAgentPaymaster (sponsors settle UserOp)
-PAY_ENTRY_POINT = "0x9B33De9d9597de82Eb56b5B26C478Dc0a6955388"
-PAY_RECEIPT_REGISTRY = "0x366616E265cd3cDE0F042A592C17838fe210D1d4"  # paymentReceiptRegistry
 PAY_ASSET = "0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C"             # mock USDC (6 decimals)
 PAY_PRICE = "1000"                                                    # 0.001 USDC per access
 PAY_PASS_USES = "5"                                                   # reads one settlement buys (prepay)
 PAY_PASS_TTL_SECONDS = "3600"
-PAY_EXECUTOR_SA = "0x91b43817d8f9ff449a4c68cb187821b13b5feabe"       # lbsb.impact executes redeemDelegation (gasless)
-PAY_RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
-# At activation (PAY_ENABLED="1") set this SECRET (wrangler secret put PAY_RELAY_KEY):
-#   PAY_RELAY_KEY — the executor SA's CUSTODIAN key; SIGNS the userOpHash only (NO gas, NO USDC — the
-#                   smartAgentPaymaster sponsors gas via the demo-a2a relayer service binding below).
 
 # Worker-to-Worker via a service binding (avoids CF error 1042).
 [[env.production.services]]
 binding = "MCP"
 service = "demo-bible-mcp-production"
-
-# The agenticprimitives demo-a2a relayer — for the gasless x402 settlement UserOp (build/submit-call-userop,
-# paymaster-sponsored). Same relayer demo-bible-mcp uses for vault delivery.
-[[env.production.services]]
-binding = "PAY_RELAY"
-service = "demo-a2a-production"

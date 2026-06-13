@@ -36,8 +36,7 @@ import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
 import { AgentNamingClient, namehash, agentNameRegistryAbi } from '@agenticprimitives/agent-naming';
 import { agentAccountAbi } from '@agenticprimitives/agent-account';
-import { createPublicClient, createWalletClient, http } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { createPublicClient, http } from 'viem';
 import { baseSepolia } from 'viem/chains';
 import type { Hex, Address } from 'viem';
 
@@ -588,32 +587,15 @@ app.post('/tools/check_settlement', async (c) => {
   return c.json({ ok: true, seen: !!row });
 });
 
-// faucet_usdc — demo convenience: if `address` holds < minUsdc, mint it `mintUsdc` mock USDC. Needs a
-// server-side funded EOA (FAUCET_PK — pays gas only) + the RPC + the USDC token. INERT until configured.
-const FAUCET_ERC20 = [
+// (Removed the FAUCET_PK faucet_usdc mint tool — no service-held key. Funding a person-treasury is now a
+//  client-side CUSTODIAN mint: the reader's own wallet calls MockUSDC.mint, paying gas. The home creates
+//  the treasury SA in the member's Portal.)
+const USDC_ABI = [
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ name: 'a', type: 'address' }], outputs: [{ type: 'uint256' }] },
-  { type: 'function', name: 'mint', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [] },
 ] as const;
-app.post('/tools/faucet_usdc', async (c) => {
-  const b = await c.req.json<{ address?: string; minUsdc?: number; mintUsdc?: number }>().catch(() => ({}) as Record<string, never>);
-  const env = c.env as unknown as { FAUCET_PK?: string; A2A_RPC_URL?: string; PAY_ASSET?: string };
-  if (!env.FAUCET_PK || !env.A2A_RPC_URL || !env.PAY_ASSET) return c.json({ ok: false, error: 'faucet not configured', configured: false });
-  if (!b.address || !/^0x[0-9a-fA-F]{40}$/.test(b.address)) return c.json({ ok: false, error: 'address required' }, 400);
-  const usdc = env.PAY_ASSET as `0x${string}`, addr = b.address as `0x${string}`;
-  const min = BigInt(Math.round((b.minUsdc ?? 10) * 1e6)), mintAmt = BigInt(Math.round((b.mintUsdc ?? 1000) * 1e6));
-  try {
-    const pc = createPublicClient({ chain: baseSepolia, transport: http(env.A2A_RPC_URL) });
-    const bal = (await pc.readContract({ address: usdc, abi: FAUCET_ERC20, functionName: 'balanceOf', args: [addr] })) as bigint;
-    if (bal >= min) return c.json({ ok: true, funded: false, balance: bal.toString(), reason: 'already funded' });
-    const wallet = createWalletClient({ account: privateKeyToAccount(env.FAUCET_PK as `0x${string}`), chain: baseSepolia, transport: http(env.A2A_RPC_URL) });
-    const txHash = await wallet.writeContract({ address: usdc, abi: FAUCET_ERC20, functionName: 'mint', args: [addr, mintAmt] });
-    audit('content.payment.faucet', 'success', b.address, { mintUsdc: b.mintUsdc ?? 1000 });
-    return c.json({ ok: true, funded: true, txHash, minted: (Number(mintAmt) / 1e6).toString(), previousBalance: bal.toString() });
-  } catch (e) { return c.json({ ok: false, error: (e as Error).message }); }
-});
 
-// usdc_balance — read-only mock-USDC balance of an address (no mint, no gas). For the Explorer admin
-// "my treasury" lane. INERT (configured:false) until the RPC + token are set.
+// usdc_balance — read-only mock-USDC balance of an address (no mint, no gas, no key). For the Explorer
+// admin "my treasury" lane. INERT (configured:false) until the RPC + token are set.
 app.post('/tools/usdc_balance', async (c) => {
   const b = await c.req.json<{ address?: string }>().catch(() => ({}) as Record<string, never>);
   const env = c.env as unknown as { A2A_RPC_URL?: string; PAY_ASSET?: string };
@@ -621,7 +603,7 @@ app.post('/tools/usdc_balance', async (c) => {
   if (!b.address || !/^0x[0-9a-fA-F]{40}$/.test(b.address)) return c.json({ ok: false, error: 'address required' }, 400);
   try {
     const pc = createPublicClient({ chain: baseSepolia, transport: http(env.A2A_RPC_URL) });
-    const bal = (await pc.readContract({ address: env.PAY_ASSET as `0x${string}`, abi: FAUCET_ERC20, functionName: 'balanceOf', args: [b.address as `0x${string}`] })) as bigint;
+    const bal = (await pc.readContract({ address: env.PAY_ASSET as `0x${string}`, abi: USDC_ABI, functionName: 'balanceOf', args: [b.address as `0x${string}`] })) as bigint;
     return c.json({ ok: true, configured: true, address: b.address, asset: env.PAY_ASSET, balance: bal.toString(), usdc: (Number(bal) / 1e6).toString() });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message, configured: true }); }
 });
