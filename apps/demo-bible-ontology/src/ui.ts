@@ -809,8 +809,24 @@ async function accRead(i,ref){
   const e=accessEnts[i],out=document.getElementById('acc-read');if(!e||!out)return;
   out.innerHTML='<div class="ghint" style="padding:8px">reading '+esc(ref)+' from '+esc(e.edition)+'…</div>';
   const r=await a2aPost('/resolve-licensed',{id_token:session.idToken,reference:ref,edition:e.edition,entitlement:e.entitlement}).catch(er=>({ok:false,error:String(er)}));
-  if(r&&r.ok)out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound entitled read</div>':'')+'</div>';
+  if(r&&r.ok){
+    out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound entitled read</div>':'')+'<div id="acc-pay" class="muted" style="font-size:11px;margin-top:4px">💸 paying the per-use fee…</div></div>';
+    lbsbCharge(e.edition);
+  }
   else out.innerHTML='<div style="color:#c0392b;font-size:13px">Denied: '+esc((r&&r.error)||'failed')+'</div>';
+}
+// Pay-per-use: using the lbsb scripture service charges an x402 fee — USDC moves from the reader's
+// treasury smart account → the lbsb treasury (gasless). Fires after a licensed verse read; the receipt
+// shows the on-chain tx and the treasury balance refreshes.
+async function lbsbCharge(edition){
+  const el=document.getElementById('acc-pay');
+  try{
+    const p=await a2aPost('/pay/charge',{id_token:session.idToken,edition:edition});
+    if(p&&p.ok){
+      if(el)el.innerHTML='💸 paid '+(Number(p.amount)/1e6)+' USDC · treasury <span class="mono">'+esc((p.treasury||'').slice(0,10))+'…</span> → lbsb treasury · tx <span class="mono">'+esc((p.settlementHash||'').slice(0,12))+'…</span>';
+      if(typeof loadTreasury==='function')loadTreasury();
+    } else if(el){el.innerHTML='<span style="color:#b45309">per-use fee not charged: '+esc((p&&p.error)||'unavailable')+'</span>';}
+  }catch(e){if(el)el.innerHTML='<span style="color:#b45309">per-use fee error: '+esc(e&&e.message?e.message:String(e))+'</span>';}
 }
 // Read via the async A2A bus: fetch the scoped-grant spec the home must mint, then submit a
 // get-gated-passage TASK to the BSB agent through the Scripture Agent (resolve-on-behalf).

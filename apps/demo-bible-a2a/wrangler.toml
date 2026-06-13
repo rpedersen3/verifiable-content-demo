@@ -32,6 +32,10 @@ A2A_ENF_TIMESTAMP = "0x7c452434314A5bf2048f9263aeCd0cC20Fa07965"
 # stays INERT until PAY_ENABLED="1" — flip it only once settleLbsbPayment is implemented, readers can
 # mint an x402-pay budget delegation, and the reader + treasury SAs are funded with mock USDC.
 PAY_ENABLED = "0"
+# Pay-per-use lane (app-provisioned, FAUCET-custodied treasury → lbsb treasury, gasless). Independent of
+# PAY_ENABLED (the ERC-7710 redemption lane): this moves the fee via the treasury SA's app-custodian, so
+# it needs no reader home/wallet signature. ON — fires when a connected reader reads licensed lbsb text.
+PAY_CHARGE_ENABLED = "1"
 PAY_CHAIN_ID = "84532"
 PAY_TREASURY_SA = "0xa9e0acecfbce08548358b4f5681b13a00a5cab7a"        # lbsb-treasury.impact (payee)
 PAY_ENFORCER = "0xAF48273e11435cC2D56f4AFBfD091Abb162458E9"          # PaymentEnforcer

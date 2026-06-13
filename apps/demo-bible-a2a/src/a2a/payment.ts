@@ -33,6 +33,7 @@ export type PayEnv = {
   PAY_RELAY?: Relay;               // service binding to the demo-a2a relayer (build/submit-call-userop)
   PAY_RELAY_URL?: string;          // off-binding fallback URL
   PAY_RELAY_ORIGIN?: string;       // allow-listed origin for the relayer CSRF
+  PAY_CHARGE_ENABLED?: string;     // master switch for the app-provisioned-treasury pay-per-use lane
 };
 
 /** True only when PAY_ENABLED=1 AND the settle substrate is wired (addresses + executor + signer + relay). */
@@ -229,4 +230,54 @@ export async function provisionTreasury(env: ProvisionEnv, args: { personSa: str
   } as never);
   const budget = await client.issueDelegation({ delegate: args.personSa as Address, caveats } as never);
   return { treasury, budget };
+}
+
+// ── Pay-per-use charge (app-provisioned-treasury settlement) ───────────────────────────────────────
+// The clean, working settlement for the demo: the user's treasury SA is FAUCET-custodied (see
+// provisionTreasury), so the service can move the per-use fee USDC straight from that treasury → the lbsb
+// treasury as a gasless paymaster-sponsored UserOp (the FAUCET signs the userOpHash). This is what fires
+// when a connected reader USES the lbsb scripture service. It does NOT need the user's home/wallet key —
+// unlike the ERC-7710 redemption lane (settleLbsbPayment), which needs the person SA's custodian to sign.
+export type ChargeEnv = PayEnv & { FAUCET_PK?: string };
+export function chargeConfigured(env: ChargeEnv): boolean {
+  return env.PAY_CHARGE_ENABLED === '1' && !!(env.FAUCET_PK && env.PAY_ASSET && env.PAY_TREASURY_SA && env.PAY_PRICE && (env.PAY_RELAY || env.PAY_RELAY_URL));
+}
+const ERC20_TRANSFER = [{ type: 'function', name: 'transfer', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ type: 'bool' }] }] as const;
+
+/** Resolve (idempotently CREATE2-deploy) the user's FAUCET-custodied treasury SA. salt = the person SA →
+ *  one distinct, deterministic treasury per user; returns the address (no on-chain tx if already deployed). */
+export async function resolveTreasurySa(env: ChargeEnv, personSa: string): Promise<string | null> {
+  if (!env.FAUCET_PK || !(env.PAY_RELAY || env.PAY_RELAY_URL)) return null;
+  const account = privateKeyToAccount(env.FAUCET_PK as Hex);
+  const origin = env.PAY_RELAY_ORIGIN ?? '';
+  const csrf = await relayJson(env, '/auth/csrf', { headers: { origin } });
+  const tok = String(csrf.token ?? '');
+  const salt = BigInt(keccak256(toBytes('treasury:' + personSa))).toString();
+  const zero = ('0x' + '00'.repeat(32)) as Hex;
+  const dep = await relayJson(env, '/session/direct-deploy', { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': tok, origin }, body: JSON.stringify({ mode: 0, custodians: [account.address], trustees: [], initialPasskeyCredentialIdDigest: zero, initialPasskeyX: '0', initialPasskeyY: '0', initialPasskeyRpIdHash: zero, timelockOverrides: [], salt }) });
+  const t = dep.deployedAddress as string | undefined;
+  return (t && /^0x[0-9a-fA-F]{40}$/.test(t)) ? t : null;
+}
+
+export type LbsbCharge = { settlementHash: string; treasury: string; payee: string; asset: string; amount: string };
+/** Move PAY_PRICE USDC from the reader's FAUCET-custodied treasury SA → the lbsb treasury, gaslessly. */
+export async function chargeLbsbTreasury(env: ChargeEnv, args: { personSa: string }): Promise<LbsbCharge | { error: string }> {
+  if (!chargeConfigured(env)) return { error: 'charge not configured' };
+  const treasury = await resolveTreasurySa(env, args.personSa);
+  if (!treasury) return { error: 'could not resolve treasury SA' };
+  const price = BigInt(env.PAY_PRICE ?? '0');
+  const inner = encodeFunctionData({ abi: ERC20_TRANSFER, functionName: 'transfer', args: [env.PAY_TREASURY_SA as Address, price] });
+  const callData = encodeExecute(env.PAY_ASSET as Address, 0n, inner); // treasury.execute(USDC, 0, transfer(lbsbTreasury, price))
+  const origin = env.PAY_RELAY_ORIGIN ?? '';
+  const csrf = await relayJson(env, '/auth/csrf', { headers: { origin } });
+  const tok = String(csrf.token ?? '');
+  const build = await relayJson(env, '/account/build-call-userop', { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': tok, origin }, body: JSON.stringify({ sender: treasury, callData }) });
+  const userOp = build.userOp as Record<string, unknown> | undefined;
+  const userOpHash = build.userOpHash as Hex | undefined;
+  if (!userOp || !userOpHash) return { error: 'relayer could not build the charge (treasury underfunded?)' };
+  const signature = await privateKeyToAccount(env.FAUCET_PK as Hex).signMessage({ message: { raw: userOpHash } });
+  const sub = await relayJson(env, '/account/submit-call-userop', { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': tok, origin }, body: JSON.stringify({ userOp: { ...userOp, signature } }) });
+  const settlementHash = String(sub.transactionHash ?? '');
+  if (!settlementHash || (sub.status && sub.status !== 'success' && sub.status !== '0x1')) return { error: 'charge tx failed' };
+  return { settlementHash, treasury, payee: env.PAY_TREASURY_SA as string, asset: env.PAY_ASSET as string, amount: price.toString() };
 }

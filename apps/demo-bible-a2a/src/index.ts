@@ -10,7 +10,7 @@ import { signCredential, verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2
 import { recoverAddress, keccak256, toBytes } from 'viem';
 import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
 import { resolveOnBehalf, pollTask, buildGrantSpec } from './a2a/client.js';
-import { payConfigured, buildLbsbPaymentRequired, settleLbsbPayment, verifyLbsbPayment, verifyConfigured, buildLbsbRedemption, type VerifyEnv } from './a2a/payment.js';
+import { payConfigured, buildLbsbPaymentRequired, settleLbsbPayment, verifyLbsbPayment, verifyConfigured, buildLbsbRedemption, chargeLbsbTreasury, chargeConfigured, resolveTreasurySa, type VerifyEnv, type ChargeEnv } from './a2a/payment.js';
 import type { Delegation } from '@agenticprimitives/delegation';
 import type { Hex } from 'viem';
 
@@ -209,14 +209,34 @@ app.post('/pay/redeem', async (c) => {
 // yet we flag `needsProvision`; we only FUND. `treasury` is the budget delegation's delegator (where USDC
 // leaves); falls back to the person SA when no budget is provisioned yet.
 app.post('/pay/ensure-treasury', async (c) => {
-  const b = await c.req.json<{ id_token?: string; treasury?: string }>().catch(() => ({}) as Record<string, never>);
+  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as Record<string, never>);
   try {
     const claims = await verifyIdToken(String(b.id_token ?? ''));
     const personSa = claims.sub.includes(':') ? claims.sub.split(':').pop()! : claims.sub;
-    const treasury = (b.treasury && /^0x[0-9a-fA-F]{40}$/.test(b.treasury)) ? b.treasury : personSa;
-    const needsProvision = !(b.treasury && /^0x[0-9a-fA-F]{40}$/.test(b.treasury)); // no dedicated treasury SA yet
+    // Provision (idempotent CREATE2-deploy) the user's FAUCET-custodied treasury SA, then fund THAT (not
+    // the person SA) — the treasury is where the pay-per-use fee leaves from. Falls back to the person SA
+    // only when charging isn't configured (the faucet still tops up something to display).
+    const treasury = (await resolveTreasurySa(c.env as unknown as ChargeEnv, personSa!)) ?? personSa;
+    const provisioned = treasury !== personSa;
     const r = await mcpPost(c.env, '/tools/faucet_usdc', { address: treasury, minUsdc: 10, mintUsdc: 1000 });
-    return c.json({ ok: true, personSa, treasury, needsProvision, fund: r.body });
+    return c.json({ ok: true, personSa, treasury, provisioned, needsProvision: !provisioned, fund: r.body });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
+// pay/charge — pay-per-use: move the access fee USDC from the connected reader's FAUCET-custodied
+// treasury SA → the lbsb treasury (gasless), then record the settlement. Fires when a reader USES the
+// lbsb scripture service (reads licensed verse text). Inert (400) unless PAY_CHARGE_ENABLED + FAUCET.
+app.post('/pay/charge', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const claims = await verifyIdToken(String(b.id_token ?? ''));
+    const personSa = claims.sub.includes(':') ? claims.sub.split(':').pop()! : claims.sub;
+    const edition = String(b.edition ?? 'lbsb');
+    if (!chargeConfigured(c.env as unknown as ChargeEnv)) return c.json({ ok: false, error: 'pay-per-use not enabled', configured: false }, 400);
+    const r = await chargeLbsbTreasury(c.env as unknown as ChargeEnv, { personSa: personSa! });
+    if ('error' in r) return c.json({ ok: false, error: r.error }, 400);
+    await mcpPost(c.env, '/tools/record_settlement', { edition, payer: r.treasury, payee: r.payee, asset: r.asset, amount: r.amount, settlementHash: r.settlementHash, lane: 'settlement', reference: '/pay/charge' });
+    return c.json({ ok: true, edition, personSa, treasury: r.treasury, payee: r.payee, asset: r.asset, amount: r.amount, settlementHash: r.settlementHash });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
@@ -225,15 +245,15 @@ app.post('/pay/ensure-treasury', async (c) => {
 // USDC leaves); until a dedicated treasury SA is provisioned it falls back to the person SA (the entity
 // the connect-time faucet funds). No mint, no gas.
 app.post('/pay/treasury-status', async (c) => {
-  const b = await c.req.json<{ id_token?: string; treasury?: string }>().catch(() => ({}) as Record<string, never>);
+  const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as Record<string, never>);
   try {
     const claims = await verifyIdToken(String(b.id_token ?? ''));
     const personSa = claims.sub.includes(':') ? claims.sub.split(':').pop()! : claims.sub;
-    const dedicated = b.treasury && /^0x[0-9a-fA-F]{40}$/.test(b.treasury);
-    const treasury = dedicated ? b.treasury! : personSa;
+    const resolved = await resolveTreasurySa(c.env as unknown as ChargeEnv, personSa!);
+    const treasury = resolved ?? personSa;
     const r = await mcpPost(c.env, '/tools/usdc_balance', { address: treasury });
     const bal = r.body as { configured?: boolean; usdc?: string; balance?: string };
-    return c.json({ ok: true, personSa, treasury, provisioned: !!dedicated, configured: !!bal.configured, usdc: bal.usdc ?? '0', balance: bal.balance ?? '0', asset: (c.env as unknown as { PAY_ASSET?: string }).PAY_ASSET ?? null });
+    return c.json({ ok: true, personSa, treasury, provisioned: !!resolved, configured: !!bal.configured, usdc: bal.usdc ?? '0', balance: bal.balance ?? '0', asset: (c.env as unknown as { PAY_ASSET?: string }).PAY_ASSET ?? null });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
