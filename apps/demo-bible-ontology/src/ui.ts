@@ -437,6 +437,18 @@ async function loadPayBudget(){
     return budget;
   }catch(e){return null;}
 }
+// Persist the reader's x402-pay payment delegation (delegator = their person-treasury SA, delegate = OPEN,
+// payee = lbsb treasury — minted ONCE by the home at connect) into THEIR OWN vault, so it survives sessions
+// and the reader can redeem it (push) per paid read. Authorized by the reader's site-login delegation. The
+// lbsb-treasury vault is reserved for future PULL/subscription delegations (where the provider redeems).
+async function storePayDelegation(deleg){
+  if(!deleg||!session||!session.delegation)return false;
+  try{
+    const cj=await fetch(DEMO_A2A_BASE+'/auth/csrf',{credentials:'include'}).then(r=>r.json());const tok=cj.token||cj.csrfToken||cj.csrf||'';
+    const r=await fetch(DEMO_A2A_BASE+'/mcp/vault/set',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({delegation:session.delegation,requester:session.delegation.delegate,recordType:'x402-budget',data:deleg})}).then(x=>x.json());
+    return !!(r&&r.ok!==false);
+  }catch(e){return false;}
+}
 // Settle one charge: the A2A builds the redemption (it has the payments pkg); the PERSON SA submits it
 // (home gasless / wallet) → USDC moves TREASURY SA → lbsb treasury → returns the settlementHash to verify.
 async function lbsbSettle(ed){
@@ -485,8 +497,12 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
     if(!tr.id_token)throw new Error(tr.error||'no id_token returned');
     const claims=await verifyIdToken(pend.authOrigin,tr.id_token,pend.nonce);
     if(pend.pay){
-      // x402-pay budget connect — ATTACH the payment (budget) delegation to the existing session.
-      if(session){session.payDelegation=tr.delegation||null;localStorage.setItem('sa.session',JSON.stringify(session));}
+      // x402-pay connect — the home minted the person-treasury to lbsb-treasury payment delegation
+      // (returned as tr.paymentDelegation, distinct from the site-login tr.delegation). Attach it to the
+      // session AND persist it to the reader's vault so the reader can redeem it (push) per paid read.
+      const pd=tr.paymentDelegation||null;
+      if(session){session.payDelegation=pd;localStorage.setItem('sa.session',JSON.stringify(session));}
+      if(pd)await storePayDelegation(pd);
       sessionStorage.removeItem('sa.pending');hideLicenseGate();if(typeof applyHash==='function')applyHash();return true;
     }
     session={idToken:tr.id_token,delegation:tr.delegation||null,name:claims.agent_name||pend.name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp};
