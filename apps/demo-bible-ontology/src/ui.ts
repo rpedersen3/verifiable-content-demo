@@ -28,6 +28,28 @@ nav button.nav-util{font-size:12px;padding:5px 11px}
 nav button.nav-util:hover{background:#f8fafd;color:var(--ink)}
 nav button.nav-util.on{background:#eef2fb;color:var(--accent);border-color:var(--accent)}
 .nav-sep{width:1px;height:22px;background:var(--line);margin:0 6px;align-self:center;flex:none}
+/* top-right account menu */
+.acctmenu{position:relative;display:inline-block}
+.acctmenu-trigger{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:6px 11px;font:inherit;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer}
+.acctmenu-trigger:hover{border-color:#d0dbf5;background:#f8fafd}
+.acctmenu-dot{color:var(--ok);font-size:10px}.acctmenu-caret{color:var(--muted);font-size:10px}
+.acctmenu-lbl{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acctmenu-pop{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:60;min-width:248px;background:#fff;border:1px solid var(--line);border-radius:11px;box-shadow:0 10px 30px rgba(20,30,50,.18);overflow:hidden}
+.acctmenu-pop.open{display:block}
+.acctmenu-head{padding:12px 14px;border-bottom:1px solid var(--line);background:#f8fafd}
+.acctmenu-name{font-weight:700;font-size:14px;color:var(--ink)}
+.acctmenu-did{margin-top:3px;color:var(--muted);word-break:break-all;line-height:1.35}
+.acctmenu-item{display:block;width:100%;text-align:left;background:transparent;border:0;padding:10px 14px;font:inherit;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer}
+.acctmenu-item:hover{background:#eef2fb;color:var(--accent)}
+.acctmenu-item.danger{color:var(--no);border-top:1px solid var(--line)}.acctmenu-item.danger:hover{background:#fdecea;color:var(--no)}
+/* account area: left section menu + content */
+.acct-layout{display:flex;gap:18px;align-items:flex-start}
+.acct-side{flex:none;width:188px;display:flex;flex-direction:column;gap:3px;position:sticky;top:14px}
+.acct-side .acct-navb{text-align:left;background:transparent;border:1px solid transparent;border-radius:9px;padding:9px 13px;font:inherit;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;transition:background .1s,color .1s}
+.acct-side .acct-navb:hover{background:#eef2fb;color:var(--accent)}
+.acct-side .acct-navb.on{background:var(--accent);color:#fff}
+.acct-main{flex:1;min-width:0}
+@media(max-width:720px){.acct-layout{flex-direction:column}.acct-side{width:100%;flex-direction:row;flex-wrap:wrap;position:static}}
 .sec-head{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:8px;border:0;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
 .btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:#1a58d4}
@@ -216,7 +238,7 @@ svg#tsvg{display:block;background:#fbfcfe}
  <span class="nav-sep"></span>
  <button data-t="classes" class="nav-util">Class Browser</button>
  <button data-t="validate" class="nav-util">Validate GCO</button>
- <button data-t="admin" class="nav-util">Admin</button>
+ <button data-t="admin" class="nav-util">Account</button>
 </nav>
 <div id="view"></div>
 <div id="htip" class="gtip"></div>
@@ -356,6 +378,7 @@ function scoreBars(scores){
 
 // ── hash routing: every view is a URL route so browser back/forward works ──
 const TABS=['home','explore','classes','timeline','geo','oikos','generations','graph','validate','admin'];
+let adminSection='';
 function nav(h){if(('#'+h)===location.hash)applyHash();else location.hash=h;}
 function markNav(t){document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.t===t));}
 function applyHash(){
@@ -366,6 +389,7 @@ function applyHash(){
   if(t==='graph'&&arg){graphCenter=arg;gExpand={};gFilters={};}
   if(t==='oikos'&&arg)oikosCenter=arg;
   if(t==='generations'&&arg)genRoot=arg;
+  if(t==='admin')adminSection=arg||'';
   tab=TABS.includes(t)?t:'home';markNav(tab);render();
 }
 window.addEventListener('hashchange',applyHash);
@@ -482,7 +506,16 @@ function openConnectGate(reason){const m=document.getElementById('connectGate');
   m.style.display='flex';}
 function promptConnect(){openConnectGate('');}
 function requireConnect(action){if(isConnected())return true;openConnectGate(action);return false;}
-function renderConnect(){const el=document.getElementById('connectBtn');if(!el)return;el.innerHTML=isConnected()?'<span class="muted" style="font-size:12px">● '+esc(session.name||(session.sub||'').slice(0,12))+'</span><button class="map-basbtn" style="border:1px solid var(--line);border-radius:8px" onclick="disconnect()">Disconnect</button>':'<button class="map-basbtn on" style="border:1px solid var(--accent);border-radius:8px" onclick="promptConnect()">Connect</button>';}
+function renderConnect(){const el=document.getElementById('connectBtn');if(!el)return;
+  if(!isConnected()){el.innerHTML='<button class="map-basbtn on" style="border:1px solid var(--accent);border-radius:8px" onclick="promptConnect()">Connect</button>';return;}
+  const nm=esc(session.name||(session.sub||'').slice(0,16));const did=esc(session.sub||'');
+  el.innerHTML='<div class="acctmenu"><button class="acctmenu-trigger" onclick="toggleAcctMenu(event)"><span class="acctmenu-dot">●</span><span class="acctmenu-lbl">'+nm+'</span><span class="acctmenu-caret">▾</span></button>'+
+   '<div class="acctmenu-pop" id="acctmenuPop"><div class="acctmenu-head"><div class="acctmenu-name">'+nm+'</div><div class="acctmenu-did mono">'+did+'</div></div>'+
+   '<button class="acctmenu-item" onclick="closeAcctMenu();nav(\\'admin\\')">My account</button>'+
+   '<button class="acctmenu-item danger" onclick="closeAcctMenu();disconnect()">Disconnect</button></div></div>';}
+function toggleAcctMenu(e){if(e){e.stopPropagation();}const p=document.getElementById('acctmenuPop');if(p)p.classList.toggle('open');}
+function closeAcctMenu(){const p=document.getElementById('acctmenuPop');if(p)p.classList.remove('open');}
+document.addEventListener('click',function(e){const p=document.getElementById('acctmenuPop');if(p&&p.classList.contains('open')&&!e.target.closest('.acctmenu'))p.classList.remove('open');});
 loadSession();renderConnect();updateSrcUI();if(isConnected())ensureTreasuryFunded();connectCallback().then(ok=>{if(ok){renderConnect();ensureTreasuryFunded();if(activeEdition!=='bsb')applyHash();}});
 
 // ── Home gateway ──
@@ -627,36 +660,57 @@ async function classQuery(curie){
   out.innerHTML='<div class="hint" style="margin:12px 0"><b style="font-size:15px;color:var(--ink)">'+d.total.toLocaleString()+'</b> instances of <span class="mono">'+esc(curie)+'</span> + its <b>'+d.subclasses.length+'</b> subclasses &nbsp;<span class="mono muted">'+d.subclasses.map(esc).join(' · ')+'</span></div>'+
    '<ul class="list">'+d.results.map(r=>'<li onclick="showNodeTab(\\''+r.id+'\\')">'+(r.image_thumb?'<img class="mini'+sm+'" loading="lazy" src="'+esc(r.image_thumb)+'"/>':dot(r.kind))+'<b>'+esc(r.label)+'</b> <span class="muted">'+(r.disambig?esc(r.disambig)+' · ':'')+esc(r.prov_class||r.gc_class||'')+'</span>'+confDot(r.canon_confidence)+'</li>').join('')+'</ul>';
 }
-// ── Admin: account vault + data-integrity review ──
+// ── Account: personal-vault sections (left menu) + data-integrity review ──
+const ADMIN_SECTIONS=[
+  {key:'profile',label:'Profile',render:secProfile},
+  {key:'delegations',label:'Delegations',render:secDelegations},
+  {key:'treasury',label:'Treasury',render:secTreasury},
+  {key:'entitlements',label:'Entitlements',render:secEntitlements},
+  {key:'access',label:'Access',render:secAccess},
+  {key:'feedback',label:'Feedback',render:secFeedback},
+  {key:'integrity',label:'Data integrity',render:secIntegrity}
+];
+function acctVload(){return isConnected()?'<div class="ghint" style="padding:8px">loading…</div>':'<div class="muted" style="font-size:13px">Connect (top-right) to view.</div>';}
+function acctCard(title,hint,body){return '<div class="card"><h3 class="muted" style="margin-top:0">'+title+'</h3>'+(hint?'<p class="hint">'+hint+'</p>':'')+body+'</div>';}
 function admin(){
-  const vload=isConnected()?'<div class="ghint" style="padding:8px">loading…</div>':'<div class="muted" style="font-size:13px">Connect (top-right) to view.</div>';
-  const vlab='font-weight:600;font-size:13px;margin:13px 0 4px;color:#3a4658';
-  V.innerHTML='<div class="card"><h3 class="muted" style="margin-top:0">My account · personal vault</h3>'+
-   '<p class="hint">Everything here is read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the delegation your Global.Church home minted at sign-in (your app signs nothing). Demo PII is <b>mock fixtures</b>.</p>'+
-   '<div style="'+vlab+';margin-top:2px">Profile</div><div id="acctview">'+vload+'</div>'+
-   '<div style="'+vlab+'">Delegations</div><div id="delgview">'+vload+'</div>'+
-   '<div style="'+vlab+'">My treasury · pay-per-access wallet</div><div id="treasview">'+vload+'</div>'+
-   '<div style="'+vlab+'">Entitlements in your vault</div><div id="vaultents">'+vload+'</div></div>'+
-   '<div class="card"><h3 class="muted" style="margin-top:0">My access · licensed editions</h3>'+
-   '<p class="hint">Request access to a licensed edition; the corpus owner approves and the signed <b>entitlement</b> is issued to you. Held entitlements let you read gated verse text — every read is <b>presenter-bound</b> (only you can use your entitlement) and commitment-verified.</p>'+
-   '<div id="accessview"><div class="muted" style="font-size:13px">'+(isConnected()?'loading…':'Connect (top-right) to request and view access.')+'</div></div></div>'+
-   '<div class="card"><h3 class="muted" style="margin-top:0">My feedback · signal challenges</h3>'+
-   '<p class="hint">Trust-signal feedback you have posted — each is a <b>signed feedback assertion</b> (ERC-8004-style) authored by your connected identity, scoped to one (entity, signal, verse) triple. Post new feedback from <b>⚖ Signal Court</b> on any signal in the graph.</p>'+
-   '<div id="myfb">'+vload+'</div></div>'+
-   '<div class="card"><h3 class="muted" style="margin-top:0">Admin · data integrity</h3>'+
-   '<p class="hint">Every node records how confidently its data is bound to a canonical id. Native Theographic ids are rock-solid (1.0); brought-in data (Wikidata + images) is scored by match strength — exact-unique matches near 1.0, name-collision or label-mismatch matches lower. Suspect bindings are listed here for review, never hidden.</p>'+
-   '<div id="ibands" class="gchips"></div>'+
-   '<div class="hint" style="margin:8px 0">Show bindings at or below: '+
-   '<select id="ithr"><option value="1">all brought-in</option><option value="0.9" selected>&lt; 0.90 (needs review)</option><option value="0.7">&lt; 0.70 (suspect)</option></select></div>'+
-   '<div id="ilist"></div></div>';
+  const sec=ADMIN_SECTIONS.find(s=>s.key===adminSection)||ADMIN_SECTIONS[0];
+  const side=ADMIN_SECTIONS.map(s=>'<button class="acct-navb'+(s.key===sec.key?' on':'')+'" onclick="nav(\\'admin/'+s.key+'\\')">'+esc(s.label)+'</button>').join('');
+  V.innerHTML='<div class="acct-layout"><nav class="acct-side">'+side+'</nav><div class="acct-main" id="acctpanel"></div></div>';
+  sec.render();
+}
+const VAULT_HINT='Read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the delegation your Global.Church home minted at sign-in (your app signs nothing). Demo PII is <b>mock fixtures</b>.';
+function secProfile(){
+  document.getElementById('acctpanel').innerHTML=acctCard('Profile · personal vault',VAULT_HINT,'<div id="acctview">'+acctVload()+'</div>');
+  loadAccount();
+}
+function secDelegations(){
+  document.getElementById('acctpanel').innerHTML=acctCard('Delegations','The delegation(s) your home minted at sign-in — what lets this app read your vault on your behalf, re-presented at each read (your app never signs).','<div id="delgview">'+acctVload()+'</div>');
+  loadDelegations();
+}
+function secTreasury(){
+  document.getElementById('acctpanel').innerHTML=acctCard('My treasury · pay-per-access wallet','Your associated treasury smart account and its mock-USDC balance — the wallet that pays the x402 per-access fee for licensed editions. The connect-time faucet tops it up.','<div id="treasview">'+acctVload()+'</div>');
+  loadTreasury();
+}
+function secEntitlements(){
+  document.getElementById('acctpanel').innerHTML=acctCard('Entitlements in your vault','Entitlements delivered to your personal demo-mcp vault at grant time (distinct from the issuer ledger). Held entitlements let you read gated verse text — presenter-bound and commitment-verified.','<div id="vaultents">'+acctVload()+'</div>');
+  loadVaultEnts();
+}
+function secAccess(){
+  document.getElementById('acctpanel').innerHTML=acctCard('My access · licensed editions','Request access to a licensed edition; the corpus owner approves and the signed <b>entitlement</b> is issued to you. Every read is <b>presenter-bound</b> (only you can use your entitlement) and commitment-verified.','<div id="accessview"><div class="muted" style="font-size:13px">'+(isConnected()?'loading…':'Connect (top-right) to request and view access.')+'</div></div>');
+  loadAccess();
+}
+function secFeedback(){
+  document.getElementById('acctpanel').innerHTML=acctCard('My feedback · signal challenges','Trust-signal feedback you have posted — each a <b>signed feedback assertion</b> (ERC-8004-style) authored by your connected identity, scoped to one (entity, signal, verse) triple. Post new feedback from <b>⚖ Signal Court</b> on any signal in the graph.','<div id="myfb">'+acctVload()+'</div>');
+  loadMyFeedback();
+}
+function secIntegrity(){
+  document.getElementById('acctpanel').innerHTML=acctCard('Data integrity','Every node records how confidently its data is bound to a canonical id. Native Theographic ids are rock-solid (1.0); brought-in data (Wikidata + images) is scored by match strength — exact-unique matches near 1.0, name-collision or label-mismatch matches lower. Suspect bindings are listed here for review, never hidden.',
+    '<div id="ibands" class="gchips"></div>'+
+    '<div class="hint" style="margin:8px 0">Show bindings at or below: '+
+    '<select id="ithr"><option value="1">all brought-in</option><option value="0.9" selected>&lt; 0.90 (needs review)</option><option value="0.7">&lt; 0.70 (suspect)</option></select></div>'+
+    '<div id="ilist"></div>');
   const thr=document.getElementById('ithr');thr.onchange=()=>loadIntegrity(thr.value);
   loadIntegrity(thr.value);
-  loadAccount();
-  loadDelegations();
-  loadTreasury();
-  loadVaultEnts();
-  loadAccess();
-  loadMyFeedback();
 }
 // The connected user's associated treasury smart account + its mock-USDC balance — the wallet that pays
 // the x402 pay-per-access fee for licensed editions. Read live from the a2a /pay/treasury-status (which
