@@ -31,7 +31,11 @@ A2A_ENF_TIMESTAMP = "0x7c452434314A5bf2048f9263aeCd0cC20Fa07965"
 # x402 pay-per-use SETTLEMENT lane (spec 272). Addresses WIRED (Base Sepolia deployments); the lane
 # stays INERT until PAY_ENABLED="1" — flip it only once settleLbsbPayment is implemented, readers can
 # mint an x402-pay budget delegation, and the reader + treasury SAs are funded with mock USDC.
-PAY_ENABLED = "0"
+# Step 5 — payments live via the KEYLESS verify path: the reader settles client-side (redeems their
+# stored person-treasury → lbsb-treasury delegation, wallet-signed, gasless), and the gate confirms the
+# on-chain transfer (verifyLbsbPayment — RPC only, no key). The server-side settle path stays inert
+# (PAY_RELAY_KEY removed in step 6), so the gate uses verify, not the held-key settle.
+PAY_ENABLED = "1"
 # Pay-per-use lane (app-provisioned, FAUCET-custodied treasury → lbsb treasury, gasless). Independent of
 # PAY_ENABLED (the ERC-7710 redemption lane): this moves the fee via the treasury SA's app-custodian, so
 # it needs no reader home/wallet signature. ON — fires when a connected reader reads licensed lbsb text.

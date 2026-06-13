@@ -455,11 +455,30 @@ async function lbsbSettle(ed){
   if(!session.payDelegation)return null;
   const r=await fetch(A2A_BASE+'/pay/redeem',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id_token:session.idToken,edition:ed||'lbsb',delegation:session.payDelegation})}).then(x=>x.json()).catch(function(){return null;});
   if(!r||!r.ok)return null;
-  return await submitRedemption(r); // the person SA executes r.executeCallData; returns the settlementHash (or null)
+  try{return await submitRedemption(r);} // the person SA executes r.executeCallData; returns the settlementHash
+  catch(e){alert('Payment not completed: '+(e&&e.message?e.message:e));return null;} // declined/failed → stay gated
 }
-// Submit the redemption AS the person SA. Home-custody → the home's gasless submit-call-userop (sponsored);
-// SIWE wallet → the wallet sends the tx directly. INERT here until one of those signing paths is wired.
-async function submitRedemption(r){ void r; return null; }
+// Submit the redemption AS the person SA, gaslessly. The person SA executes r.executeCallData
+// (AgentAccount.execute(DM, redeemDelegation)) → the PaymentEnforcer moves USDC person-treasury → lbsb
+// treasury. NO held key: the reader's own wallet (the person SA's SIWE custodian) signs the userOpHash;
+// the demo-a2a relayer + paymaster sponsor gas + submit. One signature buys a multi-read pass (the gate
+// mints it on verify), so subsequent reads draw from the pass with no further signature. Returns the
+// settlement tx hash (or throws → the read stays gated). Passkey/social custodians: future signing paths.
+async function submitRedemption(r){
+  if(!r||!r.executeCallData||!r.personSa)return null;
+  if(typeof window==='undefined'||!window.ethereum)throw new Error('A wallet is needed to authorize this payment — connect the wallet that custodies your agent.');
+  const accts=await window.ethereum.request({method:'eth_requestAccounts'});
+  const owner=accts&&accts[0];if(!owner)throw new Error('no wallet account available');
+  const cj=await fetch(DEMO_A2A_BASE+'/auth/csrf',{credentials:'include'}).then(x=>x.json());
+  const tok=cj.token||cj.csrfToken||cj.csrf||'';
+  const build=await fetch(DEMO_A2A_BASE+'/account/build-call-userop',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({sender:r.personSa,callData:r.executeCallData})}).then(x=>x.json());
+  if(!build||!build.userOpHash||!build.userOp)throw new Error((build&&(build.error||build.detail))||'could not build the payment (treasury underfunded?)');
+  const sig=await window.ethereum.request({method:'personal_sign',params:[build.userOpHash,owner]});
+  const sub=await fetch(DEMO_A2A_BASE+'/account/submit-call-userop',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({userOp:Object.assign({},build.userOp,{signature:sig})})}).then(x=>x.json());
+  const hash=sub&&sub.transactionHash;
+  if(!hash||(sub.status&&sub.status!=='success'&&sub.status!=='0x1'))throw new Error((sub&&(sub.error||sub.detail))||'payment transaction failed');
+  return hash;
+}
 // On connect: confirm the user's nameless TREASURY SA has mock USDC; top it up if empty (demo faucet).
 // Treasury = the vault budget delegation's delegator (where USDC leaves); falls back to the person SA.
 // SA provisioning itself is the home's job — we only fund. INERT until the MCP FAUCET_PK is set.
@@ -826,24 +845,13 @@ async function accRead(i,ref){
   out.innerHTML='<div class="ghint" style="padding:8px">reading '+esc(ref)+' from '+esc(e.edition)+'…</div>';
   const r=await a2aPost('/resolve-licensed',{id_token:session.idToken,reference:ref,edition:e.edition,entitlement:e.entitlement}).catch(er=>({ok:false,error:String(er)}));
   if(r&&r.ok){
-    out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound entitled read</div>':'')+'<div id="acc-pay" class="muted" style="font-size:11px;margin-top:4px">💸 paying the per-use fee…</div></div>';
-    lbsbCharge(e.edition);
+    out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound entitled read</div>':'')+'</div>';
   }
   else out.innerHTML='<div style="color:#c0392b;font-size:13px">Denied: '+esc((r&&r.error)||'failed')+'</div>';
 }
-// Pay-per-use: using the lbsb scripture service charges an x402 fee — USDC moves from the reader's
-// treasury smart account → the lbsb treasury (gasless). Fires after a licensed verse read; the receipt
-// shows the on-chain tx and the treasury balance refreshes.
-async function lbsbCharge(edition){
-  const el=document.getElementById('acc-pay');
-  try{
-    const p=await a2aPost('/pay/charge',{id_token:session.idToken,edition:edition});
-    if(p&&p.ok){
-      if(el)el.innerHTML='💸 paid '+(Number(p.amount)/1e6)+' USDC · treasury <span class="mono">'+esc((p.treasury||'').slice(0,10))+'…</span> → lbsb treasury · tx <span class="mono">'+esc((p.settlementHash||'').slice(0,12))+'…</span>';
-      if(typeof loadTreasury==='function')loadTreasury();
-    } else if(el){el.innerHTML='<span style="color:#b45309">per-use fee not charged: '+esc((p&&p.error)||'unavailable')+'</span>';}
-  }catch(e){if(el)el.innerHTML='<span style="color:#b45309">per-use fee error: '+esc(e&&e.message?e.message:String(e))+'</span>';}
-}
+// (Removed the old FAUCET-custodied per-use charge bolt-on. The x402 fee is now triggered by data access:
+//  a gated read 402s, the reader settles by redeeming their stored treasury→treasury delegation, the gate
+//  verifies on-chain and serves — see api()/lbsbSettle/submitRedemption. No held key, no side charge.)
 // Read via the async A2A bus: fetch the scoped-grant spec the home must mint, then submit a
 // get-gated-passage TASK to the BSB agent through the Scripture Agent (resolve-on-behalf).
 async function accAsyncRead(i){
