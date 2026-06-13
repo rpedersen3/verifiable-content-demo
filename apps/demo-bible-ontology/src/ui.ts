@@ -238,7 +238,6 @@ svg#tsvg{display:block;background:#fbfcfe}
  <span class="nav-sep"></span>
  <button data-t="classes" class="nav-util">Class Browser</button>
  <button data-t="validate" class="nav-util">Validate GCO</button>
- <button data-t="admin" class="nav-util">Account</button>
 </nav>
 <div id="view"></div>
 <div id="htip" class="gtip"></div>
