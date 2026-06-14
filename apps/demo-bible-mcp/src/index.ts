@@ -420,36 +420,45 @@ app.post('/tools/get_passage_text', async (c) => {
   const row = findRow(corpus, parsed.reference.id);
   if (!row) return c.json({ ok: false, error: `no descriptor for ${parsed.reference.alias} in ${body.edition}` }, 404);
 
-  // Gated editions: the presented Entitlement must be cryptographically signed
-  // by the corpus issuer (structural + signature) BEFORE the policy gate.
+  // Gated editions — TWO ways in (spec 272): a free GRANT (issuer-signed, presenter-bound, non-revoked
+  // Entitlement) OR a paid PREPAID pass (x402). A forged VC is always a hard error; absence/expiry/
+  // revocation of a grant falls THROUGH to the prepaid path; no pass either ⇒ 402 (payment required).
   let entitlementSigner: string | undefined;
-  if (row.descriptor.accessPolicy !== 'public' && body.entitlement) {
-    const sig = await verifySignedEntitlement(body.entitlement, corpus.manifest.issuer, trust.verifySignature);
-    if (!sig.ok) {
-      audit('content.entitlement.verify', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: sig.reason ?? 'bad signature' });
-      return c.json({ ok: false, error: 'entitlement signature invalid', detail: sig, accessPolicy: row.descriptor.accessPolicy }, 403);
+  if (row.descriptor.accessPolicy !== 'public') {
+    let grantOk = false;
+    if (body.entitlement) {
+      const sig = await verifySignedEntitlement(body.entitlement, corpus.manifest.issuer, trust.verifySignature);
+      if (!sig.ok) { // a presented VC that doesn't verify is forgery — hard fail, never fall through
+        audit('content.entitlement.verify', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: sig.reason ?? 'bad signature' });
+        return c.json({ ok: false, error: 'entitlement signature invalid', detail: sig, accessPolicy: row.descriptor.accessPolicy }, 403);
+      }
+      entitlementSigner = sig.signer;
+      const decision = evaluateEntitlement(row.descriptor.accessPolicy, corpus.manifest.corpusRef, body.entitlement);
+      const entSubject = (body.entitlement?.credentialSubject as { id?: string } | undefined)?.id;
+      const presenterOk = !(body.subject && entSubject && body.subject.toLowerCase() !== entSubject.toLowerCase());
+      let revoked = false;
+      if (c.env.DB && entSubject) {
+        const led = await c.env.DB.prepare('SELECT status FROM entitlements_issued WHERE subject=? AND edition=? ORDER BY id DESC LIMIT 1').bind(entSubject, body.edition).first<{ status: string }>();
+        revoked = !!led && led.status === 'revoked';
+      }
+      grantOk = decision.decision === 'allow' && presenterOk && !revoked;
     }
-    entitlementSigner = sig.signer;
-  }
-
-  const decision = evaluateEntitlement(row.descriptor.accessPolicy, corpus.manifest.corpusRef, body.entitlement);
-  if (decision.decision !== 'allow') {
-    audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: decision.reason ?? 'denied' });
-    return c.json({ ok: false, error: 'access denied', detail: decision, accessPolicy: row.descriptor.accessPolicy }, 403);
-  }
-  // Presenter-binding (finding #4): the caller's verified subject must be the entitlement subject —
-  // entitlements aren't transferable by copying. `subject` is the id_token sub the agent verified.
-  const entSubject = (body.entitlement?.credentialSubject as { id?: string } | undefined)?.id;
-  if (body.subject && entSubject && body.subject.toLowerCase() !== entSubject.toLowerCase()) {
-    audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: 'presenter mismatch' });
-    return c.json({ ok: false, error: 'entitlement not presented by its subject', accessPolicy: row.descriptor.accessPolicy }, 403);
-  }
-  // Online revocation (finding #8): the issuer's ledger must not have revoked this subject's grant.
-  if (c.env.DB && entSubject) {
-    const led = await c.env.DB.prepare('SELECT status FROM entitlements_issued WHERE subject=? AND edition=? ORDER BY id DESC LIMIT 1').bind(entSubject, body.edition).first<{ status: string }>();
-    if (led && led.status === 'revoked') {
-      audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: 'entitlement revoked' });
-      return c.json({ ok: false, error: 'entitlement revoked', accessPolicy: row.descriptor.accessPolicy }, 403);
+    if (!grantOk) {
+      // PREPAID (x402): consume one read off an active paid pass for the verified subject.
+      let prepaidOk = false;
+      if (c.env.DB && body.subject) {
+        const now = new Date().toISOString();
+        const pre = await c.env.DB.prepare("SELECT id, max_uses, used FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?) ORDER BY id ASC LIMIT 1").bind(body.subject, body.edition, now).first<{ id: number; max_uses: number; used: number }>();
+        if (pre) {
+          const used = pre.used + 1;
+          await c.env.DB.prepare('UPDATE prepaid_entitlements SET used=?, status=? WHERE id=?').bind(used, used >= pre.max_uses ? 'exhausted' : 'active', pre.id).run();
+          prepaidOk = true;
+        }
+      }
+      if (!prepaidOk) {
+        audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: 'payment required' });
+        return c.json({ ok: false, error: `payment required for ${body.edition}`, gated: body.edition, reason: 'payment required', accessPolicy: row.descriptor.accessPolicy }, 402);
+      }
     }
   }
 

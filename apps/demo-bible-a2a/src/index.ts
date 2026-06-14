@@ -293,12 +293,31 @@ app.get('/a2a-grant-spec', (c) => {
   return c.json({ ok: true, ...buildGrantSpec(c.env, skill, Math.floor(Date.now() / 1000)) });
 });
 
-// Entitled read (sync): verify the reader, then fetch gated text presenting their entitlement (presenter-bound at the MCP).
+// Entitled OR paid read (sync): verify the reader, fetch gated verse text. Access = a free GRANT (the
+// presented entitlement, presenter-bound at the MCP) OR a paid x402 PASS. If get_passage_text 402s (no
+// grant + no pass), settle via the KEYLESS verify path — the reader already redeemed their stored
+// person-treasury → lbsb-treasury delegation client-side (PAYMENT-RESPONSE) — mint a pass, then retry.
 app.post('/resolve-licensed', async (c) => {
   const b = await c.req.json<{ id_token?: string; reference?: string; edition?: string; entitlement?: unknown }>().catch(() => ({}) as Record<string, never>);
   try {
     const { sub } = await verifyIdToken(String(b.id_token ?? ''));
-    const res = await mcpPost(c.env, '/tools/get_passage_text', { reference: b.reference, edition: b.edition, subject: sub, entitlement: b.entitlement });
+    const edition = String(b.edition ?? 'lbsb');
+    const env = c.env as unknown as VerifyEnv;
+    const callText = () => mcpPost(c.env, '/tools/get_passage_text', { reference: b.reference, edition, subject: sub, entitlement: b.entitlement });
+    let res = await callText();
+    if (res.status === 402) {
+      const resource = { method: 'GET', url: c.req.url };
+      const verified = await verifyLbsbPayment(env, { edition, headers: c.req.raw.headers });
+      if (verified) {
+        const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
+        if (dup.body && (dup.body as { seen?: boolean }).seen) return c.json({ ok: false, error: 'settlement already used', gated: edition, reason: 'replay' }, 402);
+        await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: 'settlement', reference: '/resolve-licensed' });
+        await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: sub, maxUses: verified.passUses, validUntil: new Date(Date.now() + verified.passTtl * 1000).toISOString(), settlementHash: verified.settlementHash });
+        res = await callText(); // a paid pass now exists → serves (and consumes one read)
+      } else if (verifyConfigured(env)) {
+        return c.json({ ok: false, error: `payment required for ${edition}`, gated: edition, reason: 'payment required', lane: 'settlement', x402: buildLbsbPaymentRequired(env, edition, resource) }, 402);
+      }
+    }
     return c.json(res.body, res.status as 200);
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
