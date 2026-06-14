@@ -671,6 +671,64 @@ app.post('/tools/list_prepaid', async (c) => {
   return c.json({ ok: true, prepaid: rows });
 });
 
+// ── Subscriptions (spec 272 recurring lane) ──
+// record_subscription — a reader authorized a standing person-treasury → lbsb-treasury PULL mandate at
+// subscribe; record the lifecycle row. Supersedes any existing ACTIVE subscription for this subject+edition
+// (re-subscribe / upgrade). The first period's prepaid pass is minted separately by the A2A (mint_prepaid).
+app.post('/tools/record_subscription', async (c) => {
+  const b = await c.req.json<{ edition?: string; subject?: string; payer?: string; payee?: string; asset?: string; tier?: string; tierLabel?: string; readsPerPeriod?: number; amountPerPeriod?: string; periodSeconds?: number; periodsAuthorized?: number; pullMandate?: unknown; mandateId?: string; settlementHash?: string; periodStart?: string; periodEnd?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  if (!b.edition || !b.subject || !b.tier || !b.readsPerPeriod || !b.periodSeconds) return c.json({ ok: false, error: 'edition, subject, tier, readsPerPeriod, periodSeconds required' }, 400);
+  const now = new Date();
+  const start = b.periodStart ?? now.toISOString();
+  const end = b.periodEnd ?? new Date(now.getTime() + Number(b.periodSeconds) * 1000).toISOString();
+  // Supersede any existing active subscription for this subject+edition (upgrade / re-subscribe).
+  await c.env.DB.prepare("UPDATE subscriptions SET status='canceled', updated_at=? WHERE subject=? AND edition=? AND status='active'").bind(now.toISOString(), b.subject, b.edition).run();
+  const r = await c.env.DB.prepare('INSERT INTO subscriptions(edition,subject,payer,payee,asset,tier,tier_label,reads_per_period,amount_per_period,period_seconds,periods_authorized,periods_charged,current_period_start,current_period_end,pull_mandate,mandate_id,status,last_settlement_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(b.edition, b.subject, b.payer ?? null, b.payee ?? null, b.asset ?? null, b.tier, b.tierLabel ?? b.tier, Math.max(1, Number(b.readsPerPeriod)), b.amountPerPeriod ?? null, Number(b.periodSeconds), b.periodsAuthorized ?? null, 1, start, end, b.pullMandate ? JSON.stringify(b.pullMandate) : null, b.mandateId ?? null, 'active', b.settlementHash ?? null, now.toISOString(), now.toISOString()).run() as { meta?: { last_row_id?: number } };
+  audit('content.subscription.start', 'success', b.edition, { subject: b.subject, tier: b.tier, periodSeconds: b.periodSeconds });
+  return c.json({ ok: true, id: r.meta?.last_row_id ?? null, currentPeriodEnd: end });
+});
+
+// get_subscription — the reader's active subscription for an edition (status, next renewal, reads left,
+// whether the current period is DUE for renewal). reads-left is the live prepaid balance for the edition.
+app.post('/tools/get_subscription', async (c) => {
+  const b = await c.req.json<{ edition?: string; subject?: string }>().catch(() => ({}) as { edition?: string; subject?: string });
+  if (!c.env.DB || !b.subject || !b.edition) return c.json({ ok: true, subscription: null });
+  const row = await c.env.DB.prepare("SELECT id,edition,subject,payer,payee,asset,tier,tier_label,reads_per_period,amount_per_period,period_seconds,periods_authorized,periods_charged,current_period_start,current_period_end,mandate_id,status,last_settlement_hash,created_at,updated_at FROM subscriptions WHERE subject=? AND edition=? AND status='active' ORDER BY id DESC LIMIT 1").bind(b.subject, b.edition).first<Record<string, unknown>>();
+  if (!row) return c.json({ ok: true, subscription: null });
+  const pre = await c.env.DB.prepare("SELECT COALESCE(SUM(max_uses - used),0) AS remaining FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?)").bind(b.subject, b.edition, new Date().toISOString()).first<{ remaining: number }>();
+  const due = new Date(String(row.current_period_end)).getTime() <= Date.now();
+  return c.json({ ok: true, subscription: { ...row, readsRemaining: pre?.remaining ?? 0, due } });
+});
+
+// cancel_subscription — stop auto-renewal (the reader keeps any reads already on the current pass). Marks
+// the row canceled; the standing pull mandate self-limits on-chain via its caveats and is dropped client-side.
+app.post('/tools/cancel_subscription', async (c) => {
+  const b = await c.req.json<{ edition?: string; subject?: string }>().catch(() => ({}) as { edition?: string; subject?: string });
+  if (!c.env.DB || !b.subject || !b.edition) return c.json({ ok: false, error: 'subject, edition required' }, 400);
+  const res = await c.env.DB.prepare("UPDATE subscriptions SET status='canceled', updated_at=? WHERE subject=? AND edition=? AND status='active'").bind(new Date().toISOString(), b.subject, b.edition).run() as { meta?: { changes?: number } };
+  audit('content.subscription.cancel', 'success', b.edition, { subject: b.subject });
+  return c.json({ ok: true, canceled: (res.meta?.changes ?? 0) > 0 });
+});
+
+// renew_subscription — advance the active subscription to its next billing period (bookkeeping only; the
+// A2A verifies the period's settlement + mints the fresh prepaid pass separately, exactly like /pay/claim).
+app.post('/tools/renew_subscription', async (c) => {
+  const b = await c.req.json<{ edition?: string; subject?: string; settlementHash?: string }>().catch(() => ({}) as { edition?: string; subject?: string; settlementHash?: string });
+  if (!c.env.DB || !b.subject || !b.edition) return c.json({ ok: false, error: 'subject, edition required' }, 400);
+  const row = await c.env.DB.prepare("SELECT id,period_seconds,current_period_end,periods_charged FROM subscriptions WHERE subject=? AND edition=? AND status='active' ORDER BY id DESC LIMIT 1").bind(b.subject, b.edition).first<{ id: number; period_seconds: number; current_period_end: string; periods_charged: number }>();
+  if (!row) return c.json({ ok: false, error: 'no active subscription' }, 404);
+  // Next period starts at the later of the prior end or now (no retroactive windows after a lapse).
+  const base = Math.max(new Date(row.current_period_end).getTime(), Date.now());
+  const start = new Date(base).toISOString();
+  const end = new Date(base + row.period_seconds * 1000).toISOString();
+  await c.env.DB.prepare('UPDATE subscriptions SET periods_charged=?, current_period_start=?, current_period_end=?, last_settlement_hash=?, updated_at=? WHERE id=?')
+    .bind(row.periods_charged + 1, start, end, b.settlementHash ?? null, new Date().toISOString(), row.id).run();
+  audit('content.subscription.renew', 'success', b.edition, { subject: b.subject, period: row.periods_charged + 1 });
+  return c.json({ ok: true, periodsCharged: row.periods_charged + 1, currentPeriodStart: start, currentPeriodEnd: end });
+});
+
 // get_service_identity — who (if anyone) owns a service. Public read (the owner_sub is an agent id).
 app.post('/tools/get_service_identity', async (c) => {
   const b = await c.req.json<{ service?: string }>().catch(() => ({}) as { service?: string });

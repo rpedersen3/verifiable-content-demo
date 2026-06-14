@@ -215,7 +215,9 @@ app.post('/pay/access', async (c) => {
     const edition = String(b.edition ?? 'lbsb');
     const acc = await mcpPost(c.env, '/tools/verify_access', { edition, subject: sub });
     const a = (acc.body ?? {}) as { allowed?: boolean; via?: string; remaining?: number; reason?: string };
-    return c.json({ ok: true, edition, allowed: !!a.allowed, via: a.via ?? null, remaining: a.remaining ?? null, reason: a.reason ?? null });
+    // Include the active subscription (if any) so the Access view can show "⭐ Plus · renews <date>".
+    const subRes = await mcpPost(c.env, '/tools/get_subscription', { edition, subject: sub }).catch(() => ({ body: {} }));
+    return c.json({ ok: true, edition, allowed: !!a.allowed, via: a.via ?? null, remaining: a.remaining ?? null, reason: a.reason ?? null, subscription: (subRes.body as { subscription?: unknown })?.subscription ?? null });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
@@ -224,7 +226,7 @@ app.post('/pay/access', async (c) => {
 // tier the payment actually covers (amount-based — you get what you paid for; the tier the UI requested is
 // only a hint). For SIWE/passkey/social alike — the charge was signed by the reader's own credential.
 app.post('/pay/claim', async (c) => {
-  const b = await c.req.json<{ id_token?: string; edition?: string; settlementHash?: string }>().catch(() => ({}) as Record<string, never>);
+  const b = await c.req.json<{ id_token?: string; edition?: string; settlementHash?: string; pullDelegation?: { delegator?: string; delegate?: string; mandateId?: string } }>().catch(() => ({}) as Record<string, never>);
   try {
     const { sub } = await verifyIdToken(String(b.id_token ?? ''));
     const edition = String(b.edition ?? 'lbsb');
@@ -237,9 +239,87 @@ app.post('/pay/claim', async (c) => {
     if (dup.body && (dup.body as { seen?: boolean }).seen) return c.json({ ok: true, alreadyClaimed: true, edition, subject: sub });
     // Grant the BEST tier the on-chain amount covers (largest amount ≤ paid). Defaults to payg.
     const tier = [...LBSB_TIERS].sort((x, y) => (BigInt(y.amount) > BigInt(x.amount) ? 1 : -1)).find((t) => BigInt(verified.amount) >= BigInt(t.amount)) ?? LBSB_TIERS[0]!;
-    await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: tier.kind === 'subscription' ? 'subscription' : 'settlement', reference: '/pay/claim' });
+    const isSub = tier.kind === 'subscription';
+    await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: isSub ? 'subscription' : 'settlement', reference: '/pay/claim' });
     await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: sub, maxUses: tier.reads, validUntil: new Date(Date.now() + tier.ttlSeconds * 1000).toISOString(), settlementHash: verified.settlementHash });
-    return c.json({ ok: true, edition, subject: sub, amount: verified.amount, tier: tier.id, tierLabel: tier.label, passUses: tier.reads, settlementHash: verified.settlementHash });
+    // SUBSCRIPTION: record the recurring lifecycle + persist the standing pull mandate the home minted (the
+    // mandate's source-of-truth copy lives in the lbsb-treasury vault, stored client-side; this row carries
+    // the metadata + a copy for owner-side renewal bookkeeping). The first period's pass is the one above.
+    if (isSub) {
+      await mcpPost(c.env, '/tools/record_subscription', {
+        edition, subject: sub,
+        payer: b.pullDelegation?.delegator ?? verified.payer,
+        payee: b.pullDelegation?.delegate ?? env.PAY_TREASURY_SA,
+        asset: env.PAY_ASSET,
+        tier: tier.id, tierLabel: tier.label,
+        readsPerPeriod: tier.reads, amountPerPeriod: tier.amount, periodSeconds: tier.ttlSeconds,
+        pullMandate: b.pullDelegation ?? null, mandateId: b.pullDelegation?.mandateId ?? null,
+        settlementHash: verified.settlementHash,
+      });
+    }
+    return c.json({ ok: true, edition, subject: sub, amount: verified.amount, tier: tier.id, tierLabel: tier.label, kind: tier.kind, passUses: tier.reads, subscription: isSub, periodSeconds: isSub ? tier.ttlSeconds : null, settlementHash: verified.settlementHash });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
+// pay/subscription — the reader's active subscription for an edition (tier, status, next renewal, reads
+// left, whether it's DUE). Read-only; drives the Access-view subscription card.
+app.post('/pay/subscription', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const { sub } = await verifyIdToken(String(b.id_token ?? ''));
+    const edition = String(b.edition ?? 'lbsb');
+    const r = await mcpPost(c.env, '/tools/get_subscription', { edition, subject: sub });
+    return c.json({ ok: true, edition, subscription: (r.body as { subscription?: unknown })?.subscription ?? null });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
+// pay/subscription/cancel — stop auto-renewal. The reader keeps any reads already on the current pass; the
+// standing pull mandate self-limits on-chain (caveats) and is dropped from the lbsb-treasury vault client-side.
+app.post('/pay/subscription/cancel', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const { sub } = await verifyIdToken(String(b.id_token ?? ''));
+    const edition = String(b.edition ?? 'lbsb');
+    const r = await mcpPost(c.env, '/tools/cancel_subscription', { edition, subject: sub });
+    return c.json({ ok: true, edition, canceled: (r.body as { canceled?: boolean })?.canceled ?? false });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
+// pay/subscription/renew — bill the NEXT period + mint its pass. No-held-key: the renewal is paid by a
+// fresh on-chain settlement (the subscriber re-confirmed via the home ceremony, redeeming their push
+// delegation, exactly like the first period). We verify it on-chain, advance the subscription period, and
+// mint the next pass.
+//
+// STUB — UNATTENDED PROVIDER PULL: a truly unattended renewal would redeem the STORED pull mandate
+// (delegate = lbsb-treasury) on a schedule. That redemption MUST be signed by the provider's
+// (lbsb-treasury) credential — a held key, which this system forbids (no-held-keys rule). So there is no
+// server-side signer here: unattended billing is intentionally left to an owner-online collection step.
+// When `settlementHash` is absent we return needsSettlement so the caller drives the no-held-key path.
+app.post('/pay/subscription/renew', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string; settlementHash?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const { sub } = await verifyIdToken(String(b.id_token ?? ''));
+    const edition = String(b.edition ?? 'lbsb');
+    const env = c.env as unknown as VerifyEnv;
+    const subRow = (await mcpPost(c.env, '/tools/get_subscription', { edition, subject: sub })).body as { subscription?: { tier?: string; reads_per_period?: number; period_seconds?: number } };
+    const cur = subRow?.subscription;
+    if (!cur) return c.json({ ok: false, error: 'no active subscription' }, 404);
+    // No-held-key: the next period is paid by a presented on-chain settlement. Absent one, tell the caller
+    // to drive the home ceremony (the unattended provider-signed pull is the documented stub above).
+    if (!b.settlementHash || !/^0x[0-9a-fA-F]{64}$/.test(b.settlementHash)) {
+      return c.json({ ok: false, needsSettlement: true, error: 'renewal needs a fresh payment — confirm via your home (no unattended provider charge without a held key)' }, 402);
+    }
+    const headers = new Headers({ 'PAYMENT-RESPONSE': btoa(JSON.stringify({ settlementHash: b.settlementHash })) });
+    const verified = await verifyLbsbPayment(env, { edition, headers });
+    if (!verified) return c.json({ ok: false, error: 'settlement not verified on-chain' }, 402);
+    const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
+    if (dup.body && (dup.body as { seen?: boolean }).seen) return c.json({ ok: true, alreadyClaimed: true, edition, subject: sub });
+    await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: 'subscription', reference: '/pay/subscription/renew' });
+    const reads = Number(cur.reads_per_period ?? 0) || (LBSB_TIERS.find((t) => t.id === cur.tier)?.reads ?? 0);
+    const ttl = Number(cur.period_seconds ?? 0) || (LBSB_TIERS.find((t) => t.id === cur.tier)?.ttlSeconds ?? 2592000);
+    await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: sub, maxUses: reads, validUntil: new Date(Date.now() + ttl * 1000).toISOString(), settlementHash: verified.settlementHash });
+    const adv = (await mcpPost(c.env, '/tools/renew_subscription', { edition, subject: sub, settlementHash: verified.settlementHash })).body as { currentPeriodEnd?: string; periodsCharged?: number };
+    return c.json({ ok: true, edition, subject: sub, tier: cur.tier, passUses: reads, currentPeriodEnd: adv?.currentPeriodEnd ?? null, periodsCharged: adv?.periodsCharged ?? null, settlementHash: verified.settlementHash });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 

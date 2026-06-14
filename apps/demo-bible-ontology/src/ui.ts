@@ -461,10 +461,12 @@ async function connectStart(name){const state=randB64(16),nonce=randB64(16),pk=a
 const LBSB_TREASURY='0xa9e0acecfbce08548358b4f5681b13a00a5cab7a',LBSB_USDC='0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C';
 // Two options, one mechanism (must mirror the a2a LBSB_TIERS): pay-as-you-go = a tiny pass; the
 // subscription tiers = bigger passes at a volume discount. amount = atomic 6-dp mock USDC.
+// period = the subscription billing window in seconds (mirrors a2a ttlSeconds); only subscription tiers
+// carry one — it's sent as sub_period so the home mints the standing pull mandate with that cadence.
 const LBSB_TIERS=[
   {id:'payg', label:'Pay-as-you-go', kind:'payg',         reads:5,   amount:'1000',  usdc:'0.001'},
-  {id:'basic',label:'Basic',         kind:'subscription', reads:50,  amount:'8000',  usdc:'0.008'},
-  {id:'plus', label:'Plus',          kind:'subscription', reads:500, amount:'60000', usdc:'0.06'}
+  {id:'basic',label:'Basic',         kind:'subscription', reads:50,  amount:'8000',  usdc:'0.008', period:2592000},
+  {id:'plus', label:'Plus',          kind:'subscription', reads:500, amount:'60000', usdc:'0.06',  period:2592000}
 ];
 const lbsbTier=(id)=>LBSB_TIERS.find(t=>t.id===id)||LBSB_TIERS[0];
 // Buy access in a POPUP (seamless): the home opens in a small window, recognizes you via its 1-hour
@@ -472,6 +474,8 @@ const lbsbTier=(id)=>LBSB_TIERS.find(t=>t.id===id)||LBSB_TIERS[0];
 // closes. We stay on the Explorer. Popup blocked → full-redirect fallback (handled by connectCallback).
 async function connectStartPay(ed,tierId){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(session.name||'');const tier=lbsbTier(tierId);
   const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',session.name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','x402-pay');u.searchParams.set('pay_amount',tier.amount);
+  // Subscription tier → sub_period tells the home to ALSO mint a standing pull mandate at that cadence.
+  if(tier.period)u.searchParams.set('sub_period',String(tier.period));
   const pend={state,nonce,verifier:pk.verifier,authOrigin,name:session.name||'',pay:1,ed:ed||'lbsb',tier:tier.id};
   // The popup SELF-completes via shared localStorage — NO window.opener dependency (COOP-proof). The home
   // redirects the popup back here with ?code; window.name='gc_pay' marks it as the pay popup; it reads
@@ -492,12 +496,17 @@ async function exchangePayCode(pend,code){
     const pd=tr.paymentDelegation||null;
     if(session){session.payDelegation=pd;if(typeof tr.treasury!=='undefined')session.treasury=tr.treasury||null;localStorage.setItem('sa.session',JSON.stringify(session));}
     if(pd)await storePayDelegation(pd);
-    if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:tr.id_token,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash});
-      if(cl&&cl.ok){toastPaidMsg('✓ paid '+(Number(cl.amount||0)/1e6)+' USDC · '+esc(cl.tierLabel||'access')+' · '+(cl.passUses||0)+'-read pass');if(typeof loadTreasury==='function')loadTreasury();}
+    // tr.pullDelegation = the standing subscription mandate (subscription tiers only); forwarded to /pay/claim,
+    // which records the subscription + holds the mandate provider-side (the lbsb service's subscriptions store).
+    if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:tr.id_token,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash,pullDelegation:tr.pullDelegation||null});
+      if(cl&&cl.ok){toastPaidMsg(claimToast(cl));if(typeof loadTreasury==='function')loadTreasury();}
       else{alert('Charged, but the read pass could not be minted ('+((cl&&cl.error)||'verify failed')+'). Try reading again.');}}
     // (no render here — handlePayPopup closes the popup; the main window refreshes via the sa.paid storage event)
   }catch(e){alert('Buy access failed: '+(e&&e.message?e.message:e));}
 }
+// Claim toast — a subscription claim reads differently from a one-off pay-as-you-go top-up.
+function claimToast(cl){const amt=(Number(cl.amount||0)/1e6);const base='✓ paid '+amt+' USDC · '+esc(cl.tierLabel||'access')+' · '+(cl.passUses||0)+'-read pass';
+  return cl.subscription?('⭐ '+base+' · subscription active'):base;}
 function toastPaidMsg(msg){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.innerHTML=msg;el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},4000);}
 function toastPaid(){toastPaidMsg('✓ paid · access added');}
 // VAULT-BACKED budget: read the reader's x402-pay budget delegation (delegator = their nameless TREASURY
@@ -566,8 +575,8 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
       // social work (the charge was signed by the reader's credential at the home; no Explorer wallet sig).
       if(tr.settlementHash){
         try{
-          const cl=await a2aPost('/pay/claim',{id_token:session.idToken,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash});
-          if(cl&&cl.ok){toastPaidMsg('✓ paid '+(Number(cl.amount||0)/1e6)+' USDC · '+esc(cl.tierLabel||'access')+' · '+(cl.passUses||0)+'-read pass');if(typeof loadTreasury==='function')loadTreasury();}
+          const cl=await a2aPost('/pay/claim',{id_token:session.idToken,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash,pullDelegation:tr.pullDelegation||null});
+          if(cl&&cl.ok){toastPaidMsg(claimToast(cl));if(typeof loadTreasury==='function')loadTreasury();}
         }catch(e){}
       }
       sessionStorage.removeItem('sa.pending');hideLicenseGate();if(typeof applyHash==='function')applyHash();return true;
@@ -925,6 +934,33 @@ function accBalanceHTML(via,rem){
   return body+' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\'lbsb\\')">'+(via==='prepaid'?'Top up':'Buy access')+'</button>';
 }
 function setAccBalance(via,rem){const el=document.getElementById('acc-balance');if(el)el.innerHTML=accBalanceHTML(via,rem);}
+// Active-subscription card: the recurring lane. One consent minted a standing person-treasury → lbsb-treasury
+// pull mandate; each period grants reads_per_period reads. Shows next renewal + reads left + Renew/Cancel.
+function subCardHTML(s){
+  if(!s||s.status!=='active')return '';
+  const ed=String(s.edition||'lbsb'),when=String(s.current_period_end||'').slice(0,10),left=Number(s.readsRemaining||0);
+  const due=!!s.due;
+  return '<div class="acc-row" style="display:block;background:#f3f0ff;border:1px solid #d9d2f5;border-radius:9px;padding:10px 12px;margin-bottom:9px">'+
+    '<div><span class="acc-st acc-granted" style="background:#6b4ed8">⭐ '+esc(s.tier_label||s.tier||'subscription')+' subscription</span> '+
+    '<b>'+esc(ed.toUpperCase())+'</b> · '+esc(String(s.reads_per_period||0))+' reads / period · <b>'+esc(String(left))+'</b> left this period</div>'+
+    '<div class="muted" style="font-size:11px;margin-top:3px">'+(due?'<b style="color:#b45309">renewal due</b> — ':'renews ')+esc(when||'—')+
+      ' · one consent authorized a standing person-treasury → lbsb-treasury charge mandate</div>'+
+    '<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">'+
+      '<button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accRenewSub(\\''+esc(ed)+'\\',\\''+esc(s.tier||'')+'\\')">'+(due?'Renew now':'Renew early')+'</button>'+
+      '<button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accCancelSub(\\''+esc(ed)+'\\')">Cancel</button>'+
+    '</div></div>';
+}
+// Renew = re-confirm via the home ceremony (no-held-key): the home charges the next period; /pay/claim
+// records the new period + supersedes the row. (Unattended provider-pull would need a held key — stubbed.)
+function accRenewSub(ed,tier){buyLbsbAccess(ed,tier||'basic');}
+// Cancel = stop auto-renewal. Keeps any reads already on the current pass; drops the standing mandate.
+async function accCancelSub(ed){
+  if(!isConnected())return;
+  if(!confirm('Cancel your '+esc(ed.toUpperCase())+' subscription?\\n\\nYou keep any reads already on your current pass, but it will not renew. You can resubscribe anytime.'))return;
+  const r=await a2aPost('/pay/subscription/cancel',{id_token:session.idToken,edition:ed}).catch(e=>({ok:false,error:String(e)}));
+  if(r&&r.ok){toastPaidMsg('subscription canceled — no further renewals');loadAccess();}
+  else alert('Could not cancel: '+((r&&r.error)||'failed'));
+}
 async function loadAccess(){
   const el=document.getElementById('accessview');if(!el)return;
   if(!isConnected()){el.innerHTML='<div class="muted" style="font-size:13px">Connect (top-right) to request and view access.</div>';return;}
@@ -936,6 +972,8 @@ async function loadAccess(){
     let h='';
     // LBSB access-state header (kept in sync after each verse read via setAccBalance).
     h+='<div class="acc-row" id="acc-balance" style="margin-bottom:9px">'+accBalanceHTML(acc.via,acc.remaining)+'</div>';
+    // Active subscription card (recurring lane): tier, status, next renewal, reads left, Renew / Cancel.
+    h+=subCardHTML(acc.subscription);
     if(held.length)h+='<div style="font-weight:600;font-size:13px;margin-bottom:3px">Entitlements held</div>'+held.map((e,i)=>'<div class="acc-row"><span class="acc-st acc-granted">✓ entitled</span> <b>'+esc(e.edition)+'</b> <span class="muted" style="font-size:11px">until '+esc((e.validUntil||'').slice(0,10))+'</span> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accReadPrompt('+i+')">Read a verse →</button> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accAsyncRead('+i+')" title="Read via the async A2A bus (spec 269)">async bus ↗</button></div>').join('');
     if(reqs.length)h+='<div style="font-weight:600;font-size:13px;margin:9px 0 3px">Requests</div>'+reqs.map(q=>'<div class="acc-row"><span class="acc-st acc-'+esc(q.status)+'">'+esc(q.status)+'</span> <b>'+esc(q.edition)+'</b> <span class="muted" style="font-size:11px">'+esc((q.created_at||'').slice(0,10))+'</span></div>').join('');
     if(!heldEd['demo-licensed']&&!pendEd['demo-licensed'])h+='<button class="cg-go" style="margin-top:11px;max-width:300px" onclick="accRequest(\\'demo-licensed\\')">Request access to demo-licensed</button>';

@@ -33,3 +33,35 @@ CREATE TABLE IF NOT EXISTS prepaid_entitlements (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_prepaid_subj ON prepaid_entitlements(subject, edition, status);
+
+-- Subscriptions (spec 272 recurring lane): a reader authorizes ONCE a standing
+-- person-treasury → lbsb-treasury PULL mandate (stored in the lbsb-treasury vault);
+-- each billing period grants `reads_per_period` reads (a fresh prepaid pass). The
+-- mandate's caveats (per-period cap, window, aggregate) bound every renewal on-chain.
+-- Renewal that REDEEMS the mandate unattended needs the provider's signer (a held key)
+-- and is intentionally left to an owner-authorized/owner-online step — see the A2A
+-- /pay/subscription/renew stub. No-held-key renewal = the subscriber re-confirms (push).
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  edition TEXT NOT NULL,
+  subject TEXT NOT NULL,            -- reader canonical agent id (binding='sa')
+  payer TEXT,                       -- person-treasury SA (delegator of the pull mandate)
+  payee TEXT,                       -- lbsb-treasury SA (delegate / redeemer of the pull mandate)
+  asset TEXT,                       -- fee token (USDC)
+  tier TEXT NOT NULL,               -- tier id (basic | plus)
+  tier_label TEXT,
+  reads_per_period INTEGER NOT NULL,    -- N transactions granted each period
+  amount_per_period TEXT,           -- atomic units charged per period
+  period_seconds INTEGER NOT NULL,  -- billing period length
+  periods_authorized INTEGER,       -- # of periods the mandate's aggregate covers
+  periods_charged INTEGER NOT NULL DEFAULT 1, -- periods billed so far (1 = first, at subscribe)
+  current_period_start TEXT NOT NULL,
+  current_period_end TEXT NOT NULL,     -- = next renewal time
+  pull_mandate TEXT,                -- the stored person-treasury → lbsb-treasury PULL delegation (JSON)
+  mandate_id TEXT,                  -- computeMandateId(pull mandate) — dedupe / on-chain ref
+  status TEXT NOT NULL DEFAULT 'active', -- active | canceled | expired
+  last_settlement_hash TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sub_subj ON subscriptions(subject, edition, status);
