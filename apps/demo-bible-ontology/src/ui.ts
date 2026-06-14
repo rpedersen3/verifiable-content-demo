@@ -475,7 +475,7 @@ async function exchangePayCode(pend,code){
     if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:tr.id_token,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash});
       if(cl&&cl.ok){toastPaidMsg('✓ paid '+(Number(cl.amount||0)/1e6)+' USDC · '+esc(cl.tierLabel||'access')+' · '+(cl.passUses||0)+'-read pass');if(typeof loadTreasury==='function')loadTreasury();}
       else{alert('Charged, but the read pass could not be minted ('+((cl&&cl.error)||'verify failed')+'). Try reading again.');}}
-    if(window.name!=='gc_pay'){hideLicenseGate();if(typeof applyHash==='function')applyHash();} // popup closes; main window refreshes via storage
+    // (no render here — handlePayPopup closes the popup; the main window refreshes via the sa.paid storage event)
   }catch(e){alert('Buy access failed: '+(e&&e.message?e.message:e));}
 }
 function toastPaidMsg(msg){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.innerHTML=msg;el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},4000);}
@@ -578,22 +578,23 @@ function renderConnect(){const el=document.getElementById('connectBtn');if(!el)r
 function toggleAcctMenu(e){if(e){e.stopPropagation();}const p=document.getElementById('acctmenuPop');if(p)p.classList.toggle('open');}
 function closeAcctMenu(){const p=document.getElementById('acctmenuPop');if(p)p.classList.remove('open');}
 document.addEventListener('click',function(e){const p=document.getElementById('acctmenuPop');if(p&&p.classList.contains('open')&&!e.target.closest('.acctmenu'))p.classList.remove('open');});
-// The Buy-access POPUP returns here (window.name='gc_pay') with ?code. It SELF-completes — reads sa.paypend
-// from shared localStorage, exchanges the code + claims the pass, signals the main window via sa.paid, and
-// closes. No window.opener (COOP-proof). The main window refreshes on the storage event (onPaidStorage).
-async function handlePayPopup(){
-  try{const rp=new URLSearchParams(location.search);const code=rp.get('code'),st=rp.get('state');
-    let pend=null;try{pend=JSON.parse(localStorage.getItem('sa.paypend')||'null');}catch(e){}
-    if(code&&pend&&pend.state===st)await exchangePayCode(pend,code);
-  }catch(e){}
-  try{localStorage.removeItem('sa.paypend');localStorage.setItem('sa.paid',String(Date.now()));}catch(e){}
-  document.body.innerHTML='<div style="padding:48px 22px;text-align:center;font:15px system-ui,sans-serif;color:#1f2733">✓ Payment complete — this window will close.</div>';
-  setTimeout(function(){try{window.close();}catch(e){}},500);
+// The Buy-access POPUP returns here with ?code. We detect it RELIABLY by a matching sa.paypend in shared
+// localStorage (the home can clobber window.name, so don't trust it). It SELF-completes — exchanges the
+// code + claims the pass, signals the main window via sa.paid, then CLOSES (popup) or re-renders (if this
+// turned out to be the main window via a redirect fallback). No window.opener (COOP-proof).
+async function handlePayPopup(pend,code){
+  try{await exchangePayCode(pend,code);}catch(e){}
+  try{localStorage.removeItem('sa.paypend');localStorage.setItem('sa.paid',String(Date.now()));}catch(e){} // signals the main window
+  document.body.innerHTML='<div style="padding:44px 22px;text-align:center;font:15px system-ui,sans-serif;color:#1f2733">✓ Payment complete — you can close this window.</div>';
+  try{window.close();}catch(e){}
+  setTimeout(function(){try{window.close();}catch(e){}},400);
 }
 // Main window: when the pay popup signals sa.paid, reload the session + re-render (the pass is now active).
 function onPaidStorage(e){if(e&&e.key==='sa.paid'&&e.newValue){loadSession();renderConnect();if(typeof loadTreasury==='function')loadTreasury();hideLicenseGate();if(typeof applyHash==='function')applyHash();toastPaidMsg('✓ payment complete · access added');}}
 loadSession();
-if(typeof window!=='undefined'&&window.name==='gc_pay'&&new URLSearchParams(location.search).get('code')){handlePayPopup();}
+var __sp=(typeof location!=='undefined')?new URLSearchParams(location.search):new URLSearchParams('');
+var __pp=null;try{__pp=JSON.parse(localStorage.getItem('sa.paypend')||'null');}catch(e){}
+if(__sp.get('code')&&__pp&&__pp.state===__sp.get('state')){handlePayPopup(__pp,__sp.get('code'));}
 else{renderConnect();updateSrcUI();window.addEventListener('storage',onPaidStorage);connectCallback().then(ok=>{if(ok)renderConnect();applyHash();});}
 
 // ── Home gateway ──
