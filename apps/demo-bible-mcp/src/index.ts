@@ -424,6 +424,8 @@ app.post('/tools/get_passage_text', async (c) => {
   // Entitlement) OR a paid PREPAID pass (x402). A forged VC is always a hard error; absence/expiry/
   // revocation of a grant falls THROUGH to the prepaid path; no pass either ⇒ 402 (payment required).
   let entitlementSigner: string | undefined;
+  let prepaidRemaining: number | undefined; // reads left on the paid pass after THIS read (for the UI)
+  let accessVia: 'grant' | 'prepaid' = 'grant';
   if (row.descriptor.accessPolicy !== 'public') {
     let grantOk = false;
     if (body.entitlement) {
@@ -453,6 +455,10 @@ app.post('/tools/get_passage_text', async (c) => {
           const used = pre.used + 1;
           await c.env.DB.prepare('UPDATE prepaid_entitlements SET used=?, status=? WHERE id=?').bind(used, used >= pre.max_uses ? 'exhausted' : 'active', pre.id).run();
           prepaidOk = true;
+          accessVia = 'prepaid';
+          // total reads still left across the subject's active passes (after this consume)
+          const left = await c.env.DB.prepare("SELECT COALESCE(SUM(max_uses - used),0) AS r FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?)").bind(body.subject, body.edition, now).first<{ r: number }>();
+          prepaidRemaining = left?.r ?? 0;
         }
       }
       if (!prepaidOk) {
@@ -465,7 +471,7 @@ app.post('/tools/get_passage_text', async (c) => {
   const text = corpus.entry.texts[row.osis]!;
   const commitmentOk = row.descriptor.commitment ? verifyCommitment(text, row.descriptor.commitment) : false;
   audit('content.text.access', 'success', parsed.reference.alias ?? body.reference, { edition: body.edition, commitmentOk, entitlementSigner: entitlementSigner ?? null });
-  return c.json({ ok: true, text, commitment: row.descriptor.commitment, commitmentOk, descriptor: row.descriptor, accessPolicy: row.descriptor.accessPolicy, entitlementSigner });
+  return c.json({ ok: true, text, commitment: row.descriptor.commitment, commitmentOk, descriptor: row.descriptor, accessPolicy: row.descriptor.accessPolicy, entitlementSigner, accessVia, prepaidRemaining });
 });
 
 // issue_entitlement — the corpus ISSUER signs an Entitlement VC granting a subject

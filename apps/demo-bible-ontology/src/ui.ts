@@ -283,9 +283,9 @@ function accessBar(via,rem){
   let el=document.getElementById('licbar');
   if(!el){el=document.createElement('div');el.id='licbar';el.className='licbar';document.body.appendChild(el);}
   const ed=activeEdition.toUpperCase();
-  const label=via==='grant'?'a free <b>grant</b> (your entitlement)':(via==='prepaid'?'your <b>prepaid pass</b>'+(rem?' · <b>'+esc(rem)+'</b> read'+(rem==='1'?'':'s')+' left':''):'a <b>fresh payment</b>');
+  const label=via==='grant'?'a free <b>grant</b> (your entitlement)':(via==='prepaid'?'your <b>prepaid pass</b>'+(rem?' · <b>'+esc(rem)+'</b> verse read'+(rem==='1'?'':'s')+' left':''):'a <b>fresh payment</b>');
   el.className='licbar licok';
-  el.innerHTML='<span>🔓 <b>'+esc(ed)+'</b> access accounted for — via '+label+'.</span> <span class="licacts"><button onclick="buyLbsbAccess(\\''+esc(activeEdition)+'\\')">Top up</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Public BSB</button></span>';
+  el.innerHTML='<span>🔓 <b>'+esc(ed)+'</b> access accounted for — via '+label+'. <span class="muted" style="opacity:.8">Browsing the graph is free; each verse you read draws 1 from your pass.</span></span> <span class="licacts"><button onclick="buyLbsbAccess(\\''+esc(activeEdition)+'\\')">Top up</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Public BSB</button></span>';
   el.style.display='flex';
   el.classList.remove('licpulse');void el.offsetWidth;el.classList.add('licpulse'); // pulse on each read
   const sig=via+'|'+(rem||'');if(sig!==__accSig&&via==='prepaid'&&rem){toastPaidMsg('🔓 access · '+esc(rem)+' read'+(rem==='1'?'':'s')+' left on your pass');}
@@ -886,7 +886,11 @@ async function accRead(i,ref){
     return;
   }
   if(r&&r.ok){
-    out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound read</div>':'')+'</div>';
+    const meter=r.accessVia==='prepaid'?'<div class="muted" style="font-size:11px;margin-top:3px">📖 metered verse read · <b>'+esc(String(r.prepaidRemaining))+'</b> read'+(r.prepaidRemaining===1?'':'s')+' left on your pass</div>':'';
+    out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound read</div>':'')+meter+'</div>';
+    // reflect the decrement in the persistent status bar + a toast (the licensed VERSE TEXT is the metered unit)
+    if(r.accessVia==='prepaid'){accessBar('prepaid',String(r.prepaidRemaining));toastPaidMsg('📖 verse read · '+esc(String(r.prepaidRemaining))+' left on your pass');}
+    else if(r.accessVia==='grant'){accessBar('grant',null);}
   }
   else out.innerHTML='<div style="color:#c0392b;font-size:13px">Denied: '+esc((r&&r.error)||'failed')+'</div>';
 }
