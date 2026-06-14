@@ -260,18 +260,10 @@ const DEMO_A2A_BASE='https://demo-a2a-production.richardpedersen3.workers.dev';
 let activeEdition=localStorage.getItem('bx.edition')||'bsb';
 function apiHeaders(){const h={};if(activeEdition&&activeEdition!=='bsb'){h['x-edition']=activeEdition;if(session&&session.idToken)h['x-id-token']=session.idToken;}return h;}
 async function api(p){
-  let r=await fetch(A2A_BASE+'/vault'+p,{headers:apiHeaders()});
-  // x402 AUTO-PAY (verify path): a 402 + a vault budget delegation → the person SA settles one charge
-  // (treasury SA → lbsb treasury) and we present the settlementHash; the service verifies it on-chain.
-  // No per-call popup. INERT until submitRedemption (home gasless / wallet) is wired.
-  if(r.status===402&&session&&session.payDelegation){
-    const settlementHash=await lbsbSettle(activeEdition);
-    if(settlementHash){
-      const h=apiHeaders();h['PAYMENT-RESPONSE']=btoa(JSON.stringify({settlementHash:settlementHash}));
-      r=await fetch(A2A_BASE+'/vault'+p,{headers:h});
-      if(r.ok)toastPaid();
-    }
-  }
+  const r=await fetch(A2A_BASE+'/vault'+p,{headers:apiHeaders()});
+  // x402: a gated read 402s when there's no grant and no paid pass. ALL custodians do the SAME thing —
+  // top up via the home connect ceremony (the license gate's "Buy access"), which charges + mints a pass.
+  // No SIWE-only auto-pay, no wallet popup here, no per-custodian branch.
   let j={};try{j=await r.json();}catch(e){}
   if((r.status===401||r.status===402||r.status===403)&&j&&j.gated){licenseGate(j);}
   else if(activeEdition!=='bsb'&&r.ok){hideLicenseGate();}
@@ -287,9 +279,10 @@ function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.s
 // per access (reader agent wallet → lbsb treasury), auto-paying on a 402 with no per-call popup.
 async function buyLbsbAccess(ed){
   if(!requireConnect('buy '+ed+' access'))return;
-  const budget=session.payDelegation||await loadPayBudget();
-  if(budget){alert('You have an x402-pay budget in your vault (treasury → person, capped). Licensed access auto-pays from your nameless treasury SA on demand — open a licensed query to trigger a charge. No popup, no per-mint.');return;}
-  if(!confirm('No x402-pay budget found in your vault yet.\\n\\nYour home provisions a one-time treasury → person payment delegation into your vault (payee = lbsb treasury, USDC, capped per-charge + per-session). After that, every licensed access auto-pays from your treasury SA — settling on-chain — with no popup.\\n\\nProvision one now?'))return;
+  // ONE path for EVERY custodian (wallet / passkey / social): your Global.Church home charges the fee from
+  // your person-treasury → lbsb treasury, signed ONCE by your sign-in credential, and grants a multi-read
+  // pass. No wallet popup in this app, no per-custodian branch, no fallback.
+  if(!confirm('Buy access to '+ed.toUpperCase()+'?\\n\\nYour home will charge a small fee from your person-treasury to the lbsb treasury — authorized once by your sign-in credential (wallet, passkey, or social) — and grant you a multi-read pass.'))return;
   connectStartPay(ed);
 }
 function licenseGate(info){
@@ -449,54 +442,12 @@ async function storePayDelegation(deleg){
     return !!(r&&r.ok!==false);
   }catch(e){return false;}
 }
-// Settle one charge: the A2A builds the redemption (it has the payments pkg); the PERSON SA submits it
-// (home gasless / wallet) → USDC moves TREASURY SA → lbsb treasury → returns the settlementHash to verify.
-async function lbsbSettle(ed){
-  if(!session.payDelegation)return null;
-  const r=await fetch(A2A_BASE+'/pay/redeem',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id_token:session.idToken,edition:ed||'lbsb',delegation:session.payDelegation})}).then(x=>x.json()).catch(function(){return null;});
-  if(!r||!r.ok)return null;
-  try{return await submitRedemption(r);} // the person SA executes r.executeCallData; returns the settlementHash
-  catch(e){alert('Payment not completed: '+(e&&e.message?e.message:e));return null;} // declined/failed → stay gated
-}
-// Submit the redemption AS the person SA, gaslessly. The person SA executes r.executeCallData
-// (AgentAccount.execute(DM, redeemDelegation)) → the PaymentEnforcer moves USDC person-treasury → lbsb
-// treasury. NO held key: the reader's own wallet (the person SA's SIWE custodian) signs the userOpHash;
-// the demo-a2a relayer + paymaster sponsor gas + submit. One signature buys a multi-read pass (the gate
-// mints it on verify), so subsequent reads draw from the pass with no further signature. Returns the
-// settlement tx hash (or throws → the read stays gated). Passkey/social custodians: future signing paths.
-async function submitRedemption(r){
-  if(!r||!r.executeCallData||!r.personSa)return null;
-  if(typeof window==='undefined'||!window.ethereum)throw new Error('A wallet is needed to authorize this payment — connect the wallet that custodies your agent.');
-  const accts=await window.ethereum.request({method:'eth_requestAccounts'});
-  const owner=accts&&accts[0];if(!owner)throw new Error('no wallet account available');
-  const cj=await fetch(DEMO_A2A_BASE+'/auth/csrf',{credentials:'include'}).then(x=>x.json());
-  const tok=cj.token||cj.csrfToken||cj.csrf||'';
-  const build=await fetch(DEMO_A2A_BASE+'/account/build-call-userop',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({sender:r.personSa,callData:r.executeCallData})}).then(x=>x.json());
-  if(!build||!build.userOpHash||!build.userOp)throw new Error((build&&(build.error||build.detail))||'could not build the payment (treasury underfunded?)');
-  const sig=await window.ethereum.request({method:'personal_sign',params:[build.userOpHash,owner]});
-  const sub=await fetch(DEMO_A2A_BASE+'/account/submit-call-userop',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({userOp:Object.assign({},build.userOp,{signature:sig})})}).then(x=>x.json());
-  const hash=sub&&sub.transactionHash;
-  if(!hash||(sub.status&&sub.status!=='success'&&sub.status!=='0x1'))throw new Error((sub&&(sub.error||sub.detail))||'payment transaction failed');
-  return hash;
-}
-// On connect: confirm the user's nameless TREASURY SA has mock USDC; top it up if empty (demo faucet).
-// Fund a person-treasury with mock USDC via a CUSTODIAN MINT — NO service faucet, NO held key: the
-// reader's OWN wallet calls MockUSDC.mint(treasury, amount) and pays gas (mint is permissionless). The
-// treasury SA itself is created by the home in the member's Portal; we only top it up, on demand.
-async function fundTreasury(treasury){
-  const t=treasury||(session.payDelegation&&session.payDelegation.delegator)||'';
-  if(!t||!/^0x[0-9a-fA-F]{40}$/.test(t)){alert('No treasury yet — connect with a payment budget (Buy access) first.');return;}
-  if(typeof window==='undefined'||!window.ethereum){alert('A wallet is needed to fund your treasury (mint mock USDC).');return;}
-  try{
-    const accts=await window.ethereum.request({method:'eth_requestAccounts'});const owner=accts&&accts[0];if(!owner)return;
-    // MockUSDC.mint(address,uint256) = selector 0x40c10f19 + padded(treasury) + padded(1000 USDC @ 6dp)
-    const to=t.toLowerCase().replace('0x','').padStart(64,'0');
-    const amt=(1000000000).toString(16).padStart(64,'0');
-    const txHash=await window.ethereum.request({method:'eth_sendTransaction',params:[{from:owner,to:LBSB_USDC,data:'0x40c10f19'+to+amt}]});
-    alert('Minting 1000 mock USDC to your treasury — tx '+String(txHash).slice(0,12)+'…');
-    setTimeout(function(){if(typeof loadTreasury==='function')loadTreasury();},5000);
-  }catch(e){alert('Funding failed: '+(e&&e.message?e.message:e));}
-}
+// (Removed the SIWE-only client-side redemption — NO fallbacks. EVERY custodian charges the SAME way:
+//  through the home connect ceremony (Buy access → chargePayment, signed via signHashFor for wallet/
+//  passkey/social), which mints the access pass. The Explorer never signs a payment userOp.)
+// (Removed the SIWE-only window.ethereum treasury mint — NO fallbacks. Funding is uniform for ALL
+//  custodians: the home charge ceremony tops up the person-treasury (mints mock USDC, signed by the
+//  reader's credential) before it charges, so "Buy access" funds + pays in one credential prompt.)
 async function verifyIdToken(authOrigin,idToken,expectedNonce){
   const parts=idToken.split('.');if(parts.length!==3)throw new Error('id_token malformed');
   const header=decodeSeg(parts[0]),claims=decodeSeg(parts[1]);
@@ -777,11 +728,10 @@ async function loadTreasury(){
     const provisioned=r.provisioned;
     const bal=r.configured?(r.usdc||'0'):null;
     el.innerHTML='<div class="acc-row"><span class="acc-st '+(provisioned?'acc-granted':'acc-pending')+'">'+(provisioned?'person-treasury':'person SA')+'</span> '+
-      '<b>'+(bal===null?'—':(Number(bal).toLocaleString()+' mock USDC'))+'</b>'+
-      (addr?' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="fundTreasury(\\''+esc(addr)+'\\')">Fund (mint mock USDC)</button>':'')+'</div>'+
+      '<b>'+(bal===null?'—':(Number(bal).toLocaleString()+' mock USDC'))+'</b></div>'+
       '<div class="hint" style="margin-top:3px">treasury <span class="mono">'+esc(addr.slice(0,22))+'…</span>'+
-      (bal===null?'<br><span class="muted">balance unavailable — RPC not configured</span>':'<br>Your person-treasury pays the per-access fee for licensed editions. Top it up with a <b>custodian mint</b> — your own wallet mints mock USDC (no service faucet, no held key).')+
-      (provisioned?'':'<br><span class="muted">No person-treasury authorized yet — create one in your Global.Church Portal, then Buy access to authorize a payment delegation.</span>')+'</div>';
+      (bal===null?'<br><span class="muted">balance unavailable — RPC not configured</span>':'<br>Your person-treasury pays the per-access fee for licensed editions. <b>Buy access</b> tops it up (mints mock USDC) + charges in one credential prompt — same for a wallet, passkey, or social login.')+
+      (provisioned?'':'<br><span class="muted">No person-treasury authorized yet — create one in your Global.Church Portal, then Buy access.</span>')+'</div>';
   }catch(e){el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read treasury: '+esc(e&&e.message?e.message:String(e))+'</div>';}
 }
 // The connected user's own trust-signal feedback (author_sub filter on the public feedback store).
@@ -861,16 +811,11 @@ async function accRead(i,ref){
   out.innerHTML='<div class="ghint" style="padding:8px">reading '+esc(ref)+' from '+esc(e.edition)+'…</div>';
   const body={id_token:session.idToken,reference:ref,edition:e.edition,entitlement:e.entitlement};
   let r=await a2aPost('/resolve-licensed',body).catch(er=>({ok:false,error:String(er)}));
-  // x402 pay-per-verse: no grant + no pass ⇒ gated. Settle (ONE wallet signature → a multi-read pass),
-  // then retry presenting the on-chain settlement. The fee moves person-treasury → lbsb treasury.
+  // x402 pay-per-verse: no grant + no pass ⇒ gated. ALL custodians do the SAME thing — top up via the home
+  // ceremony (Buy access), which charges + mints a multi-read pass; then the read draws from the pass.
   if(r&&r.gated&&!r.ok){
-    if(!session.payDelegation){out.innerHTML='<div style="color:#b45309;font-size:13px">Payment required — click <b>Buy access</b> (top, switch to LBSB) to authorize a payment budget, then <b>Fund</b> your treasury (Account → Treasury), and try again.</div>';return;}
-    out.innerHTML='<div class="ghint" style="padding:8px">payment required — authorizing the charge in your wallet…</div>';
-    const settlementHash=await lbsbSettle(e.edition);
-    if(settlementHash){
-      r=await fetch(A2A_BASE+'/resolve-licensed',{method:'POST',headers:{'content-type':'application/json','PAYMENT-RESPONSE':btoa(JSON.stringify({settlementHash:settlementHash}))},body:JSON.stringify(body)}).then(x=>x.json()).catch(er=>({ok:false,error:String(er)}));
-      if(r&&r.ok){toastPaid();if(typeof loadTreasury==='function')loadTreasury();}
-    } else { out.innerHTML='<div style="color:#c0392b;font-size:13px">Payment was not completed.</div>';return; }
+    out.innerHTML='<div style="color:#b45309;font-size:13px">Payment required for '+esc(e.edition.toUpperCase())+'. <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\''+esc(e.edition)+'\\')">Buy access</button> — your home charges the fee (one credential prompt) and grants a read pass. Then read again.</div>';
+    return;
   }
   if(r&&r.ok){
     out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound read</div>':'')+'</div>';

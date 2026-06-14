@@ -10,9 +10,9 @@
 //     treasury ≥ price). RPC-only: no service key, no relayer. This is how the gate trusts the payment.
 //
 // There is NO server-side settle and NO faucet here: the service never holds a key that can move money.
-import { encodeFunctionData, keccak256, toBytes, toEventSelector, createPublicClient, http, type Address, type Hex } from 'viem';
+import { keccak256, toBytes, toEventSelector, createPublicClient, http, type Hex } from 'viem';
 import { baseSepolia } from 'viem/chains';
-import { x402, computeMandateId, type PaymentMandate, type Hex32 } from '@agenticprimitives/payments';
+import { type Hex32 } from '@agenticprimitives/payments';
 
 export type PayEnv = {
   PAY_ENABLED?: string;            // master switch for the (keyless) settlement lane
@@ -26,48 +26,8 @@ export type PayEnv = {
   PAY_PASS_TTL_SECONDS?: string;   // pass lifetime, default 3600
 };
 
-const USDC_DECIMALS = 6;
-const EXECUTE_ABI = [{ type: 'function', name: 'execute', stateMutability: 'nonpayable', inputs: [{ name: 'target', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'data', type: 'bytes' }], outputs: [] }] as const;
-/** AgentAccount.execute(target, value, data) — the redeemer SA's outer call. */
-function encodeExecute(target: Address, value: bigint, data: Hex): Hex {
-  return encodeFunctionData({ abi: EXECUTE_ABI, functionName: 'execute', args: [target, value, data] });
-}
 /** The canonical resource a settlement buys: an edition access PASS (not a single URL). */
 function passResourceHash(edition: string): Hex32 { return keccak256(toBytes(`x402:${edition}:pass`)) as Hex32; }
-
-/** Build the one-shot closed mandate for a single charge (redemption-load-bearing fields). */
-function buildLbsbCharge(env: PayEnv, payerSa: Address, edition: string, nonce: bigint): { mandate: PaymentMandate; resourceHash: Hex32 } {
-  const chain = Number(env.PAY_CHAIN_ID ?? '84532');
-  const now = Math.floor(Date.now() / 1000);
-  const asset = { id: env.PAY_ASSET!, symbol: 'USDC', decimals: USDC_DECIMALS };
-  const mandate: PaymentMandate = {
-    mandateId: computeMandateId({ payer: payerSa, nonce, rail: 'x402', chain }),
-    payer: payerSa, payee: env.PAY_TREASURY_SA as Address, granter: payerSa, rail: 'x402',
-    amountPolicy: { kind: 'exact', amount: BigInt(env.PAY_PRICE ?? '0'), asset, chain },
-    nonce, maxRedemptions: 1, validFrom: now, expiresAt: now + 3600,
-    contextBinding: { resource: { method: 'GET', url: `x402:${edition}:pass`, requestBodyHash: ('0x' + '00'.repeat(32)) as Hex32 }, chain, asset, nonce, validFrom: now, expiresAt: now + 3600 },
-    mode: 'closed', reasonHash: keccak256(toBytes(`access:${edition}`)) as Hex32, signature: '0x',
-  } as PaymentMandate;
-  return { mandate, resourceHash: passResourceHash(edition) };
-}
-
-/** Build the redemption the reader's PERSON SA executes to pay. Given the stored payment delegation
- *  (delegator = the reader's person-treasury SA, payee = lbsb treasury), returns the
- *  `AgentAccount.execute(DM, redeemDelegation(...))` calldata for the reader to submit with their own
- *  wallet (gasless via the relayer). NO key here — the reader signs. Moves USDC person-treasury → lbsb. */
-export function buildLbsbRedemption(env: PayEnv, args: { delegation: unknown; edition: string; nonce?: bigint }): { sender: null; to: Address; value: string; executeCallData: Hex; mandateId: string; nonce: string; resourceHash: Hex32 } | null {
-  const deleg = args.delegation as { delegator?: string };
-  if (!deleg || typeof deleg.delegator !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(deleg.delegator)) return null;
-  if (!env.PAY_DELEGATION_MANAGER || !env.PAY_ENFORCER || !env.PAY_ASSET || !env.PAY_TREASURY_SA || !env.PAY_PRICE) return null;
-  const nonce = args.nonce ?? BigInt(Date.now());
-  const { mandate, resourceHash } = buildLbsbCharge(env, deleg.delegator as Address, args.edition, nonce);
-  const plan = x402.buildRedemptionCalldata({
-    mandate, delegation: args.delegation as never,
-    delegationManager: env.PAY_DELEGATION_MANAGER as Address, paymentEnforcer: env.PAY_ENFORCER as Address,
-    asset: env.PAY_ASSET as Address, resourceHash,
-  });
-  return { sender: null, to: env.PAY_DELEGATION_MANAGER as Address, value: '0', executeCallData: encodeExecute(plan.to, plan.value, plan.data), mandateId: mandate.mandateId, nonce: nonce.toString(), resourceHash };
-}
 
 /** The 402 PaymentRequired body for an unpaid lbsb access (x402 erc7710-delegation wire shape). */
 export function buildLbsbPaymentRequired(env: PayEnv, edition: string, resource: { method: string; url: string }): unknown {

@@ -10,7 +10,7 @@ import { signCredential, verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2
 import { recoverAddress, keccak256, toBytes } from 'viem';
 import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
 import { resolveOnBehalf, pollTask, buildGrantSpec } from './a2a/client.js';
-import { buildLbsbPaymentRequired, verifyLbsbPayment, verifyConfigured, buildLbsbRedemption, type VerifyEnv } from './a2a/payment.js';
+import { buildLbsbPaymentRequired, verifyLbsbPayment, verifyConfigured, type VerifyEnv } from './a2a/payment.js';
 import type { Delegation } from '@agenticprimitives/delegation';
 import type { Hex } from 'viem';
 
@@ -185,20 +185,9 @@ app.get('/vault/*', async (c) => {
   return c.json(res.body, res.status as 200);
 });
 
-// pay/redeem — build the redemption the reader's PERSON SA must execute to pay (the browser can't —
-// no payments pkg). Given the vault budget delegation (delegator = TREASURY SA), returns the
-// AgentAccount.execute(DM, redeemDelegation(...)) callData; the reader submits it (home gasless / wallet)
-// → USDC moves TREASURY SA → lbsb treasury → it presents the settlementHash to /vault for verify.
-app.post('/pay/redeem', async (c) => {
-  const b = await c.req.json<{ id_token?: string; edition?: string; delegation?: unknown }>().catch(() => ({}) as Record<string, never>);
-  try {
-    const claims = await verifyIdToken(String(b.id_token ?? '')); // person SA (subject) — gates who can build it
-    const r = buildLbsbRedemption(c.env as unknown as VerifyEnv, { delegation: b.delegation, edition: String(b.edition ?? 'lbsb') });
-    if (!r) return c.json({ ok: false, error: 'cannot build redemption (settle not configured or bad budget delegation)' }, 400);
-    const personSa = claims.sub.includes(':') ? claims.sub.split(':').pop() : claims.sub;
-    return c.json({ ok: true, personSa, sender: personSa, to: r.to, value: r.value, executeCallData: r.executeCallData, mandateId: r.mandateId, nonce: r.nonce });
-  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
-});
+// (Removed /pay/redeem — the browser no longer builds/submits a redemption. EVERY custodian charges the
+//  SAME way: the home connect ceremony builds + signs + submits the redemption (chargePayment), and the
+//  app just verifies the resulting settlementHash via /pay/claim. No SIWE-only path.)
 
 // pay/claim — the home's connect ceremony charged the FIRST x402 payment (all-custodian, via chargePayment)
 // and returned a settlementHash. Verify it on-chain (keyless) + mint the access pass for the reader. This
