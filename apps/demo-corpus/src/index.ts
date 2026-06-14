@@ -169,6 +169,25 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 .cpickcard{flex:1;min-width:190px;border:1px solid var(--line);border-radius:12px;padding:20px;cursor:pointer;background:#fff;text-align:left}
 .cpickcard:hover{border-color:var(--accent);box-shadow:0 2px 12px rgba(47,109,240,.14)}.cpickcard b{font-size:16px;display:block}
 .chipbtn{cursor:pointer;color:var(--accent);font-weight:600}
+/* Top-right account menu (matches demo-bible-ontology) */
+.acctmenu{position:relative;display:inline-block}
+.acctmenu-trigger{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:6px 11px;font:inherit;font-size:13px;font-weight:600;color:#1a2433;cursor:pointer}
+.acctmenu-trigger:hover{border-color:#d0dbf5;background:#f8fafd}
+.acctmenu-dot{color:#1a8a4f;font-size:10px}
+.acctmenu-caret{color:var(--muted);font-size:10px}
+.acctmenu-lbl{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acctmenu-pop{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:60;min-width:280px;background:#fff;border:1px solid var(--line);border-radius:11px;box-shadow:0 10px 30px rgba(20,30,50,.18);overflow:hidden}
+.acctmenu-pop.open{display:block}
+.acctmenu-head{padding:12px 14px;border-bottom:1px solid var(--line);background:#f8fafd}
+.acctmenu-name{font-weight:700;font-size:14px;color:#1a2433}
+.acctmenu-row{margin-top:8px}
+.acctmenu-k{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700}
+.acctmenu-v{font-size:12px;color:#1a2433;word-break:break-all;line-height:1.35}
+.acctmenu-mono{font-family:ui-monospace,Menlo,monospace}
+.acctmenu-item{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:0;padding:10px 14px;font:inherit;font-size:13px;font-weight:600;color:#1a2433;cursor:pointer}
+.acctmenu-item:hover{background:#eef2fb;color:var(--accent)}
+.acctmenu-item.danger{color:#c0392b;border-top:1px solid var(--line)}
+.acctmenu-item.danger:hover{background:#fdecea;color:#c0392b}
 </style></head><body>
 <div class="hdr"><h1>🗂️ Corpus Manager</h1><span class="sub" id="hsub">entitlement approvals</span><span id="who"></span></div>
 <nav class="topnav" id="topnav"><a id="nav-ent" class="navlink active" onclick="showPage('ent')">Entitlements</a><a id="nav-fb" class="navlink" onclick="showPage('fb')">Feedback</a><a id="nav-tre" class="navlink" onclick="showPage('tre')">Treasury</a><span id="corpchip" style="margin-left:auto;align-self:center;font-size:13px"></span></nav>
@@ -254,6 +273,22 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
     localStorage.setItem('corp.session',JSON.stringify(session));sessionStorage.removeItem('corp.pending');return true;
   }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));return false;}}
 function disconnect(){session=null;localStorage.removeItem('corp.session');render();}
+// Top-right account dropdown (matches demo-bible-ontology): the connected SMART AGENT identity — its name,
+// its on-chain address, and the canonical (CAIP-10) agent id — plus Disconnect. (The custodian EOA is NOT
+// part of the OIDC agent session by design — ADR-0016 — so the menu shows the smart-agent identity.)
+const acctAddr=()=>{const m=String(session&&session.sub||'').match(/0x[0-9a-fA-F]{40}/);return m?m[0]:'';};
+function acctMenuHTML(){
+  const nm=esc(session.name||(session.sub||'').slice(0,16)),did=esc(session.sub||''),sa=acctAddr();
+  return '<div class="acctmenu"><button class="acctmenu-trigger" onclick="toggleAcctMenu(event)"><span class="acctmenu-dot">●</span><span class="acctmenu-lbl">'+nm+'</span><span class="acctmenu-caret">▾</span></button>'+
+    '<div class="acctmenu-pop" id="acctmenuPop"><div class="acctmenu-head"><div class="acctmenu-name">'+nm+'</div>'+
+      '<div class="acctmenu-row"><span class="acctmenu-k">Smart agent name</span><span class="acctmenu-v">'+nm+'</span></div>'+
+      '<div class="acctmenu-row"><span class="acctmenu-k">Smart agent address</span><span class="acctmenu-v acctmenu-mono">'+esc(sa||'—')+'</span></div>'+
+      '<div class="acctmenu-row"><span class="acctmenu-k">Canonical agent id</span><span class="acctmenu-v acctmenu-mono">'+did+'</span></div>'+
+    '</div><button class="acctmenu-item danger" onclick="closeAcctMenu();disconnect()">Disconnect</button></div></div>';
+}
+function toggleAcctMenu(e){if(e){e.stopPropagation();}const p=document.getElementById('acctmenuPop');if(p)p.classList.toggle('open');}
+function closeAcctMenu(){const p=document.getElementById('acctmenuPop');if(p)p.classList.remove('open');}
+document.addEventListener('click',function(e){const p=document.getElementById('acctmenuPop');if(p&&p.classList.contains('open')&&!e.target.closest('.acctmenu'))p.classList.remove('open');});
 // Auto-scope every /admin call to the selected corpus.
 const post=(p,b)=>tfetch(p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(p.indexOf('/admin')===0?Object.assign({corpus:corpusKey},b||{}):b)},10000).then(r=>r.json());
 function pickCorpus(k){corpusKey=k;localStorage.setItem('corp.corpus',k);renderPicker();render();}
@@ -290,7 +325,7 @@ async function revoke(id){if(!confirm('Revoke this entitlement? The reader loses
 async function render(){
   const cp=curCorpus();
   const w=document.getElementById('who');
-  if(w)w.innerHTML=!cp?'':(isConnected()?'<span class="muted">● '+esc(session.name||(session.sub||'').slice(0,14))+'</span> <button onclick="disconnect()">Disconnect</button>':'<button class="conn" onclick="connectStart()">🌐 Connect with Global.Church</button>');
+  if(w)w.innerHTML=!cp?'':(isConnected()?acctMenuHTML():'<button class="conn" onclick="connectStart()">🌐 Connect with Global.Church</button>');
   if(!cp)return;
   const ob=document.getElementById('owner'),q=document.getElementById('queue'),is=document.getElementById('issued');
   if(!isConnected()){window.isOwnerNow=false;if(ob)ob.innerHTML='<div class="ownb">Connect with your <b>custodian identity</b> for <span class="mono">'+esc(cp.agent)+'</span> to manage the '+esc(cp.label)+' corpus. (We verify custody on-chain — no need to sign in as the agent.)</div>';if(q)q.innerHTML='<p class="muted">Connect as the corpus owner to review requests.</p>';if(is)is.innerHTML='';return;}
