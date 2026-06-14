@@ -745,6 +745,19 @@ app.post('/tools/renew_subscription', async (c) => {
   return c.json({ ok: true, periodsCharged: row.periods_charged + 1, currentPeriodStart: start, currentPeriodEnd: end });
 });
 
+// list_due_subscriptions — active subscriptions whose current period has ended (DUE for renewal), with the
+// stored pull mandate so the owner ceremony can redeem each. Owner-only data (caller gated upstream).
+app.post('/tools/list_due_subscriptions', async (c) => {
+  const b = await c.req.json<{ edition?: string; limit?: number }>().catch(() => ({}) as { edition?: string; limit?: number });
+  if (!c.env.DB) return c.json({ ok: true, due: [] });
+  const edition = String(b.edition ?? 'lbsb');
+  const lim = Math.min(500, Math.max(1, Number(b.limit ?? 200)));
+  const now = new Date().toISOString();
+  const rows = (await c.env.DB.prepare("SELECT id,subject,payer,payee,asset,tier,tier_label,reads_per_period,amount_per_period,period_seconds,current_period_end,pull_mandate,mandate_id FROM subscriptions WHERE edition=? AND status='active' AND current_period_end<=? ORDER BY id ASC LIMIT ?").bind(edition, now, lim).all()).results as Array<Record<string, unknown>>;
+  const due = rows.map((r) => ({ ...r, pull_mandate: r.pull_mandate ? JSON.parse(String(r.pull_mandate)) : null }));
+  return c.json({ ok: true, edition, due });
+});
+
 // subject_treasury — resolve the person-treasury SA a reader has paid FROM for an edition (so the Access
 // view can show "your treasury 0x… · N USDC" instead of a stale "create one" prompt). Prefers an active
 // subscription's payer, else the payer of the reader's latest prepaid settlement. null ⇒ never paid here.

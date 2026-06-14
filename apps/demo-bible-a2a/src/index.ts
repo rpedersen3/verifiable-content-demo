@@ -333,6 +333,65 @@ app.post('/pay/subscription/renew', async (c) => {
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
+// ── Owner-side subscription collection (spec 272 recurring, owner-online, no held key) ──
+// The corpus OWNER (custodian of the collection treasury) redeems each DUE subscriber's standing pull
+// mandate in one ceremony. These endpoints are OWNER-gated: the caller's id_token sub must equal the
+// edition's registered service owner (service_identity.owner_sub) — the same check demo-corpus uses.
+const EDITION_SERVICE: Record<string, string> = { lbsb: 'lbsb', 'demo-licensed': 'bsb-archive' };
+async function ownerGateA2A(env: Env, idToken: string, edition: string): Promise<string> {
+  const { sub } = await verifyIdToken(String(idToken ?? ''));
+  const service = EDITION_SERVICE[edition] ?? edition;
+  const r = await mcpPost(env, '/tools/get_service_identity', { service });
+  const id = (r.body as { identity?: { owner_sub?: string } })?.identity ?? null;
+  if (!id?.owner_sub) throw new Error('corpus unclaimed — owner must claim it first');
+  if (id.owner_sub.toLowerCase() !== sub.toLowerCase()) throw new Error('not the corpus owner');
+  return sub;
+}
+
+// /admin/subscriptions/due — owner lists subscriptions DUE for renewal, each with its stored pull mandate,
+// so the home collection ceremony can redeem them. Owner-gated.
+app.post('/admin/subscriptions/due', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const edition = String(b.edition ?? 'lbsb');
+    await ownerGateA2A(c.env, String(b.id_token ?? ''), edition);
+    const r = await mcpPost(c.env, '/tools/list_due_subscriptions', { edition });
+    return c.json({ ok: true, edition, due: (r.body as { due?: unknown[] })?.due ?? [] });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
+// /admin/subscriptions/collected — record the result of an owner collection ceremony: per redeemed mandate,
+// verify the settlement on-chain (keyless), record it, advance the subscription period + mint the next pass.
+// Owner-gated. `results` come back from the home ceremony as [{ subscriptionId, subject, settlementHash }].
+app.post('/admin/subscriptions/collected', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string; results?: Array<{ subscriptionId?: number; subject?: string; settlementHash?: string }> }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const edition = String(b.edition ?? 'lbsb');
+    await ownerGateA2A(c.env, String(b.id_token ?? ''), edition);
+    const env = c.env as unknown as VerifyEnv;
+    const out: Array<{ subscriptionId?: number; subject?: string; ok: boolean; error?: string; currentPeriodEnd?: string | null }> = [];
+    for (const r of b.results ?? []) {
+      try {
+        if (!r.subject || !r.settlementHash || !/^0x[0-9a-fA-F]{64}$/.test(r.settlementHash)) { out.push({ subscriptionId: r.subscriptionId, subject: r.subject, ok: false, error: 'bad settlementHash' }); continue; }
+        const headers = new Headers({ 'PAYMENT-RESPONSE': btoa(JSON.stringify({ settlementHash: r.settlementHash })) });
+        const verified = await verifyLbsbPayment(env, { edition, headers });
+        if (!verified) { out.push({ subscriptionId: r.subscriptionId, subject: r.subject, ok: false, error: 'settlement not verified on-chain' }); continue; }
+        const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
+        if (dup.body && (dup.body as { seen?: boolean }).seen) { out.push({ subscriptionId: r.subscriptionId, subject: r.subject, ok: true }); continue; }
+        // Resolve the subscriber's tier sizing from THEIR active subscription, then renew their period.
+        const cur = ((await mcpPost(c.env, '/tools/get_subscription', { edition, subject: r.subject })).body as { subscription?: { tier?: string; reads_per_period?: number; period_seconds?: number } })?.subscription;
+        const reads = Number(cur?.reads_per_period ?? 0) || (LBSB_TIERS.find((t) => t.id === cur?.tier)?.reads ?? 0);
+        const ttl = Number(cur?.period_seconds ?? 0) || (LBSB_TIERS.find((t) => t.id === cur?.tier)?.ttlSeconds ?? 2592000);
+        await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: 'subscription', reference: '/admin/subscriptions/collected' });
+        await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: r.subject, maxUses: reads, validUntil: new Date(Date.now() + ttl * 1000).toISOString(), settlementHash: verified.settlementHash });
+        const adv = (await mcpPost(c.env, '/tools/renew_subscription', { edition, subject: r.subject, settlementHash: verified.settlementHash })).body as { currentPeriodEnd?: string };
+        out.push({ subscriptionId: r.subscriptionId, subject: r.subject, ok: true, currentPeriodEnd: adv?.currentPeriodEnd ?? null });
+      } catch (e) { out.push({ subscriptionId: r.subscriptionId, subject: r.subject, ok: false, error: (e as Error).message }); }
+    }
+    return c.json({ ok: true, edition, collected: out.filter((x) => x.ok).length, results: out });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
 // pay/treasury-status — read-only: the connected user's person-treasury SA + its mock-USDC balance, for
 // the Explorer admin "My treasury" lane. The treasury is the payment delegation's `delegator` (where USDC
 // leaves), passed in by the client; falls back to the person SA when no payment delegation is set up yet.

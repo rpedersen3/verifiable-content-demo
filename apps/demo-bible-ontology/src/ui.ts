@@ -967,6 +967,18 @@ async function accCancelSub(ed){
   if(r&&r.ok){toastPaidMsg('subscription canceled — no further renewals');loadAccess();}
   else alert('Could not cancel: '+((r&&r.error)||'failed'));
 }
+// First-class subscribe / buy-access offer for the Access view (shown when there's no active subscription).
+// Subscriptions = a standing charge mandate (renews each period); pay-as-you-go = a one-off pass. One credential
+// prompt charges your person-treasury → lbsb treasury. No treasury yet ⇒ guided to create one (buyLbsbAccess).
+function subscribeOfferHTML(ed){
+  const card=(t)=>{const isSub=t.kind==='subscription';return '<button class="map-basbtn" style="border:1px solid var(--line);border-radius:9px;padding:9px 11px;text-align:left;display:flex;flex-direction:column;gap:1px;min-width:150px" onclick="buyLbsbAccess(\\''+esc(ed)+'\\',\\''+t.id+'\\')" title="'+t.reads+' reads for '+t.usdc+' USDC">'+
+    '<span style="font-weight:600">'+(isSub?'⭐ ':'💳 ')+esc(t.label)+'</span>'+
+    '<span class="muted" style="font-size:11px">'+t.reads+' reads'+(isSub?' / period':'')+' · '+t.usdc+' USDC'+(isSub?' · auto-renews':'')+'</span></button>';};
+  return '<div style="margin:4px 0 12px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fafbfe">'+
+    '<div style="font-weight:600;font-size:13px;margin-bottom:2px">Subscribe to <b>'+esc(ed.toUpperCase())+'</b></div>'+
+    '<div class="muted" style="font-size:11px;margin-bottom:8px">A <b>subscription</b> authorizes a standing per-period charge from your treasury and renews automatically; <b>pay-as-you-go</b> is a one-off pass. One credential prompt — works with wallet, passkey, or social.</div>'+
+    '<div style="display:flex;gap:7px;flex-wrap:wrap">'+LBSB_TIERS.map(card).join('')+'</div></div>';
+}
 async function loadAccess(){
   const el=document.getElementById('accessview');if(!el)return;
   if(!isConnected()){el.innerHTML='<div class="muted" style="font-size:13px">Connect (top-right) to request and view access.</div>';return;}
@@ -982,6 +994,8 @@ async function loadAccess(){
     h+='<div class="acc-row" id="acc-balance" style="margin-bottom:9px">'+accBalanceHTML(acc.via,acc.remaining)+'</div>';
     // Active subscription card (recurring lane): tier, status, next renewal, reads left, Renew / Cancel.
     h+=subCardHTML(acc.subscription);
+    // No active subscription → a first-class "Subscribe / buy access" offer (so it isn't hidden behind a gated read).
+    if(!acc.subscription||acc.subscription.status!=='active')h+=subscribeOfferHTML('lbsb');
     if(held.length)h+='<div style="font-weight:600;font-size:13px;margin-bottom:3px">Entitlements held</div>'+held.map((e,i)=>'<div class="acc-row"><span class="acc-st acc-granted">✓ entitled</span> <b>'+esc(e.edition)+'</b> <span class="muted" style="font-size:11px">until '+esc((e.validUntil||'').slice(0,10))+'</span> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accReadPrompt('+i+')">Read a verse →</button> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accAsyncRead('+i+')" title="Read via the async A2A bus (spec 269)">async bus ↗</button></div>').join('');
     if(reqs.length)h+='<div style="font-weight:600;font-size:13px;margin:9px 0 3px">Requests</div>'+reqs.map(q=>'<div class="acc-row"><span class="acc-st acc-'+esc(q.status)+'">'+esc(q.status)+'</span> <b>'+esc(q.edition)+'</b> <span class="muted" style="font-size:11px">'+esc((q.created_at||'').slice(0,10))+'</span></div>').join('');
     if(!heldEd['demo-licensed']&&!pendEd['demo-licensed'])h+='<button class="cg-go" style="margin-top:11px;max-width:300px" onclick="accRequest(\\'demo-licensed\\')">Request access to demo-licensed</button>';
