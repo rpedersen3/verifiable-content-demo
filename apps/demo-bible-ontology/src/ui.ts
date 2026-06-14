@@ -528,6 +528,15 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
       const pd=tr.paymentDelegation||null;
       if(session){session.payDelegation=pd;localStorage.setItem('sa.session',JSON.stringify(session));}
       if(pd)await storePayDelegation(pd);
+      // The home ceremony may have CHARGED the first payment (all-custodian) and returned a settlementHash.
+      // Claim it → the a2a verifies on-chain + mints the reader's access pass. This is what makes passkey/
+      // social work (the charge was signed by the reader's credential at the home; no Explorer wallet sig).
+      if(tr.settlementHash){
+        try{
+          const cl=await a2aPost('/pay/claim',{id_token:session.idToken,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash});
+          if(cl&&cl.ok){toastPaid();if(typeof loadTreasury==='function')loadTreasury();}
+        }catch(e){}
+      }
       sessionStorage.removeItem('sa.pending');hideLicenseGate();if(typeof applyHash==='function')applyHash();return true;
     }
     session={idToken:tr.id_token,delegation:tr.delegation||null,name:claims.agent_name||pend.name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp};

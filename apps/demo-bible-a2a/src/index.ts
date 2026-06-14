@@ -200,6 +200,28 @@ app.post('/pay/redeem', async (c) => {
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
+// pay/claim — the home's connect ceremony charged the FIRST x402 payment (all-custodian, via chargePayment)
+// and returned a settlementHash. Verify it on-chain (keyless) + mint the access pass for the reader. This
+// is how the ceremony charge turns into reads, for SIWE/passkey/social alike (the charge was signed by the
+// reader's own credential at the home — no held key here, just an RPC confirm + the pass).
+app.post('/pay/claim', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string; settlementHash?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const { sub } = await verifyIdToken(String(b.id_token ?? ''));
+    const edition = String(b.edition ?? 'lbsb');
+    const env = c.env as unknown as VerifyEnv;
+    if (!b.settlementHash || !/^0x[0-9a-fA-F]{64}$/.test(b.settlementHash)) return c.json({ ok: false, error: 'settlementHash required' }, 400);
+    const headers = new Headers({ 'PAYMENT-RESPONSE': btoa(JSON.stringify({ settlementHash: b.settlementHash })) });
+    const verified = await verifyLbsbPayment(env, { edition, headers });
+    if (!verified) return c.json({ ok: false, error: 'settlement not verified on-chain' }, 402);
+    const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
+    if (dup.body && (dup.body as { seen?: boolean }).seen) return c.json({ ok: true, alreadyClaimed: true, edition, subject: sub });
+    await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: 'settlement', reference: '/pay/claim' });
+    await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: sub, maxUses: verified.passUses, validUntil: new Date(Date.now() + verified.passTtl * 1000).toISOString(), settlementHash: verified.settlementHash });
+    return c.json({ ok: true, edition, subject: sub, amount: verified.amount, passUses: verified.passUses, settlementHash: verified.settlementHash });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
 // pay/treasury-status — read-only: the connected user's person-treasury SA + its mock-USDC balance, for
 // the Explorer admin "My treasury" lane. The treasury is the payment delegation's `delegator` (where USDC
 // leaves), passed in by the client; falls back to the person SA when no payment delegation is set up yet.
