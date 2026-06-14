@@ -659,19 +659,25 @@ async function home(){
 
 // ── verse passage popup: click a verse ref → read it with its logically-grouped surrounding verses ──
 function prettyRef(a,b){const x=a.split('.'),y=b.split('.');if(x[0]===y[0]&&x[1]===y[1])return x[0]+' '+x[1]+':'+x[2]+(x[2]!==y[2]?'–'+y[2]:'');if(x[0]===y[0])return x[0]+' '+x[1]+':'+x[2]+' – '+y[1]+':'+y[2];return a+' – '+b;}
+// Verse identifiers arrive in TWO formats: dotted OSIS ("Rom.4.9", from attested-verse lists) and an
+// already-formatted ref ("ROM 4:9", from relationship/signal context). Normalize both:
+//  refFromOsis → a human reference the parser accepts; osisDotted → the dotted OSIS the /passage API wants.
+function refFromOsis(o){o=String(o||'').trim();return o.indexOf('.')>=0?prettyRef(o,o):o;}
+function osisDotted(o){o=String(o||'').trim();return o.indexOf('.')>=0?o:o.replace(/\s+/g,'.').replace(/:/g,'.');}
 async function openPassage(osis){
   const m=document.getElementById('vmodal');m.className='vmodal on';
-  m.innerHTML='<div class="box"><span class="x" onclick="closePassage()">×</span><div class="ghint">loading '+esc(osis)+'…</div></div>';
+  m.innerHTML='<div class="box"><span class="x" onclick="closePassage()">×</span><div class="ghint">loading '+esc(refFromOsis(osis))+'…</div></div>';
   m.onclick=(e)=>{if(e.target===m)closePassage();};
   // The verse TEXT is the metered unit. When a LICENSED edition is the active source, the popup must go
   // through the SAME paid path as the Access view (no free public leak) — anywhere a verse ref is clicked
   // (node page, Signal Court, etc.). Public BSB keeps its free paragraph-context reader below.
   if(activeEdition&&activeEdition!=='bsb')return openLicensedPassage(osis);
-  let d;try{d=await fetch(A2A_BASE+'/passage?osis='+encodeURIComponent(osis)).then(r=>r.json());}catch(e){d={ok:false};}
+  const oz=osisDotted(osis); // the public /passage endpoint keys on dotted OSIS
+  let d;try{d=await fetch(A2A_BASE+'/passage?osis='+encodeURIComponent(oz)).then(r=>r.json());}catch(e){d={ok:false};}
   const box=m.querySelector('.box');if(!box)return;
-  if(!d.ok||!d.verses||!d.verses.length){box.innerHTML='<span class="x" onclick="closePassage()">×</span><div class="ghint">No text available for '+esc(osis)+'.</div>';return;}
+  if(!d.ok||!d.verses||!d.verses.length){box.innerHTML='<span class="x" onclick="closePassage()">×</span><div class="ghint">No text available for '+esc(refFromOsis(osis))+'.</div>';return;}
   const head=prettyRef(d.verses[0].osis,d.verses[d.verses.length-1].osis);
-  const body=d.verses.map(v=>'<div class="vrow'+(v.osis===osis?' hot':'')+'"><span class="vn">'+esc(v.osis.split('.')[2])+'</span>'+esc(v.text)+'</div>').join('');
+  const body=d.verses.map(v=>'<div class="vrow'+(v.osis===oz?' hot':'')+'"><span class="vn">'+esc(v.osis.split('.')[2])+'</span>'+esc(v.text)+'</div>').join('');
   box.innerHTML='<span class="x" onclick="closePassage()">×</span><h3>'+esc(head)+'</h3><div class="muted" style="font-size:11px;margin-bottom:10px">Berean Standard Bible (public domain) · paragraph context</div>'+body;
   box.scrollTop=0;const hot=box.querySelector('.vrow.hot');if(hot)setTimeout(()=>hot.scrollIntoView({block:'center'}),40);
 }
@@ -681,7 +687,7 @@ function closePassage(){const m=document.getElementById('vmodal');if(m)m.classNa
 // (each surrounding verse would be its own paid read); 402 ⇒ the gate/Buy-access; success ⇒ the access bar.
 async function openLicensedPassage(osis){
   const m=document.getElementById('vmodal');const box=m&&m.querySelector('.box');if(!box)return;
-  const ref=prettyRef(osis,osis),ed=activeEdition,EU=esc(ed.toUpperCase());
+  const ref=refFromOsis(osis),ed=activeEdition,EU=esc(ed.toUpperCase());
   const bsbBtn='<button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="selectSource(\\'bsb\\');closePassage();openPassage(\\''+esc(osis)+'\\')">Read public BSB</button>';
   if(!isConnected()){
     box.innerHTML='<span class="x" onclick="closePassage()">×</span><h3>'+esc(ref)+'</h3><div style="font-size:13px;color:#b45309">🔒 <b>'+EU+'</b> is licensed — connect to read it. <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="closePassage();promptConnect()">Connect</button> '+bsbBtn+'</div>';
