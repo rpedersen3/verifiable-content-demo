@@ -206,6 +206,19 @@ const LBSB_TIERS = [
 ];
 app.get('/pay/tiers', (c) => c.json({ ok: true, tiers: LBSB_TIERS, asset: (c.env as unknown as { PAY_ASSET?: string }).PAY_ASSET ?? null }));
 
+// pay/access — the reader's current access state for an edition (for the Access view header): the lane
+// (grant / prepaid / none) + reads remaining on the prepaid pass. Read-only (verify_access; no consume).
+app.post('/pay/access', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const { sub } = await verifyIdToken(String(b.id_token ?? ''));
+    const edition = String(b.edition ?? 'lbsb');
+    const acc = await mcpPost(c.env, '/tools/verify_access', { edition, subject: sub });
+    const a = (acc.body ?? {}) as { allowed?: boolean; via?: string; remaining?: number; reason?: string };
+    return c.json({ ok: true, edition, allowed: !!a.allowed, via: a.via ?? null, remaining: a.remaining ?? null, reason: a.reason ?? null });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
 // pay/claim — the home's connect ceremony charged an x402 payment (all-custodian, via chargePayment) and
 // returned a settlementHash. Verify on-chain (keyless) + mint the access pass. The pass SIZE is the best
 // tier the payment actually covers (amount-based — you get what you paid for; the tier the UI requested is

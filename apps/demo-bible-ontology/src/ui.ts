@@ -850,15 +850,23 @@ async function loadVaultEnts(){
 // ── My access: request + hold entitlements, do an entitled read — all via the Scripture Agent ──
 let accessEnts=[];
 const a2aPost=(p,b)=>fetch(A2A_BASE+p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
+// LBSB access-state badge for the Access view: free grant, prepaid pass (+ verse reads left), or locked.
+function accBalanceHTML(via,rem){
+  const body=via==='grant'?'<span class="acc-st acc-granted">✓ grant</span> free entitlement access to <b>LBSB</b>':(via==='prepaid'?'<span class="acc-st acc-granted">🎟 prepaid pass</span> <b>LBSB</b> · <b>'+esc(String(rem))+'</b> verse read'+(String(rem)==='1'?'':'s')+' left':'<span class="acc-st acc-pending">🔒 locked</span> no <b>LBSB</b> access yet');
+  return body+(via!=='grant'?' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\'lbsb\\')">'+(via==='prepaid'?'Top up':'Buy access')+'</button>':'');
+}
+function setAccBalance(via,rem){const el=document.getElementById('acc-balance');if(el)el.innerHTML=accBalanceHTML(via,rem);}
 async function loadAccess(){
   const el=document.getElementById('accessview');if(!el)return;
   if(!isConnected()){el.innerHTML='<div class="muted" style="font-size:13px">Connect (top-right) to request and view access.</div>';return;}
   el.innerHTML='<div class="ghint" style="padding:8px">loading your access…</div>';
   try{
-    const r=await Promise.all([a2aPost('/my-entitlements',{id_token:session.idToken}),a2aPost('/my-requests',{id_token:session.idToken})]);
-    const held=(r[0]&&r[0].entitlements)||[],reqs=(r[1]&&r[1].requests)||[];accessEnts=held;
+    const r=await Promise.all([a2aPost('/my-entitlements',{id_token:session.idToken}),a2aPost('/my-requests',{id_token:session.idToken}),a2aPost('/pay/access',{id_token:session.idToken,edition:'lbsb'}).catch(function(){return{};})]);
+    const held=(r[0]&&r[0].entitlements)||[],reqs=(r[1]&&r[1].requests)||[],acc=r[2]||{};accessEnts=held;
     const heldEd={},pendEd={};held.forEach(e=>heldEd[e.edition]=1);reqs.forEach(q=>{if(q.status==='pending')pendEd[q.edition]=1;});
     let h='';
+    // LBSB access-state header (kept in sync after each verse read via setAccBalance).
+    h+='<div class="acc-row" id="acc-balance" style="margin-bottom:9px">'+accBalanceHTML(acc.via,acc.remaining)+'</div>';
     if(held.length)h+='<div style="font-weight:600;font-size:13px;margin-bottom:3px">Entitlements held</div>'+held.map((e,i)=>'<div class="acc-row"><span class="acc-st acc-granted">✓ entitled</span> <b>'+esc(e.edition)+'</b> <span class="muted" style="font-size:11px">until '+esc((e.validUntil||'').slice(0,10))+'</span> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accReadPrompt('+i+')">Read a verse →</button> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accAsyncRead('+i+')" title="Read via the async A2A bus (spec 269)">async bus ↗</button></div>').join('');
     if(reqs.length)h+='<div style="font-weight:600;font-size:13px;margin:9px 0 3px">Requests</div>'+reqs.map(q=>'<div class="acc-row"><span class="acc-st acc-'+esc(q.status)+'">'+esc(q.status)+'</span> <b>'+esc(q.edition)+'</b> <span class="muted" style="font-size:11px">'+esc((q.created_at||'').slice(0,10))+'</span></div>').join('');
     if(!heldEd['demo-licensed']&&!pendEd['demo-licensed'])h+='<button class="cg-go" style="margin-top:11px;max-width:300px" onclick="accRequest(\\'demo-licensed\\')">Request access to demo-licensed</button>';
@@ -896,8 +904,8 @@ async function accReadInto(edition,ref,entitlement){
     const meter=r.accessVia==='prepaid'?'<div class="muted" style="font-size:11px;margin-top:3px">📖 metered verse read · <b>'+esc(String(r.prepaidRemaining))+'</b> read'+(r.prepaidRemaining===1?'':'s')+' left on your pass</div>':'';
     out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound read</div>':'')+meter+'</div>';
     // reflect the decrement in the persistent status bar + a toast (the licensed VERSE TEXT is the metered unit)
-    if(r.accessVia==='prepaid'){accessBar('prepaid',String(r.prepaidRemaining));toastPaidMsg('📖 verse read · '+esc(String(r.prepaidRemaining))+' left on your pass');}
-    else if(r.accessVia==='grant'){accessBar('grant',null);}
+    if(r.accessVia==='prepaid'){accessBar('prepaid',String(r.prepaidRemaining));setAccBalance('prepaid',r.prepaidRemaining);toastPaidMsg('📖 verse read · '+esc(String(r.prepaidRemaining))+' left on your pass');}
+    else if(r.accessVia==='grant'){accessBar('grant',null);setAccBalance('grant',null);}
   }
   else out.innerHTML='<div style="color:#c0392b;font-size:13px">Denied: '+esc((r&&r.error)||'failed')+'</div>';
 }
