@@ -453,13 +453,13 @@ const lbsbTier=(id)=>LBSB_TIERS.find(t=>t.id===id)||LBSB_TIERS[0];
 async function connectStartPay(ed,tierId){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(session.name||'');const tier=lbsbTier(tierId);
   const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',session.name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','x402-pay');u.searchParams.set('pay_amount',tier.amount);
   const pend={state,nonce,verifier:pk.verifier,authOrigin,name:session.name||'',pay:1,ed:ed||'lbsb',tier:tier.id};
+  // The popup SELF-completes via shared localStorage — NO window.opener dependency (COOP-proof). The home
+  // redirects the popup back here with ?code; window.name='gc_pay' marks it as the pay popup; it reads
+  // sa.paypend, exchanges the code + claims the pass, sets sa.paid, and closes. The main window refreshes on
+  // the storage event. Popup blocked → full-redirect fallback (connectCallback via sa.pending).
+  localStorage.setItem('sa.paypend',JSON.stringify(pend));
   const w=window.open(u.toString()+'&mode=popup','gc_pay','width=460,height=760,menubar=no,toolbar=no');
-  if(!w){sessionStorage.setItem('sa.pending',JSON.stringify(pend));location.href=u.toString();return;} // blocked → redirect
-  const homeOrigin=new URL(authOrigin).origin;
-  function onMsg(ev){if(ev.origin!==homeOrigin&&ev.origin!==location.origin)return;const d=ev.data||{};
-    if(d.type==='AC_SUCCESS'&&d.state===state){window.removeEventListener('message',onMsg);try{w.close();}catch(e){}exchangePayCode(pend,d.code);}
-    else if(d.type==='AC_CANCEL'){window.removeEventListener('message',onMsg);try{w.close();}catch(e){}}}
-  window.addEventListener('message',onMsg);
+  if(!w){localStorage.removeItem('sa.paypend');sessionStorage.setItem('sa.pending',JSON.stringify(pend));location.href=u.toString();}
 }
 // Exchange the popup's auth code for the token (which carries the payment delegation + the in-ceremony
 // charge's settlementHash), then claim the read pass — same as the redirect path, but the page never left.
@@ -472,10 +472,10 @@ async function exchangePayCode(pend,code){
     const pd=tr.paymentDelegation||null;
     if(session){session.payDelegation=pd;localStorage.setItem('sa.session',JSON.stringify(session));}
     if(pd)await storePayDelegation(pd);
-    if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:session.idToken,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash});
+    if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:tr.id_token,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash});
       if(cl&&cl.ok){toastPaidMsg('✓ paid '+(Number(cl.amount||0)/1e6)+' USDC · '+esc(cl.tierLabel||'access')+' · '+(cl.passUses||0)+'-read pass');if(typeof loadTreasury==='function')loadTreasury();}
       else{alert('Charged, but the read pass could not be minted ('+((cl&&cl.error)||'verify failed')+'). Try reading again.');}}
-    hideLicenseGate();if(typeof applyHash==='function')applyHash();
+    if(window.name!=='gc_pay'){hideLicenseGate();if(typeof applyHash==='function')applyHash();} // popup closes; main window refreshes via storage
   }catch(e){alert('Buy access failed: '+(e&&e.message?e.message:e));}
 }
 function toastPaidMsg(msg){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.innerHTML=msg;el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},4000);}
@@ -578,13 +578,23 @@ function renderConnect(){const el=document.getElementById('connectBtn');if(!el)r
 function toggleAcctMenu(e){if(e){e.stopPropagation();}const p=document.getElementById('acctmenuPop');if(p)p.classList.toggle('open');}
 function closeAcctMenu(){const p=document.getElementById('acctmenuPop');if(p)p.classList.remove('open');}
 document.addEventListener('click',function(e){const p=document.getElementById('acctmenuPop');if(p&&p.classList.contains('open')&&!e.target.closest('.acctmenu'))p.classList.remove('open');});
-// Popup relay (spec 257): if the Buy-access popup lost its opener to COOP, the home redirects it HERE with
-// ?ac_relay=1&code&state. We're that popup → hand the code to our opener (the main Explorer) and close.
-(function(){try{var rp=new URLSearchParams(location.search);if(rp.get('ac_relay')==='1'&&rp.get('code')&&window.opener){window.opener.postMessage({type:'AC_SUCCESS',code:rp.get('code'),state:rp.get('state')},location.origin);window.close();}}catch(e){}})();
-// Single render path: when returning from a connect/Buy-access redirect (?code), DON'T paint gated
-// content until connectCallback finishes (it exchanges the code + claims the pass) — otherwise the reads
-// race the async claim and flash 402s. Normal load: connectCallback resolves immediately → render now.
-loadSession();renderConnect();updateSrcUI();connectCallback().then(ok=>{if(ok)renderConnect();applyHash();});
+// The Buy-access POPUP returns here (window.name='gc_pay') with ?code. It SELF-completes — reads sa.paypend
+// from shared localStorage, exchanges the code + claims the pass, signals the main window via sa.paid, and
+// closes. No window.opener (COOP-proof). The main window refreshes on the storage event (onPaidStorage).
+async function handlePayPopup(){
+  try{const rp=new URLSearchParams(location.search);const code=rp.get('code'),st=rp.get('state');
+    let pend=null;try{pend=JSON.parse(localStorage.getItem('sa.paypend')||'null');}catch(e){}
+    if(code&&pend&&pend.state===st)await exchangePayCode(pend,code);
+  }catch(e){}
+  try{localStorage.removeItem('sa.paypend');localStorage.setItem('sa.paid',String(Date.now()));}catch(e){}
+  document.body.innerHTML='<div style="padding:48px 22px;text-align:center;font:15px system-ui,sans-serif;color:#1f2733">✓ Payment complete — this window will close.</div>';
+  setTimeout(function(){try{window.close();}catch(e){}},500);
+}
+// Main window: when the pay popup signals sa.paid, reload the session + re-render (the pass is now active).
+function onPaidStorage(e){if(e&&e.key==='sa.paid'&&e.newValue){loadSession();renderConnect();if(typeof loadTreasury==='function')loadTreasury();hideLicenseGate();if(typeof applyHash==='function')applyHash();toastPaidMsg('✓ payment complete · access added');}}
+loadSession();
+if(typeof window!=='undefined'&&window.name==='gc_pay'&&new URLSearchParams(location.search).get('code')){handlePayPopup();}
+else{renderConnect();updateSrcUI();window.addEventListener('storage',onPaidStorage);connectCallback().then(ok=>{if(ok)renderConnect();applyHash();});}
 
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
@@ -1436,7 +1446,6 @@ async function valFilter(a){
    d.terms.map(t=>'<tr><td class="mono">'+esc(t.curie)+'</td><td>'+esc(t.label)+'</td><td class="mono muted">'+esc(t.parent||'')+'</td><td class="muted">'+esc((t.comment||'').slice(0,120))+'</td></tr>').join('')+'</table></div>';
   document.getElementById('vterms').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
-// Initial paint — but NOT while a connect/Buy-access redirect is being processed (?code present); in that
-// case connectCallback() does the single render after it claims the pass, so gated reads don't flash 402.
-if(typeof location==='undefined'||!new URLSearchParams(location.search).get('code'))applyHash();
+// (Initial paint is driven by the init block above: the popup self-completes + closes; the main window
+//  renders via connectCallback().then(applyHash) — which waits for any ?code exchange so reads don't flash 402.)
 </script></body></html>`;

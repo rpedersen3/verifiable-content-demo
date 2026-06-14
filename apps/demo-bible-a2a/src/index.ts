@@ -200,7 +200,7 @@ app.get('/vault/*', async (c) => {
 // ceremony — they differ only in size + price-per-read. Pay-as-you-go is a tiny pass; the subscription
 // tiers are bigger passes at a volume discount (a "period" of access). Atomic units, 6-dp mock USDC.
 const LBSB_TIERS = [
-  { id: 'payg',  label: 'Pay-as-you-go', kind: 'payg',         reads: 5,   amount: '1000',  ttlSeconds: 3600 },     // 0.001 USDC → 5 reads
+  { id: 'payg',  label: 'Pay-as-you-go', kind: 'payg',         reads: 5,   amount: '1000',  ttlSeconds: 604800 },   // 0.001 USDC → 5 reads (7-day window)
   { id: 'basic', label: 'Basic',         kind: 'subscription', reads: 50,  amount: '8000',  ttlSeconds: 2592000 },  // 0.008 → 50 reads (20% off)
   { id: 'plus',  label: 'Plus',          kind: 'subscription', reads: 500, amount: '60000', ttlSeconds: 2592000 },  // 0.06  → 500 reads (40% off)
 ];
