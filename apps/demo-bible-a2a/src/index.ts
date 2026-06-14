@@ -217,7 +217,17 @@ app.post('/pay/access', async (c) => {
     const a = (acc.body ?? {}) as { allowed?: boolean; via?: string; remaining?: number; reason?: string };
     // Include the active subscription (if any) so the Access view can show "⭐ Plus · renews <date>".
     const subRes = await mcpPost(c.env, '/tools/get_subscription', { edition, subject: sub }).catch(() => ({ body: {} }));
-    return c.json({ ok: true, edition, allowed: !!a.allowed, via: a.via ?? null, remaining: a.remaining ?? null, reason: a.reason ?? null, subscription: (subRes.body as { subscription?: unknown })?.subscription ?? null });
+    // Resolve the treasury the reader has paid FROM (+ its mock-USDC balance) so the UI shows the real
+    // wallet + spendable amount rather than a "create a treasury" prompt once they've paid here.
+    const trRes = await mcpPost(c.env, '/tools/subject_treasury', { edition, subject: sub }).catch(() => ({ body: {} }));
+    const treasury = (trRes.body as { treasury?: string | null })?.treasury ?? null;
+    let treasuryUsdc: string | null = null;
+    if (treasury) {
+      const bal = await mcpPost(c.env, '/tools/usdc_balance', { address: treasury }).catch(() => ({ body: {} }));
+      const bb = bal.body as { ok?: boolean; usdc?: string };
+      treasuryUsdc = bb?.ok ? (bb.usdc ?? null) : null;
+    }
+    return c.json({ ok: true, edition, allowed: !!a.allowed, via: a.via ?? null, remaining: a.remaining ?? null, reason: a.reason ?? null, subscription: (subRes.body as { subscription?: unknown })?.subscription ?? null, treasury, treasuryUsdc });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 

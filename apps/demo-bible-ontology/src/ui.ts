@@ -434,7 +434,9 @@ function isConnected(){return !!session;}
 // The connected member's person-treasury (the wallet that pays for licensed reads). Resolved by the home
 // at connect (session.treasury); a prior Buy access also proves one exists (payDelegation.delegator IS the
 // treasury). null ⇒ the member has no treasury yet and CANNOT do financial ops — they must create one first.
-function readerTreasury(){if(!session)return null;if(session.treasury)return session.treasury;if(session.payDelegation&&session.payDelegation.delegator)return session.payDelegation.delegator;return null;}
+// Resolved treasury + balance from /pay/access (server: the wallet you've actually paid from for lbsb).
+let accTreasuryAddr=null,accTreasuryUsdc=null;
+function readerTreasury(){if(!session)return accTreasuryAddr||null;if(session.treasury)return session.treasury;if(session.payDelegation&&session.payDelegation.delegator)return session.payDelegation.delegator;return accTreasuryAddr||null;}
 function hasTreasury(){return !!readerTreasury();}
 // Their Global.Church home (where treasuries are created/managed) — the per-member subdomain when known.
 function portalUrl(){return authOriginFor(session&&session.name||'');}
@@ -929,9 +931,13 @@ const a2aPost=(p,b)=>fetch(A2A_BASE+p,{method:'POST',headers:{'content-type':'ap
 function accBalanceHTML(via,rem){
   const body=via==='grant'?'<span class="acc-st acc-granted">✓ grant</span> free entitlement access to <b>LBSB</b>':(via==='prepaid'?'<span class="acc-st acc-granted">🎟 prepaid pass</span> <b>LBSB</b> · <b>'+esc(String(rem))+'</b> verse read'+(String(rem)==='1'?'':'s')+' left':'<span class="acc-st acc-pending">🔒 locked</span> no <b>LBSB</b> access yet');
   if(via==='grant')return body;
-  // No treasury ⇒ can't pay — point at the Portal to create one instead of offering Buy/Top-up.
-  if(!hasTreasury())return body+' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="openPortal()" title="You need a personal treasury to pay for reads">Create a treasury</button>';
-  return body+' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\'lbsb\\')">'+(via==='prepaid'?'Top up':'Buy access')+'</button>';
+  const tre=readerTreasury();
+  // No treasury at all ⇒ point at the Portal to create one instead of offering Buy/Top-up.
+  if(!tre)return body+' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="openPortal()" title="You need a personal treasury to pay for reads">Create a treasury</button>';
+  // Has a treasury ⇒ show its address + spendable mock-USDC, plus Buy/Top-up (NOT "create a treasury").
+  const bal=(accTreasuryUsdc!=null)?(' · <b>'+esc(String(accTreasuryUsdc))+'</b> USDC available'):'';
+  return body+'<div class="muted" style="font-size:11px;margin-top:3px">💰 your treasury <span class="mono">'+esc(tre.slice(0,10))+'…'+esc(tre.slice(-4))+'</span>'+bal+'</div>'+
+    ' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\'lbsb\\')">'+(via==='prepaid'?'Top up':'Buy access')+'</button>';
 }
 function setAccBalance(via,rem){const el=document.getElementById('acc-balance');if(el)el.innerHTML=accBalanceHTML(via,rem);}
 // Active-subscription card: the recurring lane. One consent minted a standing person-treasury → lbsb-treasury
@@ -968,6 +974,8 @@ async function loadAccess(){
   try{
     const r=await Promise.all([a2aPost('/my-entitlements',{id_token:session.idToken}),a2aPost('/my-requests',{id_token:session.idToken}),a2aPost('/pay/access',{id_token:session.idToken,edition:'lbsb'}).catch(function(){return{};})]);
     const held=(r[0]&&r[0].entitlements)||[],reqs=(r[1]&&r[1].requests)||[],acc=r[2]||{};accessEnts=held;
+    // Capture the server-resolved treasury (the wallet you've paid lbsb from) + its spendable balance.
+    accTreasuryAddr=acc.treasury||accTreasuryAddr||null;accTreasuryUsdc=(typeof acc.treasuryUsdc!=='undefined'?acc.treasuryUsdc:accTreasuryUsdc);
     const heldEd={},pendEd={};held.forEach(e=>heldEd[e.edition]=1);reqs.forEach(q=>{if(q.status==='pending')pendEd[q.edition]=1;});
     let h='';
     // LBSB access-state header (kept in sync after each verse read via setAccBalance).

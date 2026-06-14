@@ -417,8 +417,21 @@ app.post('/tools/get_passage_text', async (c) => {
   }
   const corpus = (await getCorpora(trust)).get(body.edition);
   if (!corpus) return c.json({ ok: false, error: `unknown edition: ${body.edition}` }, 404);
-  const row = findRow(corpus, parsed.reference.id);
-  if (!row) return c.json({ ok: false, error: `no descriptor for ${parsed.reference.alias} in ${body.edition}` }, 404);
+  let row = findRow(corpus, parsed.reference.id);
+  // lbsb is the SAME BSB source under a licensed policy — its embedded corpus is only a small SAMPLE, but
+  // the graph references the FULL D1 bsb text. When the sample lacks this verse, serve the full D1 text
+  // (still gated by lbsb's licensed policy + entitlement scope) so licensed reads work for ANY verse.
+  let d1Text: string | undefined;
+  let d1Descriptor: unknown;
+  if (!row && c.env.DB && body.edition === 'lbsb') {
+    const d1 = await loadD1Corpus(c.env.DB, 'bsb');
+    const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust);
+    if (r) { d1Text = r.text; d1Descriptor = r.descriptor; }
+  }
+  if (!row && d1Text === undefined) return c.json({ ok: false, error: `no descriptor for ${parsed.reference.alias} in ${body.edition}` }, 404);
+  // Policy is EDITION-level (uniform for the edition), so it holds whether the row came from the embedded
+  // sample or the D1 fallback.
+  const accessPolicy = corpus.entry.accessPolicy;
 
   // Gated editions — TWO ways in (spec 272): a free GRANT (issuer-signed, presenter-bound, non-revoked
   // Entitlement) OR a paid PREPAID pass (x402). A forged VC is always a hard error; absence/expiry/
@@ -426,16 +439,16 @@ app.post('/tools/get_passage_text', async (c) => {
   let entitlementSigner: string | undefined;
   let prepaidRemaining: number | undefined; // reads left on the paid pass after THIS read (for the UI)
   let accessVia: 'grant' | 'prepaid' = 'grant';
-  if (row.descriptor.accessPolicy !== 'public') {
+  if (accessPolicy !== 'public') {
     let grantOk = false;
     if (body.entitlement) {
       const sig = await verifySignedEntitlement(body.entitlement, corpus.manifest.issuer, trust.verifySignature);
       if (!sig.ok) { // a presented VC that doesn't verify is forgery — hard fail, never fall through
         audit('content.entitlement.verify', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: sig.reason ?? 'bad signature' });
-        return c.json({ ok: false, error: 'entitlement signature invalid', detail: sig, accessPolicy: row.descriptor.accessPolicy }, 403);
+        return c.json({ ok: false, error: 'entitlement signature invalid', detail: sig, accessPolicy }, 403);
       }
       entitlementSigner = sig.signer;
-      const decision = evaluateEntitlement(row.descriptor.accessPolicy, corpus.manifest.corpusRef, body.entitlement);
+      const decision = evaluateEntitlement(accessPolicy, corpus.manifest.corpusRef, body.entitlement);
       const entSubject = (body.entitlement?.credentialSubject as { id?: string } | undefined)?.id;
       const presenterOk = !(body.subject && entSubject && body.subject.toLowerCase() !== entSubject.toLowerCase());
       let revoked = false;
@@ -463,15 +476,18 @@ app.post('/tools/get_passage_text', async (c) => {
       }
       if (!prepaidOk) {
         audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: 'payment required' });
-        return c.json({ ok: false, error: `payment required for ${body.edition}`, gated: body.edition, reason: 'payment required', accessPolicy: row.descriptor.accessPolicy }, 402);
+        return c.json({ ok: false, error: `payment required for ${body.edition}`, gated: body.edition, reason: 'payment required', accessPolicy }, 402);
       }
     }
   }
 
-  const text = corpus.entry.texts[row.osis]!;
-  const commitmentOk = row.descriptor.commitment ? verifyCommitment(text, row.descriptor.commitment) : false;
+  // Text + descriptor come from the embedded sample row when present, else the D1 full-coverage fallback.
+  const text = row ? corpus.entry.texts[row.osis]! : (d1Text as string);
+  const descriptor = row ? row.descriptor : (d1Descriptor as { commitment?: unknown });
+  const commitment = (descriptor as { commitment?: unknown }).commitment;
+  const commitmentOk = commitment ? verifyCommitment(text, commitment as Parameters<typeof verifyCommitment>[1]) : false;
   audit('content.text.access', 'success', parsed.reference.alias ?? body.reference, { edition: body.edition, commitmentOk, entitlementSigner: entitlementSigner ?? null });
-  return c.json({ ok: true, text, commitment: row.descriptor.commitment, commitmentOk, descriptor: row.descriptor, accessPolicy: row.descriptor.accessPolicy, entitlementSigner, accessVia, prepaidRemaining });
+  return c.json({ ok: true, text, commitment, commitmentOk, descriptor, accessPolicy, entitlementSigner, accessVia, prepaidRemaining });
 });
 
 // issue_entitlement — the corpus ISSUER signs an Entitlement VC granting a subject
@@ -727,6 +743,22 @@ app.post('/tools/renew_subscription', async (c) => {
     .bind(row.periods_charged + 1, start, end, b.settlementHash ?? null, new Date().toISOString(), row.id).run();
   audit('content.subscription.renew', 'success', b.edition, { subject: b.subject, period: row.periods_charged + 1 });
   return c.json({ ok: true, periodsCharged: row.periods_charged + 1, currentPeriodStart: start, currentPeriodEnd: end });
+});
+
+// subject_treasury — resolve the person-treasury SA a reader has paid FROM for an edition (so the Access
+// view can show "your treasury 0x… · N USDC" instead of a stale "create one" prompt). Prefers an active
+// subscription's payer, else the payer of the reader's latest prepaid settlement. null ⇒ never paid here.
+app.post('/tools/subject_treasury', async (c) => {
+  const b = await c.req.json<{ subject?: string; edition?: string }>().catch(() => ({}) as { subject?: string; edition?: string });
+  if (!c.env.DB || !b.subject) return c.json({ ok: true, treasury: null });
+  const edition = String(b.edition ?? 'lbsb');
+  const sub = await c.env.DB.prepare("SELECT payer FROM subscriptions WHERE subject=? AND edition=? AND status='active' AND payer IS NOT NULL ORDER BY id DESC LIMIT 1").bind(b.subject, edition).first<{ payer: string }>();
+  let payer = sub?.payer ?? null;
+  if (!payer) {
+    const row = await c.env.DB.prepare('SELECT p.payer AS payer FROM prepaid_entitlements e JOIN payments_settled p ON p.settlement_hash = e.settlement_hash WHERE e.subject=? AND e.edition=? AND e.settlement_hash IS NOT NULL ORDER BY e.id DESC LIMIT 1').bind(b.subject, edition).first<{ payer: string }>();
+    payer = row?.payer ?? null;
+  }
+  return c.json({ ok: true, treasury: payer });
 });
 
 // get_service_identity — who (if anyone) owns a service. Public read (the owner_sub is an agent id).
