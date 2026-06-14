@@ -862,6 +862,10 @@ async function loadAccess(){
     if(held.length)h+='<div style="font-weight:600;font-size:13px;margin-bottom:3px">Entitlements held</div>'+held.map((e,i)=>'<div class="acc-row"><span class="acc-st acc-granted">✓ entitled</span> <b>'+esc(e.edition)+'</b> <span class="muted" style="font-size:11px">until '+esc((e.validUntil||'').slice(0,10))+'</span> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accReadPrompt('+i+')">Read a verse →</button> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accAsyncRead('+i+')" title="Read via the async A2A bus (spec 269)">async bus ↗</button></div>').join('');
     if(reqs.length)h+='<div style="font-weight:600;font-size:13px;margin:9px 0 3px">Requests</div>'+reqs.map(q=>'<div class="acc-row"><span class="acc-st acc-'+esc(q.status)+'">'+esc(q.status)+'</span> <b>'+esc(q.edition)+'</b> <span class="muted" style="font-size:11px">'+esc((q.created_at||'').slice(0,10))+'</span></div>').join('');
     if(!heldEd['demo-licensed']&&!pendEd['demo-licensed'])h+='<button class="cg-go" style="margin-top:11px;max-width:300px" onclick="accRequest(\\'demo-licensed\\')">Request access to demo-licensed</button>';
+    // Always offer a verse reader for LBSB — works via a held grant OR your prepaid pass (no grant needed);
+    // each verse draws 1 from the pass. No access yet ⇒ the read 402s and offers Buy access.
+    h+='<div style="font-weight:600;font-size:13px;margin:13px 0 3px">Read licensed scripture (LBSB)</div>'+
+       '<div class="acc-row"><input id="acc-ref" placeholder="John 3:16" value="John 3:16" style="max-width:190px;padding:6px 9px"> <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accReadRef()">Read a verse →</button> <span class="muted" style="font-size:11px">draws 1 from your prepaid pass (or uses a grant)</span></div>';
     h+='<div id="acc-read" style="margin-top:11px"></div>';
     el.innerHTML=h||'<div class="muted" style="font-size:13px">No access yet — request a licensed edition below.</div>';
     if(!h)el.innerHTML='<button class="cg-go" style="max-width:300px" onclick="accRequest(\\'demo-licensed\\')">Request access to demo-licensed</button>';
@@ -873,21 +877,24 @@ async function accRequest(edition){
   if(r&&r.ok){alert('Request sent to the corpus owner (request #'+(r.requestId||'?')+'). It shows as pending until approved.');loadAccess();}
   else alert('Could not request access: '+((r&&r.error)||'failed'));
 }
-function accReadPrompt(i){const e=accessEnts[i];if(!e)return;const ref=prompt('Read which verse from '+e.edition+'?  e.g. John 3:16','John 3:16');if(ref)accRead(i,ref.trim());}
-async function accRead(i,ref){
-  const e=accessEnts[i],out=document.getElementById('acc-read');if(!e||!out)return;
-  out.innerHTML='<div class="ghint" style="padding:8px">reading '+esc(ref)+' from '+esc(e.edition)+'…</div>';
-  const body={id_token:session.idToken,reference:ref,edition:e.edition,entitlement:e.entitlement};
+function accReadPrompt(i){const e=accessEnts[i];if(!e)return;const ref=prompt('Read which verse from '+e.edition+'?  e.g. John 3:16','John 3:16');if(ref)accReadInto(e.edition,ref.trim(),e.entitlement);}
+// Read via the Access-view input — uses a held grant for LBSB if present, else the prepaid PASS (no VC).
+function accReadRef(){const i=document.getElementById('acc-ref');const ref=((i&&i.value)||'John 3:16').trim();const g=accessEnts.find(e=>e.edition==='lbsb');accReadInto('lbsb',ref,g?g.entitlement:null);}
+async function accRead(i,ref){const e=accessEnts[i];if(e)accReadInto(e.edition,ref,e.entitlement);}
+async function accReadInto(edition,ref,entitlement){
+  const out=document.getElementById('acc-read');if(!out)return;
+  out.innerHTML='<div class="ghint" style="padding:8px">reading '+esc(ref)+' from '+esc(edition)+'…</div>';
+  const body={id_token:session.idToken,reference:ref,edition:edition,entitlement:entitlement||undefined};
   let r=await a2aPost('/resolve-licensed',body).catch(er=>({ok:false,error:String(er)}));
   // x402 pay-per-verse: no grant + no pass ⇒ gated. ALL custodians do the SAME thing — top up via the home
   // ceremony (Buy access), which charges + mints a multi-read pass; then the read draws from the pass.
   if(r&&r.gated&&!r.ok){
-    out.innerHTML='<div style="color:#b45309;font-size:13px">Payment required for '+esc(e.edition.toUpperCase())+'. <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\''+esc(e.edition)+'\\')">Buy access</button> — your home charges the fee (one credential prompt) and grants a read pass. Then read again.</div>';
+    out.innerHTML='<div style="color:#b45309;font-size:13px">Payment required for '+esc(edition.toUpperCase())+'. <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\''+esc(edition)+'\\')">Buy access</button> — your home charges the fee (one credential prompt) and grants a read pass. Then read again.</div>';
     return;
   }
   if(r&&r.ok){
     const meter=r.accessVia==='prepaid'?'<div class="muted" style="font-size:11px;margin-top:3px">📖 metered verse read · <b>'+esc(String(r.prepaidRemaining))+'</b> read'+(r.prepaidRemaining===1?'':'s')+' left on your pass</div>':'';
-    out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(e.edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound read</div>':'')+meter+'</div>';
+    out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound read</div>':'')+meter+'</div>';
     // reflect the decrement in the persistent status bar + a toast (the licensed VERSE TEXT is the metered unit)
     if(r.accessVia==='prepaid'){accessBar('prepaid',String(r.prepaidRemaining));toastPaidMsg('📖 verse read · '+esc(String(r.prepaidRemaining))+' left on your pass');}
     else if(r.accessVia==='grant'){accessBar('grant',null);}
