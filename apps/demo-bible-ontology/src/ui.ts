@@ -298,6 +298,7 @@ function accessBar(via,rem){
 function updateSrcUI(){const s=document.getElementById('srcSel');if(s)s.value=activeEdition;}
 function selectSource(ed){activeEdition=ed;localStorage.setItem('bx.edition',ed);updateSrcUI();
   if(ed==='bsb'){hideLicenseGate();}else if(!isConnected()){licenseGate({gated:ed,reason:'sign-in required'});}
+  else{ensureTreasuryResolved();} // licensed + connected → resolve the treasury up front so the gate is right
   if(typeof applyHash==='function')applyHash();}
 function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.style.display='none';}
 // x402 pay-per-use (Phase 4). INERT until the lbsb treasury + PaymentEnforcer + fee asset are
@@ -318,14 +319,34 @@ async function buyLbsbAccess(ed,tierId){
   if(!confirm(msg))return;
   connectStartPay(ed,tier.id);
 }
+// Resolve the reader's treasury from the service (their on-chain payment/subscription history) when the
+// session didn't carry it — so a reader who clearly HAS a treasury isn't told to create one. Self-heals
+// the gate (re-renders) if one is found. The relying app never needs to guess: the home shares it at
+// connect, and the service confirms it from what you've already paid.
+let __lastGate=null,__treResolving=false;
+async function ensureTreasuryResolved(){
+  if(!isConnected()||readerTreasury()||__treResolving)return;
+  __treResolving=true;
+  try{
+    const ed=(activeEdition&&activeEdition!=='bsb')?activeEdition:'lbsb';
+    const acc=await a2aPost('/pay/access',{id_token:session.idToken,edition:ed});
+    if(acc&&acc.treasury){
+      accTreasuryAddr=acc.treasury;if(typeof acc.treasuryUsdc!=='undefined'&&acc.treasuryUsdc!=null)accTreasuryUsdc=acc.treasuryUsdc;
+      const lb=document.getElementById('licbar');if(lb&&lb.style.display!=='none'&&__lastGate)licenseGate(__lastGate); // re-render with the treasury known
+    }
+  }catch(e){}
+  __treResolving=false;
+}
 function licenseGate(info){
+  __lastGate=info;
   let el=document.getElementById('licbar');
   if(!el){el=document.createElement('div');el.id='licbar';el.className='licbar';document.body.appendChild(el);}
   const ed=String(info.gated||activeEdition);
   if(info.reason==='sign-in required'||!isConnected()){
     el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> is a licensed Bible — connect to request access. Every query is verified against your entitlement.</span> <span class="licacts"><button onclick="promptConnect()">Connect</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Use public BSB</button></span>';
   }else if(!hasTreasury()){
-    // Connected, but no person-treasury yet — can't pay. Surface "create a treasury" instead of Buy options.
+    // Connected but the SESSION doesn't know a treasury — ask the service (payment history) before nagging.
+    ensureTreasuryResolved();
     el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> is licensed. You need a <b>personal treasury</b> — the wallet that pays for reads — before you can buy access.</span> <span class="licacts"><button onclick="openPortal()">Create a treasury</button> <button onclick="reconnectAccount()" title="Refresh after creating one">I have one — reconnect</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Public BSB</button></span>';
   }else{
     // Two-option chooser: pay-as-you-go OR a subscription tier (bigger pass, volume discount) — plus a
@@ -636,7 +657,7 @@ loadSession();
 var __sp=(typeof location!=='undefined')?new URLSearchParams(location.search):new URLSearchParams('');
 var __pp=null;try{__pp=JSON.parse(localStorage.getItem('sa.paypend')||'null');}catch(e){}
 if(__sp.get('code')&&__pp&&__pp.state===__sp.get('state')){handlePayPopup(__pp,__sp.get('code'));}
-else{renderConnect();updateSrcUI();window.addEventListener('storage',onPaidStorage);connectCallback().then(ok=>{if(ok)renderConnect();applyHash();});}
+else{renderConnect();updateSrcUI();window.addEventListener('storage',onPaidStorage);connectCallback().then(ok=>{if(ok)renderConnect();applyHash();if(isConnected()&&activeEdition&&activeEdition!=='bsb')ensureTreasuryResolved();});}
 
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
