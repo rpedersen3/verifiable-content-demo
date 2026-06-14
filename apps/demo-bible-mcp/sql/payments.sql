@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   asset TEXT,                       -- fee token (USDC)
   tier TEXT NOT NULL,               -- tier id (basic | plus)
   tier_label TEXT,
-  reads_per_period INTEGER NOT NULL,    -- N transactions granted each period
+  reads_per_period INTEGER NOT NULL,    -- per-period FAIR-USE CAP (abuse protection; not pay-per-read)
+  period_uses INTEGER NOT NULL DEFAULT 0, -- reads used in the CURRENT period (resets on renewal)
   amount_per_period TEXT,           -- atomic units charged per period
   period_seconds INTEGER NOT NULL,  -- billing period length
   periods_authorized INTEGER,       -- # of periods the mandate's aggregate covers

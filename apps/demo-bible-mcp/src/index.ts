@@ -437,8 +437,10 @@ app.post('/tools/get_passage_text', async (c) => {
   // Entitlement) OR a paid PREPAID pass (x402). A forged VC is always a hard error; absence/expiry/
   // revocation of a grant falls THROUGH to the prepaid path; no pass either ⇒ 402 (payment required).
   let entitlementSigner: string | undefined;
-  let prepaidRemaining: number | undefined; // reads left on the paid pass after THIS read (for the UI)
-  let accessVia: 'grant' | 'prepaid' = 'grant';
+  let prepaidRemaining: number | undefined; // reads left after THIS read (prepaid pass, or subscription period cap)
+  let periodUses: number | undefined; // subscription: reads used this period (for the usage view)
+  let fairUseCap: number | undefined; // subscription: the per-period fair-use cap
+  let accessVia: 'grant' | 'prepaid' | 'subscription' = 'grant';
   if (accessPolicy !== 'public') {
     let grantOk = false;
     if (body.entitlement) {
@@ -459,24 +461,38 @@ app.post('/tools/get_passage_text', async (c) => {
       grantOk = decision.decision === 'allow' && presenterOk && !revoked;
     }
     if (!grantOk) {
-      // PREPAID (x402): consume one read off an active paid pass for the verified subject.
-      let prepaidOk = false;
+      let viaOk = false;
+      let capHit = false;
+      const now = new Date().toISOString();
+      // SUBSCRIPTION: an active period grants access (billed PER PERIOD, not per read). Count this read
+      // against the per-period FAIR-USE cap; at the cap, fall through (the reader can PAYG-top-up) → 402.
       if (c.env.DB && body.subject) {
-        const now = new Date().toISOString();
+        const sub = await c.env.DB.prepare("SELECT id, reads_per_period, period_uses, current_period_end FROM subscriptions WHERE subject=? AND edition=? AND status='active' ORDER BY id DESC LIMIT 1").bind(body.subject, body.edition).first<{ id: number; reads_per_period: number; period_uses: number; current_period_end: string }>();
+        if (sub && new Date(sub.current_period_end).getTime() > Date.now()) {
+          const cap = Number(sub.reads_per_period), used = Number(sub.period_uses);
+          if (used < cap) {
+            const u = used + 1;
+            await c.env.DB.prepare('UPDATE subscriptions SET period_uses=?, updated_at=? WHERE id=?').bind(u, now, sub.id).run();
+            viaOk = true; accessVia = 'subscription';
+            periodUses = u; fairUseCap = cap; prepaidRemaining = Math.max(0, cap - u);
+          } else { capHit = true; }
+        }
+      }
+      // PREPAID (x402): consume one read off an active paid pass for the verified subject.
+      if (!viaOk && c.env.DB && body.subject) {
         const pre = await c.env.DB.prepare("SELECT id, max_uses, used FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?) ORDER BY id ASC LIMIT 1").bind(body.subject, body.edition, now).first<{ id: number; max_uses: number; used: number }>();
         if (pre) {
           const used = pre.used + 1;
           await c.env.DB.prepare('UPDATE prepaid_entitlements SET used=?, status=? WHERE id=?').bind(used, used >= pre.max_uses ? 'exhausted' : 'active', pre.id).run();
-          prepaidOk = true;
-          accessVia = 'prepaid';
-          // total reads still left across the subject's active passes (after this consume)
+          viaOk = true; accessVia = 'prepaid';
           const left = await c.env.DB.prepare("SELECT COALESCE(SUM(max_uses - used),0) AS r FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?)").bind(body.subject, body.edition, now).first<{ r: number }>();
           prepaidRemaining = left?.r ?? 0;
         }
       }
-      if (!prepaidOk) {
-        audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: 'payment required' });
-        return c.json({ ok: false, error: `payment required for ${body.edition}`, gated: body.edition, reason: 'payment required', accessPolicy }, 402);
+      if (!viaOk) {
+        const reason = capHit ? 'subscription fair-use limit reached for this period' : 'payment required';
+        audit('content.text.access', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason });
+        return c.json({ ok: false, error: `${reason} (${body.edition})`, gated: body.edition, reason, capHit, accessPolicy }, 402);
       }
     }
   }
@@ -487,7 +503,7 @@ app.post('/tools/get_passage_text', async (c) => {
   const commitment = (descriptor as { commitment?: unknown }).commitment;
   const commitmentOk = commitment ? verifyCommitment(text, commitment as Parameters<typeof verifyCommitment>[1]) : false;
   audit('content.text.access', 'success', parsed.reference.alias ?? body.reference, { edition: body.edition, commitmentOk, entitlementSigner: entitlementSigner ?? null });
-  return c.json({ ok: true, text, commitment, commitmentOk, descriptor, accessPolicy, entitlementSigner, accessVia, prepaidRemaining });
+  return c.json({ ok: true, text, commitment, commitmentOk, descriptor, accessPolicy, entitlementSigner, accessVia, prepaidRemaining, periodUses, fairUseCap });
 });
 
 // issue_entitlement — the corpus ISSUER signs an Entitlement VC granting a subject
@@ -591,7 +607,14 @@ app.post('/tools/verify_access', async (c) => {
   // Lane 1 — GRANT: an owner-issued entitlement (the demo-corpus approval flow).
   const led = await c.env.DB.prepare("SELECT status, valid_until FROM entitlements_issued WHERE subject=? AND edition=? AND status='granted' ORDER BY id DESC LIMIT 1").bind(b.subject, edition).first<{ status: string; valid_until: string | null }>();
   if (led && (!led.valid_until || new Date(led.valid_until).getTime() >= Date.now())) return c.json({ ok: true, allowed: true, edition, policy: 'licensed', via: 'grant' });
-  // Lane 2 — PREPAID: active, unexpired prepaid pass(es) with reads remaining (x402 'entitlement' lane).
+  // Lane 2 — SUBSCRIPTION: an active subscription whose period hasn't ended grants access (billed PER PERIOD,
+  // not per read). Browsing is always allowed while subscribed; the per-period fair-use cap (reads_per_period)
+  // only bites on verse-TEXT reads (get_passage_text). remaining = cap − used this period (for the UI).
+  const sub = await c.env.DB.prepare("SELECT reads_per_period, period_uses, current_period_end FROM subscriptions WHERE subject=? AND edition=? AND status='active' ORDER BY id DESC LIMIT 1").bind(b.subject, edition).first<{ reads_per_period: number; period_uses: number; current_period_end: string }>();
+  if (sub && new Date(sub.current_period_end).getTime() > Date.now()) {
+    return c.json({ ok: true, allowed: true, edition, policy: 'licensed', via: 'subscription', remaining: Math.max(0, Number(sub.reads_per_period) - Number(sub.period_uses)), fairUseCap: Number(sub.reads_per_period), periodUses: Number(sub.period_uses) });
+  }
+  // Lane 3 — PREPAID: active, unexpired prepaid pass(es) with reads remaining (x402 'entitlement' lane).
   // Return the TOTAL remaining reads across active passes, so the Explorer can show "N reads left".
   const pre = await c.env.DB.prepare("SELECT COALESCE(SUM(max_uses - used),0) AS remaining FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?)").bind(b.subject, edition, new Date().toISOString()).first<{ remaining: number }>();
   if (pre && pre.remaining > 0) return c.json({ ok: true, allowed: true, edition, policy: 'licensed', via: 'prepaid', remaining: pre.remaining });
@@ -706,16 +729,17 @@ app.post('/tools/record_subscription', async (c) => {
   return c.json({ ok: true, id: r.meta?.last_row_id ?? null, currentPeriodEnd: end });
 });
 
-// get_subscription — the reader's active subscription for an edition (status, next renewal, reads left,
-// whether the current period is DUE for renewal). reads-left is the live prepaid balance for the edition.
+// get_subscription — the reader's active subscription for an edition: status, next renewal, this-period
+// fair-use usage (period_uses / reads_per_period cap), and whether it's DUE. Billing is PER PERIOD; the cap
+// is abuse protection, not pay-per-read. readsRemaining = cap − used this period (resets on renewal).
 app.post('/tools/get_subscription', async (c) => {
   const b = await c.req.json<{ edition?: string; subject?: string }>().catch(() => ({}) as { edition?: string; subject?: string });
   if (!c.env.DB || !b.subject || !b.edition) return c.json({ ok: true, subscription: null });
-  const row = await c.env.DB.prepare("SELECT id,edition,subject,payer,payee,asset,tier,tier_label,reads_per_period,amount_per_period,period_seconds,periods_authorized,periods_charged,current_period_start,current_period_end,mandate_id,status,last_settlement_hash,created_at,updated_at FROM subscriptions WHERE subject=? AND edition=? AND status='active' ORDER BY id DESC LIMIT 1").bind(b.subject, b.edition).first<Record<string, unknown>>();
+  const row = await c.env.DB.prepare("SELECT id,edition,subject,payer,payee,asset,tier,tier_label,reads_per_period,period_uses,amount_per_period,period_seconds,periods_authorized,periods_charged,current_period_start,current_period_end,mandate_id,status,last_settlement_hash,created_at,updated_at FROM subscriptions WHERE subject=? AND edition=? AND status='active' ORDER BY id DESC LIMIT 1").bind(b.subject, b.edition).first<Record<string, unknown>>();
   if (!row) return c.json({ ok: true, subscription: null });
-  const pre = await c.env.DB.prepare("SELECT COALESCE(SUM(max_uses - used),0) AS remaining FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?)").bind(b.subject, b.edition, new Date().toISOString()).first<{ remaining: number }>();
+  const cap = Number(row.reads_per_period ?? 0), used = Number(row.period_uses ?? 0);
   const due = new Date(String(row.current_period_end)).getTime() <= Date.now();
-  return c.json({ ok: true, subscription: { ...row, readsRemaining: pre?.remaining ?? 0, due } });
+  return c.json({ ok: true, subscription: { ...row, fairUseCap: cap, periodUses: used, readsRemaining: Math.max(0, cap - used), due } });
 });
 
 // cancel_subscription — stop auto-renewal (the reader keeps any reads already on the current pass). Marks
@@ -739,7 +763,8 @@ app.post('/tools/renew_subscription', async (c) => {
   const base = Math.max(new Date(row.current_period_end).getTime(), Date.now());
   const start = new Date(base).toISOString();
   const end = new Date(base + row.period_seconds * 1000).toISOString();
-  await c.env.DB.prepare('UPDATE subscriptions SET periods_charged=?, current_period_start=?, current_period_end=?, last_settlement_hash=?, updated_at=? WHERE id=?')
+  // RESET the fair-use counter for the fresh period.
+  await c.env.DB.prepare('UPDATE subscriptions SET periods_charged=?, current_period_start=?, current_period_end=?, period_uses=0, last_settlement_hash=?, updated_at=? WHERE id=?')
     .bind(row.periods_charged + 1, start, end, b.settlementHash ?? null, new Date().toISOString(), row.id).run();
   audit('content.subscription.renew', 'success', b.edition, { subject: b.subject, period: row.periods_charged + 1 });
   return c.json({ ok: true, periodsCharged: row.periods_charged + 1, currentPeriodStart: start, currentPeriodEnd: end });

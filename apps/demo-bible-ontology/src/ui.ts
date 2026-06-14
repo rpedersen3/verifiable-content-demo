@@ -283,9 +283,13 @@ function accessBar(via,rem){
   let el=document.getElementById('licbar');
   if(!el){el=document.createElement('div');el.id='licbar';el.className='licbar';document.body.appendChild(el);}
   const ed=activeEdition.toUpperCase();
-  const label=via==='grant'?'a free <b>grant</b> (your entitlement)':(via==='prepaid'?'your <b>prepaid pass</b>'+(rem?' · <b>'+esc(rem)+'</b> verse read'+(rem==='1'?'':'s')+' left':''):'a <b>fresh payment</b>');
+  const label=via==='grant'?'a free <b>grant</b> (your entitlement)'
+    :via==='subscription'?'your <b>subscription</b>'+(rem!=null?' · <b>'+esc(rem)+'</b> read'+(rem==='1'?'':'s')+' left this period':'')
+    :via==='prepaid'?'your <b>prepaid pass</b>'+(rem?' · <b>'+esc(rem)+'</b> verse read'+(rem==='1'?'':'s')+' left':'')
+    :'a <b>fresh payment</b>';
+  const tail=via==='subscription'?'Browsing the graph is free; you read freely each period — billed per period, fair-use capped.':'Browsing the graph is free; each verse you read draws 1 from your pass.';
   el.className='licbar licok';
-  el.innerHTML='<span>🔓 <b>'+esc(ed)+'</b> access accounted for — via '+label+'. <span class="muted" style="opacity:.8">Browsing the graph is free; each verse you read draws 1 from your pass.</span></span> <span class="licacts"><button onclick="buyLbsbAccess(\\''+esc(activeEdition)+'\\')">Top up</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Public BSB</button></span>';
+  el.innerHTML='<span>🔓 <b>'+esc(ed)+'</b> access accounted for — via '+label+'. <span class="muted" style="opacity:.8">'+tail+'</span></span> <span class="licacts">'+(via==='subscription'?'':'<button onclick="buyLbsbAccess(\\''+esc(activeEdition)+'\\')">Top up</button> ')+'<button class="lic-x" onclick="selectSource(\\'bsb\\')">Public BSB</button></span>';
   el.style.display='flex';
   el.classList.remove('licpulse');void el.offsetWidth;el.classList.add('licpulse'); // pulse on each read
   const sig=via+'|'+(rem||'');if(sig!==__accSig&&via==='prepaid'&&rem){toastPaidMsg('🔓 access · '+esc(rem)+' read'+(rem==='1'?'':'s')+' left on your pass');}
@@ -308,8 +312,10 @@ async function buyLbsbAccess(ed,tierId){
   // Buy-access ceremony that would silently no-op). Covers ALL custodians (wallet / passkey / social).
   if(!hasTreasury()){needTreasuryNotice();return;}
   const tier=lbsbTier(tierId);
-  const what=tier.kind==='subscription'?('the '+tier.label+' subscription — '+tier.reads+' reads for '+tier.usdc+' USDC'):('pay-as-you-go — '+tier.reads+' reads for '+tier.usdc+' USDC');
-  if(!confirm('Buy '+what+'?\\n\\nYour home charges '+tier.usdc+' USDC from your person-treasury to the lbsb treasury, authorized once by your sign-in credential (wallet, passkey, or social), and grants a '+tier.reads+'-read pass.'))return;
+  const msg=tier.kind==='subscription'
+    ?('Start the '+tier.label+' subscription ('+tier.usdc+' USDC / period)?\\n\\nYou authorize ONE standing charge mandate from your treasury to the lbsb treasury. You then read freely each period — no per-read charge — up to a fair-use limit of '+tier.reads+' reads/period, and the lbsb treasury charges you '+tier.usdc+' USDC each period. Cancel anytime.')
+    :('Buy pay-as-you-go — '+tier.reads+' reads for '+tier.usdc+' USDC?\\n\\nYour home charges '+tier.usdc+' USDC from your treasury and adds a '+tier.reads+'-read pass; each read draws one.');
+  if(!confirm(msg))return;
   connectStartPay(ed,tier.id);
 }
 function licenseGate(info){
@@ -463,12 +469,14 @@ async function connectStart(name){const state=randB64(16),nonce=randB64(16),pk=a
 const LBSB_TREASURY='0xa9e0acecfbce08548358b4f5681b13a00a5cab7a',LBSB_USDC='0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C';
 // Two options, one mechanism (must mirror the a2a LBSB_TIERS): pay-as-you-go = a tiny pass; the
 // subscription tiers = bigger passes at a volume discount. amount = atomic 6-dp mock USDC.
-// period = the subscription billing window in seconds (mirrors a2a ttlSeconds); only subscription tiers
-// carry one — it's sent as sub_period so the home mints the standing pull mandate with that cadence.
+// TWO models (mirror a2a LBSB_TIERS): PAYG = buy a finite prepaid pass (metered per read); SUBSCRIPTION =
+// authorize a standing pull mandate then read per-period (no per-read charge), capped by a fair-use limit
+// (reads = cap per period). period (seconds) marks subscription tiers and is sent as sub_period so the home
+// mints the recurring mandate; usdc is the per-period price for subscriptions, the bundle price for PAYG.
 const LBSB_TIERS=[
-  {id:'payg', label:'Pay-as-you-go', kind:'payg',         reads:5,   amount:'1000',  usdc:'0.001'},
-  {id:'basic',label:'Basic',         kind:'subscription', reads:50,  amount:'8000',  usdc:'0.008', period:2592000},
-  {id:'plus', label:'Plus',          kind:'subscription', reads:500, amount:'60000', usdc:'0.06',  period:2592000}
+  {id:'payg5',  label:'Pay-as-you-go', kind:'payg',         reads:5,    amount:'1000',  usdc:'0.001'},
+  {id:'payg50', label:'50 reads',      kind:'payg',         reads:50,   amount:'8000',  usdc:'0.008'},
+  {id:'monthly',label:'Monthly',       kind:'subscription', reads:5000, amount:'50000', usdc:'0.05', period:2592000}
 ];
 const lbsbTier=(id)=>LBSB_TIERS.find(t=>t.id===id)||LBSB_TIERS[0];
 // Buy access in a POPUP (seamless): the home opens in a small window, recognizes you via its 1-hour
@@ -500,15 +508,17 @@ async function exchangePayCode(pend,code){
     if(pd)await storePayDelegation(pd);
     // tr.pullDelegation = the standing subscription mandate (subscription tiers only); forwarded to /pay/claim,
     // which records the subscription + holds the mandate provider-side (the lbsb service's subscriptions store).
-    if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:tr.id_token,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash,pullDelegation:tr.pullDelegation||null});
+    if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:tr.id_token,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash,tierId:pend.tier,pullDelegation:tr.pullDelegation||null});
       if(cl&&cl.ok){toastPaidMsg(claimToast(cl));if(typeof loadTreasury==='function')loadTreasury();}
       else{alert('Charged, but the read pass could not be minted ('+((cl&&cl.error)||'verify failed')+'). Try reading again.');}}
     // (no render here — handlePayPopup closes the popup; the main window refreshes via the sa.paid storage event)
   }catch(e){alert('Buy access failed: '+(e&&e.message?e.message:e));}
 }
 // Claim toast — a subscription claim reads differently from a one-off pay-as-you-go top-up.
-function claimToast(cl){const amt=(Number(cl.amount||0)/1e6);const base='✓ paid '+amt+' USDC · '+esc(cl.tierLabel||'access')+' · '+(cl.passUses||0)+'-read pass';
-  return cl.subscription?('⭐ '+base+' · subscription active'):base;}
+function claimToast(cl){const amt=(Number(cl.amount||0)/1e6);
+  return cl.subscription
+    ?('⭐ '+esc(cl.tierLabel||'Subscription')+' active · paid '+amt+' USDC this period · read freely (fair-use '+(cl.fairUseCap||0)+'/period)')
+    :('✓ paid '+amt+' USDC · '+(cl.passUses||0)+' reads added to your pass');}
 function toastPaidMsg(msg){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.innerHTML=msg;el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},4000);}
 function toastPaid(){toastPaidMsg('✓ paid · access added');}
 // VAULT-BACKED budget: read the reader's x402-pay budget delegation (delegator = their nameless TREASURY
@@ -577,7 +587,7 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
       // social work (the charge was signed by the reader's credential at the home; no Explorer wallet sig).
       if(tr.settlementHash){
         try{
-          const cl=await a2aPost('/pay/claim',{id_token:session.idToken,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash,pullDelegation:tr.pullDelegation||null});
+          const cl=await a2aPost('/pay/claim',{id_token:session.idToken,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash,tierId:pend.tier,pullDelegation:tr.pullDelegation||null});
           if(cl&&cl.ok){toastPaidMsg(claimToast(cl));if(typeof loadTreasury==='function')loadTreasury();}
         }catch(e){}
       }
@@ -695,10 +705,14 @@ async function openLicensedPassage(osis){
     return;
   }
   if(r&&r.ok){
-    const meter=r.accessVia==='prepaid'?'<div class="muted" style="font-size:11px;margin-top:8px">📖 metered verse read · <b>'+esc(String(r.prepaidRemaining))+'</b> read'+(r.prepaidRemaining===1?'':'s')+' left on your pass</div>':(r.accessVia==='grant'?'<div class="muted" style="font-size:11px;margin-top:8px">✓ via your free grant</div>':'');
-    box.innerHTML='<span class="x" onclick="closePassage()">×</span><h3>'+esc(ref)+'</h3><div class="muted" style="font-size:11px;margin-bottom:10px">'+EU+' · licensed edition · paid per verse</div><div class="vrow hot">'+esc(r.text||'')+'</div>'+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound read</div>':'')+meter;
+    const meter=r.accessVia==='prepaid'?'<div class="muted" style="font-size:11px;margin-top:8px">📖 metered verse read · <b>'+esc(String(r.prepaidRemaining))+'</b> read'+(r.prepaidRemaining===1?'':'s')+' left on your pass</div>'
+      :r.accessVia==='subscription'?'<div class="muted" style="font-size:11px;margin-top:8px">⭐ via your subscription · <b>'+esc(String(r.prepaidRemaining))+'</b> of '+esc(String(r.fairUseCap))+' reads left this period</div>'
+      :(r.accessVia==='grant'?'<div class="muted" style="font-size:11px;margin-top:8px">✓ via your free grant</div>':'');
+    const sub=r.accessVia==='subscription';
+    box.innerHTML='<span class="x" onclick="closePassage()">×</span><h3>'+esc(ref)+'</h3><div class="muted" style="font-size:11px;margin-bottom:10px">'+EU+' · licensed edition · '+(sub?'via subscription (billed per period)':'paid per verse')+'</div><div class="vrow hot">'+esc(r.text||'')+'</div>'+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound read</div>':'')+meter;
     // reinforce on the persistent bar + Access header, exactly like a verse read in the Access view
     if(r.accessVia==='prepaid'){accessBar('prepaid',String(r.prepaidRemaining));setAccBalance('prepaid',r.prepaidRemaining);}
+    else if(r.accessVia==='subscription'){accessBar('subscription',String(r.prepaidRemaining));setAccBalance('subscription',r.prepaidRemaining);}
     else if(r.accessVia==='grant'){accessBar('grant',null);setAccBalance('grant',null);}
     return;
   }
@@ -929,9 +943,14 @@ let accessEnts=[];
 const a2aPost=(p,b)=>fetch(A2A_BASE+p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
 // LBSB access-state badge for the Access view: free grant, prepaid pass (+ verse reads left), or locked.
 function accBalanceHTML(via,rem){
-  const body=via==='grant'?'<span class="acc-st acc-granted">✓ grant</span> free entitlement access to <b>LBSB</b>':(via==='prepaid'?'<span class="acc-st acc-granted">🎟 prepaid pass</span> <b>LBSB</b> · <b>'+esc(String(rem))+'</b> verse read'+(String(rem)==='1'?'':'s')+' left':'<span class="acc-st acc-pending">🔒 locked</span> no <b>LBSB</b> access yet');
+  const body=via==='grant'?'<span class="acc-st acc-granted">✓ grant</span> free entitlement access to <b>LBSB</b>'
+    :via==='subscription'?'<span class="acc-st acc-granted" style="background:#6b4ed8">⭐ subscription</span> <b>LBSB</b> · read freely · <b>'+esc(String(rem))+'</b> left this period <span class="muted">(fair use)</span>'
+    :via==='prepaid'?'<span class="acc-st acc-granted">🎟 prepaid pass</span> <b>LBSB</b> · <b>'+esc(String(rem))+'</b> verse read'+(String(rem)==='1'?'':'s')+' left'
+    :'<span class="acc-st acc-pending">🔒 locked</span> no <b>LBSB</b> access yet';
   if(via==='grant')return body;
   const tre=readerTreasury();
+  // Active subscription: show treasury + balance, no buy button (the subscription card below manages it).
+  if(via==='subscription'){const b2=(accTreasuryUsdc!=null)?(' · <b>'+esc(String(accTreasuryUsdc))+'</b> USDC available'):'';return body+(tre?'<div class="muted" style="font-size:11px;margin-top:3px">💰 your treasury <span class="mono">'+esc(tre.slice(0,10))+'…'+esc(tre.slice(-4))+'</span>'+b2+'</div>':'');}
   // No treasury at all ⇒ point at the Portal to create one instead of offering Buy/Top-up.
   if(!tre)return body+' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="openPortal()" title="You need a personal treasury to pay for reads">Create a treasury</button>';
   // Has a treasury ⇒ show its address + spendable mock-USDC, plus Buy/Top-up (NOT "create a treasury").
@@ -944,21 +963,25 @@ function setAccBalance(via,rem){const el=document.getElementById('acc-balance');
 // pull mandate; each period grants reads_per_period reads. Shows next renewal + reads left + Renew/Cancel.
 function subCardHTML(s){
   if(!s||s.status!=='active')return '';
-  const ed=String(s.edition||'lbsb'),when=String(s.current_period_end||'').slice(0,10),left=Number(s.readsRemaining||0);
+  const ed=String(s.edition||'lbsb'),when=String(s.current_period_end||'').slice(0,10);
+  const cap=Number(s.fairUseCap||s.reads_per_period||0),used=Number(s.periodUses||0),left=Number(s.readsRemaining||(cap-used));
+  const pct=cap?Math.min(100,Math.round(used/cap*100)):0;
   const due=!!s.due;
   return '<div class="acc-row" style="display:block;background:#f3f0ff;border:1px solid #d9d2f5;border-radius:9px;padding:10px 12px;margin-bottom:9px">'+
     '<div><span class="acc-st acc-granted" style="background:#6b4ed8">⭐ '+esc(s.tier_label||s.tier||'subscription')+' subscription</span> '+
-    '<b>'+esc(ed.toUpperCase())+'</b> · '+esc(String(s.reads_per_period||0))+' reads / period · <b>'+esc(String(left))+'</b> left this period</div>'+
+    '<b>'+esc(ed.toUpperCase())+'</b> · active — you read freely this period</div>'+
+    '<div class="muted" style="font-size:11px;margin-top:4px">fair-use this period: <b>'+esc(String(used))+'</b> / '+esc(String(cap))+' reads used · <b>'+esc(String(left))+'</b> left</div>'+
+    '<div style="height:6px;background:#e4ddf6;border-radius:4px;margin:4px 0 2px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+(pct>=90?'#c0392b':'#6b4ed8')+'"></div></div>'+
     '<div class="muted" style="font-size:11px;margin-top:3px">'+(due?'<b style="color:#b45309">renewal due</b> — ':'renews ')+esc(when||'—')+
-      ' · one consent authorized a standing person-treasury → lbsb-treasury charge mandate</div>'+
+      ' · lbsb-treasury charges you each period via the standing mandate you authorized</div>'+
     '<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">'+
       '<button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accRenewSub(\\''+esc(ed)+'\\',\\''+esc(s.tier||'')+'\\')">'+(due?'Renew now':'Renew early')+'</button>'+
       '<button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="accCancelSub(\\''+esc(ed)+'\\')">Cancel</button>'+
     '</div></div>';
 }
-// Renew = re-confirm via the home ceremony (no-held-key): the home charges the next period; /pay/claim
-// records the new period + supersedes the row. (Unattended provider-pull would need a held key — stubbed.)
-function accRenewSub(ed,tier){buyLbsbAccess(ed,tier||'basic');}
+// Renew = re-confirm via the home ceremony (no-held-key): the home charges the next period; the period
+// advances + fair-use resets. (Unattended provider-pull would need a held key — owner-collect handles it.)
+function accRenewSub(ed,tier){buyLbsbAccess(ed,tier||'monthly');}
 // Cancel = stop auto-renewal. Keeps any reads already on the current pass; drops the standing mandate.
 async function accCancelSub(ed){
   if(!isConnected())return;
@@ -971,13 +994,17 @@ async function accCancelSub(ed){
 // Subscriptions = a standing charge mandate (renews each period); pay-as-you-go = a one-off pass. One credential
 // prompt charges your person-treasury → lbsb treasury. No treasury yet ⇒ guided to create one (buyLbsbAccess).
 function subscribeOfferHTML(ed){
-  const card=(t)=>{const isSub=t.kind==='subscription';return '<button class="map-basbtn" style="border:1px solid var(--line);border-radius:9px;padding:9px 11px;text-align:left;display:flex;flex-direction:column;gap:1px;min-width:150px" onclick="buyLbsbAccess(\\''+esc(ed)+'\\',\\''+t.id+'\\')" title="'+t.reads+' reads for '+t.usdc+' USDC">'+
+  const card=(t)=>{const isSub=t.kind==='subscription';return '<button class="map-basbtn" style="border:1px solid var(--line);border-radius:9px;padding:9px 11px;text-align:left;display:flex;flex-direction:column;gap:1px;min-width:160px" onclick="buyLbsbAccess(\\''+esc(ed)+'\\',\\''+t.id+'\\')">'+
     '<span style="font-weight:600">'+(isSub?'⭐ ':'💳 ')+esc(t.label)+'</span>'+
-    '<span class="muted" style="font-size:11px">'+t.reads+' reads'+(isSub?' / period':'')+' · '+t.usdc+' USDC'+(isSub?' · auto-renews':'')+'</span></button>';};
+    '<span class="muted" style="font-size:11px">'+(isSub?('unlimited reads · '+t.usdc+' USDC / period'):(t.reads+' reads · '+t.usdc+' USDC'))+'</span>'+
+    (isSub?'<span class="muted" style="font-size:10px">fair-use '+t.reads+'/period · auto-renews</span>':'<span class="muted" style="font-size:10px">one-off · pay per use</span>')+'</button>';};
+  const payg=LBSB_TIERS.filter(function(t){return t.kind==='payg';}),subs=LBSB_TIERS.filter(function(t){return t.kind==='subscription';});
   return '<div style="margin:4px 0 12px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fafbfe">'+
-    '<div style="font-weight:600;font-size:13px;margin-bottom:2px">Subscribe to <b>'+esc(ed.toUpperCase())+'</b></div>'+
-    '<div class="muted" style="font-size:11px;margin-bottom:8px">A <b>subscription</b> authorizes a standing per-period charge from your treasury and renews automatically; <b>pay-as-you-go</b> is a one-off pass. One credential prompt — works with wallet, passkey, or social.</div>'+
-    '<div style="display:flex;gap:7px;flex-wrap:wrap">'+LBSB_TIERS.map(card).join('')+'</div></div>';
+    '<div style="font-weight:600;font-size:13px;margin-bottom:6px">Get <b>'+esc(ed.toUpperCase())+'</b> access</div>'+
+    '<div style="font-weight:600;font-size:12px;margin-bottom:2px">💳 Pay-as-you-go <span class="muted" style="font-weight:400">— buy reads ahead, charged each top-up</span></div>'+
+    '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px">'+payg.map(card).join('')+'</div>'+
+    '<div style="font-weight:600;font-size:12px;margin-bottom:2px">⭐ Subscription <span class="muted" style="font-weight:400">— read freely each period; lbsb-treasury charges you per period (fair-use capped)</span></div>'+
+    '<div style="display:flex;gap:7px;flex-wrap:wrap">'+subs.map(card).join('')+'</div></div>';
 }
 async function loadAccess(){
   const el=document.getElementById('accessview');if(!el)return;
@@ -1032,10 +1059,12 @@ async function accReadInto(edition,ref,entitlement){
     return;
   }
   if(r&&r.ok){
-    const meter=r.accessVia==='prepaid'?'<div class="muted" style="font-size:11px;margin-top:3px">📖 metered verse read · <b>'+esc(String(r.prepaidRemaining))+'</b> read'+(r.prepaidRemaining===1?'':'s')+' left on your pass</div>':'';
+    const meter=r.accessVia==='prepaid'?'<div class="muted" style="font-size:11px;margin-top:3px">📖 metered verse read · <b>'+esc(String(r.prepaidRemaining))+'</b> read'+(r.prepaidRemaining===1?'':'s')+' left on your pass</div>'
+      :r.accessVia==='subscription'?'<div class="muted" style="font-size:11px;margin-top:3px">⭐ via your subscription · <b>'+esc(String(r.prepaidRemaining))+'</b> of '+esc(String(r.fairUseCap))+' reads left this period (no per-read charge)</div>':'';
     out.innerHTML='<div class="acc-verse"><b>'+esc(ref)+'</b> <span class="muted">('+esc(edition)+')</span><br>'+esc(r.text||'')+(r.commitmentOk?'<div class="muted" style="font-size:11px;margin-top:5px">✓ commitment verified · presenter-bound read</div>':'')+meter+'</div>';
-    // reflect the decrement in the persistent status bar + a toast (the licensed VERSE TEXT is the metered unit)
+    // reflect access on the persistent bar + Access header (verse TEXT is the metered/capped unit)
     if(r.accessVia==='prepaid'){accessBar('prepaid',String(r.prepaidRemaining));setAccBalance('prepaid',r.prepaidRemaining);toastPaidMsg('📖 verse read · '+esc(String(r.prepaidRemaining))+' left on your pass');}
+    else if(r.accessVia==='subscription'){accessBar('subscription',String(r.prepaidRemaining));setAccBalance('subscription',r.prepaidRemaining);}
     else if(r.accessVia==='grant'){accessBar('grant',null);setAccBalance('grant',null);}
   }
   else out.innerHTML='<div style="color:#c0392b;font-size:13px">Denied: '+esc((r&&r.error)||'failed')+'</div>';

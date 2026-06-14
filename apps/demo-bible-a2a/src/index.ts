@@ -196,14 +196,17 @@ app.get('/vault/*', async (c) => {
 //  SAME way: the home connect ceremony builds + signs + submits the redemption (chargePayment), and the
 //  app just verifies the resulting settlementHash via /pay/claim. No SIWE-only path.)
 
-// Two payment options, ONE mechanism: every option is a prepaid PASS the reader buys via the home
-// ceremony — they differ only in size + price-per-read. Pay-as-you-go is a tiny pass; the subscription
-// tiers are bigger passes at a volume discount (a "period" of access). Atomic units, 6-dp mock USDC.
+// TWO DISTINCT models (atomic units, 6-dp mock USDC):
+//  • PAYG (kind 'payg') — BUY READS AHEAD: a finite prepaid pass, one x402 push payment, metered per read.
+//  • SUBSCRIPTION (kind 'subscription') — the reader authorizes a standing pull mandate; they then read on a
+//    PER-PERIOD basis (no per-read charge), capped by a generous FAIR-USE limit (`reads`/period). The owner
+//    charges `amount` each period via the mandate. `ttlSeconds` = the billing period; `reads` = the cap.
 const LBSB_TIERS = [
-  { id: 'payg',  label: 'Pay-as-you-go', kind: 'payg',         reads: 5,   amount: '1000',  ttlSeconds: 604800 },   // 0.001 USDC → 5 reads (7-day window)
-  { id: 'basic', label: 'Basic',         kind: 'subscription', reads: 50,  amount: '8000',  ttlSeconds: 2592000 },  // 0.008 → 50 reads (20% off)
-  { id: 'plus',  label: 'Plus',          kind: 'subscription', reads: 500, amount: '60000', ttlSeconds: 2592000 },  // 0.06  → 500 reads (40% off)
+  { id: 'payg5',   label: 'Pay-as-you-go', kind: 'payg',         reads: 5,    amount: '1000',  ttlSeconds: 604800 },   // 0.001 → 5 reads ahead (7-day window)
+  { id: 'payg50',  label: '50 reads',      kind: 'payg',         reads: 50,   amount: '8000',  ttlSeconds: 2592000 },  // 0.008 → 50 reads ahead
+  { id: 'monthly', label: 'Monthly',       kind: 'subscription', reads: 5000, amount: '50000', ttlSeconds: 2592000 },  // 0.05 / 30 days · fair-use 5000 reads/period
 ];
+const tierById = (id?: string) => LBSB_TIERS.find((t) => t.id === id);
 app.get('/pay/tiers', (c) => c.json({ ok: true, tiers: LBSB_TIERS, asset: (c.env as unknown as { PAY_ASSET?: string }).PAY_ASSET ?? null }));
 
 // pay/access — the reader's current access state for an edition (for the Access view header): the lane
@@ -236,7 +239,7 @@ app.post('/pay/access', async (c) => {
 // tier the payment actually covers (amount-based — you get what you paid for; the tier the UI requested is
 // only a hint). For SIWE/passkey/social alike — the charge was signed by the reader's own credential.
 app.post('/pay/claim', async (c) => {
-  const b = await c.req.json<{ id_token?: string; edition?: string; settlementHash?: string; pullDelegation?: { delegator?: string; delegate?: string; mandateId?: string } }>().catch(() => ({}) as Record<string, never>);
+  const b = await c.req.json<{ id_token?: string; edition?: string; settlementHash?: string; tierId?: string; pullDelegation?: { delegator?: string; delegate?: string; mandateId?: string } }>().catch(() => ({}) as Record<string, never>);
   try {
     const { sub } = await verifyIdToken(String(b.id_token ?? ''));
     const edition = String(b.edition ?? 'lbsb');
@@ -247,15 +250,18 @@ app.post('/pay/claim', async (c) => {
     if (!verified) return c.json({ ok: false, error: 'settlement not verified on-chain' }, 402);
     const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
     if (dup.body && (dup.body as { seen?: boolean }).seen) return c.json({ ok: true, alreadyClaimed: true, edition, subject: sub });
-    // Grant the BEST tier the on-chain amount covers (largest amount ≤ paid). Defaults to payg.
-    const tier = [...LBSB_TIERS].sort((x, y) => (BigInt(y.amount) > BigInt(x.amount) ? 1 : -1)).find((t) => BigInt(verified.amount) >= BigInt(t.amount)) ?? LBSB_TIERS[0]!;
+    // The CLIENT declares which tier it bought (subscription vs PAYG differ in KIND, not just price); we
+    // validate the on-chain amount actually covers that tier's price (anti-abuse). Fall back to the best
+    // PAYG bundle the amount covers if no/invalid tierId.
+    let tier = tierById(b.tierId);
+    if (!tier || BigInt(verified.amount) < BigInt(tier.amount)) {
+      tier = [...LBSB_TIERS].filter((t) => t.kind === 'payg').sort((x, y) => (BigInt(y.amount) > BigInt(x.amount) ? 1 : -1)).find((t) => BigInt(verified.amount) >= BigInt(t.amount)) ?? LBSB_TIERS[0]!;
+    }
     const isSub = tier.kind === 'subscription';
     await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: isSub ? 'subscription' : 'settlement', reference: '/pay/claim' });
-    await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: sub, maxUses: tier.reads, validUntil: new Date(Date.now() + tier.ttlSeconds * 1000).toISOString(), settlementHash: verified.settlementHash });
-    // SUBSCRIPTION: record the recurring lifecycle + persist the standing pull mandate the home minted (the
-    // mandate's source-of-truth copy lives in the lbsb-treasury vault, stored client-side; this row carries
-    // the metadata + a copy for owner-side renewal bookkeeping). The first period's pass is the one above.
     if (isSub) {
+      // SUBSCRIPTION: record the lifecycle + store the standing pull mandate. Access for the period comes
+      // from the active subscription (unmetered billing, fair-use capped) — NO finite prepaid pass is minted.
       await mcpPost(c.env, '/tools/record_subscription', {
         edition, subject: sub,
         payer: b.pullDelegation?.delegator ?? verified.payer,
@@ -266,8 +272,11 @@ app.post('/pay/claim', async (c) => {
         pullMandate: b.pullDelegation ?? null, mandateId: b.pullDelegation?.mandateId ?? null,
         settlementHash: verified.settlementHash,
       });
+    } else {
+      // PAYG: mint the finite prepaid pass (metered per read).
+      await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: sub, maxUses: tier.reads, validUntil: new Date(Date.now() + tier.ttlSeconds * 1000).toISOString(), settlementHash: verified.settlementHash });
     }
-    return c.json({ ok: true, edition, subject: sub, amount: verified.amount, tier: tier.id, tierLabel: tier.label, kind: tier.kind, passUses: tier.reads, subscription: isSub, periodSeconds: isSub ? tier.ttlSeconds : null, settlementHash: verified.settlementHash });
+    return c.json({ ok: true, edition, subject: sub, amount: verified.amount, tier: tier.id, tierLabel: tier.label, kind: tier.kind, passUses: isSub ? null : tier.reads, fairUseCap: isSub ? tier.reads : null, subscription: isSub, periodSeconds: isSub ? tier.ttlSeconds : null, settlementHash: verified.settlementHash });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
@@ -325,11 +334,9 @@ app.post('/pay/subscription/renew', async (c) => {
     const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
     if (dup.body && (dup.body as { seen?: boolean }).seen) return c.json({ ok: true, alreadyClaimed: true, edition, subject: sub });
     await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: 'subscription', reference: '/pay/subscription/renew' });
-    const reads = Number(cur.reads_per_period ?? 0) || (LBSB_TIERS.find((t) => t.id === cur.tier)?.reads ?? 0);
-    const ttl = Number(cur.period_seconds ?? 0) || (LBSB_TIERS.find((t) => t.id === cur.tier)?.ttlSeconds ?? 2592000);
-    await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: sub, maxUses: reads, validUntil: new Date(Date.now() + ttl * 1000).toISOString(), settlementHash: verified.settlementHash });
+    // Renewal just advances the period + RESETS the fair-use counter — no prepaid pass (access is the subscription).
     const adv = (await mcpPost(c.env, '/tools/renew_subscription', { edition, subject: sub, settlementHash: verified.settlementHash })).body as { currentPeriodEnd?: string; periodsCharged?: number };
-    return c.json({ ok: true, edition, subject: sub, tier: cur.tier, passUses: reads, currentPeriodEnd: adv?.currentPeriodEnd ?? null, periodsCharged: adv?.periodsCharged ?? null, settlementHash: verified.settlementHash });
+    return c.json({ ok: true, edition, subject: sub, tier: cur.tier, currentPeriodEnd: adv?.currentPeriodEnd ?? null, periodsCharged: adv?.periodsCharged ?? null, settlementHash: verified.settlementHash });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
@@ -378,12 +385,8 @@ app.post('/admin/subscriptions/collected', async (c) => {
         if (!verified) { out.push({ subscriptionId: r.subscriptionId, subject: r.subject, ok: false, error: 'settlement not verified on-chain' }); continue; }
         const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
         if (dup.body && (dup.body as { seen?: boolean }).seen) { out.push({ subscriptionId: r.subscriptionId, subject: r.subject, ok: true }); continue; }
-        // Resolve the subscriber's tier sizing from THEIR active subscription, then renew their period.
-        const cur = ((await mcpPost(c.env, '/tools/get_subscription', { edition, subject: r.subject })).body as { subscription?: { tier?: string; reads_per_period?: number; period_seconds?: number } })?.subscription;
-        const reads = Number(cur?.reads_per_period ?? 0) || (LBSB_TIERS.find((t) => t.id === cur?.tier)?.reads ?? 0);
-        const ttl = Number(cur?.period_seconds ?? 0) || (LBSB_TIERS.find((t) => t.id === cur?.tier)?.ttlSeconds ?? 2592000);
         await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: 'subscription', reference: '/admin/subscriptions/collected' });
-        await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: r.subject, maxUses: reads, validUntil: new Date(Date.now() + ttl * 1000).toISOString(), settlementHash: verified.settlementHash });
+        // Advance the period + RESET the fair-use counter for the new period — no prepaid pass.
         const adv = (await mcpPost(c.env, '/tools/renew_subscription', { edition, subject: r.subject, settlementHash: verified.settlementHash })).body as { currentPeriodEnd?: string };
         out.push({ subscriptionId: r.subscriptionId, subject: r.subject, ok: true, currentPeriodEnd: adv?.currentPeriodEnd ?? null });
       } catch (e) { out.push({ subscriptionId: r.subscriptionId, subject: r.subject, ok: false, error: (e as Error).message }); }
