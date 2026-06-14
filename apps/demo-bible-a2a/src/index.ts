@@ -355,6 +355,18 @@ async function ownerGateA2A(env: Env, idToken: string, edition: string): Promise
   return sub;
 }
 
+// /admin/subscriptions/list — owner views ALL active subscriptions (the subscriber base), with this-period
+// usage + a due flag. Owner-gated. (The collection ceremony uses /admin/subscriptions/due for the mandates.)
+app.post('/admin/subscriptions/list', async (c) => {
+  const b = await c.req.json<{ id_token?: string; edition?: string }>().catch(() => ({}) as Record<string, never>);
+  try {
+    const edition = String(b.edition ?? 'lbsb');
+    await ownerGateA2A(c.env, String(b.id_token ?? ''), edition);
+    const r = await mcpPost(c.env, '/tools/list_subscriptions', { edition });
+    return c.json({ ok: true, edition, subscriptions: (r.body as { subscriptions?: unknown[] })?.subscriptions ?? [] });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
+});
+
 // /admin/subscriptions/due — owner lists subscriptions DUE for renewal, each with its stored pull mandate,
 // so the home collection ceremony can redeem them. Owner-gated.
 app.post('/admin/subscriptions/due', async (c) => {

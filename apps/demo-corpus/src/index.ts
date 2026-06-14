@@ -354,12 +354,17 @@ async function loadSubscriptions(){
   const el=document.getElementById('sublist'),st=document.getElementById('substat');if(!el)return;
   if(!window.isOwnerNow){el.innerHTML='<p class="muted">Only the corpus owner can view subscriptions.</p>';if(st)st.innerHTML='—';return;}
   el.innerHTML='<p class="muted">loading…</p>';
-  const r=await tfetch(A2A_BASE+'/admin/subscriptions/due',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id_token:session.idToken,edition:editionOf()})},12000).then(x=>x.json()).catch(e=>({ok:false,error:String(e)}));
+  // Show ALL active subscriptions (the subscriber base) + flag which are DUE for a period charge.
+  const r=await tfetch(A2A_BASE+'/admin/subscriptions/list',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id_token:session.idToken,edition:editionOf()})},12000).then(x=>x.json()).catch(e=>({ok:false,error:String(e)}));
   if(!r||!r.ok){el.innerHTML='<p style="color:#c0392b">'+esc((r&&r.error)||'failed')+'</p>';if(st)st.innerHTML='—';return;}
-  const due=r.due||[];
+  const subs=r.subscriptions||[],due=subs.filter(function(s){return s.due;});
   const btn=document.getElementById('chargeBtn');if(btn)btn.disabled=!due.length;
-  if(st)st.innerHTML='<b>'+due.length+'</b> subscription'+(due.length===1?'':'s')+' due for renewal'+(due.length?' — click <b>Charge due subscriptions</b> to bill them all in one signing.':' right now.');
-  el.innerHTML=due.length?due.map(function(d){return '<div class="req"><div><b>'+esc(d.tier_label||d.tier||'subscription')+'</b> <span class="muted">'+esc(String(d.subject||'').slice(0,24))+'…</span><div class="muted" style="font-size:11px">'+esc(String(d.reads_per_period||0))+' reads / period · '+(Number(d.amount_per_period||0)/1e6)+' USDC · due since '+esc(String(d.current_period_end||'').slice(0,10))+'</div></div></div>';}).join(''):'<p class="muted">No subscriptions are due right now.</p>';
+  if(st)st.innerHTML='<b>'+subs.length+'</b> active subscription'+(subs.length===1?'':'s')+' · <b>'+due.length+'</b> due for a period charge'+(due.length?' — click <b>Charge due subscriptions</b> to bill them in one signing.':'.');
+  el.innerHTML=subs.length?subs.map(function(s){
+    const cap=Number(s.reads_per_period||0),used=Number(s.period_uses||0);
+    return '<div class="req"><div><b>'+esc(s.tier_label||s.tier||'subscription')+'</b> '+(s.due?'<span class="fb-st" style="background:#b45309;color:#fff">due now</span>':'<span class="fb-st" style="background:#475569;color:#fff">active</span>')+' <span class="muted">'+esc(String(s.subject||'').slice(0,24))+'…</span>'+
+      '<div class="muted" style="font-size:11px">'+(Number(s.amount_per_period||0)/1e6)+' USDC / period · fair-use '+used+'/'+cap+' reads used this period · '+(s.due?'<b style="color:#b45309">charge due since</b> ':'next charge ')+esc(String(s.current_period_end||'').slice(0,10))+'</div></div></div>';
+  }).join(''):'<p class="muted">No active subscriptions yet. They appear here once a reader subscribes in the Bible Explorer.</p>';
 }
 // Charge due subscriptions: hand off to the HOME collection ceremony. The home recognizes the owner,
 // they authorize once, and it redeems every due mandate AS lbsb-treasury (owner credential, no held key),

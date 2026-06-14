@@ -770,6 +770,19 @@ app.post('/tools/renew_subscription', async (c) => {
   return c.json({ ok: true, periodsCharged: row.periods_charged + 1, currentPeriodStart: start, currentPeriodEnd: end });
 });
 
+// list_subscriptions — ALL active subscriptions for an edition (the owner's subscriber base), with this-
+// period usage + whether each is DUE. Owner-only data (caller gated upstream). Drives the corpus-manager view.
+app.post('/tools/list_subscriptions', async (c) => {
+  const b = await c.req.json<{ edition?: string; limit?: number }>().catch(() => ({}) as { edition?: string; limit?: number });
+  if (!c.env.DB) return c.json({ ok: true, subscriptions: [] });
+  const edition = String(b.edition ?? 'lbsb');
+  const lim = Math.min(500, Math.max(1, Number(b.limit ?? 200)));
+  const now = Date.now();
+  const rows = (await c.env.DB.prepare("SELECT id,subject,payer,payee,tier,tier_label,reads_per_period,period_uses,amount_per_period,period_seconds,periods_charged,current_period_start,current_period_end,status,created_at FROM subscriptions WHERE edition=? AND status='active' ORDER BY id DESC LIMIT ?").bind(edition, lim).all()).results as Array<Record<string, unknown>>;
+  const subscriptions = rows.map((r) => ({ ...r, due: new Date(String(r.current_period_end)).getTime() <= now, readsRemaining: Math.max(0, Number(r.reads_per_period) - Number(r.period_uses)) }));
+  return c.json({ ok: true, edition, subscriptions });
+});
+
 // list_due_subscriptions — active subscriptions whose current period has ended (DUE for renewal), with the
 // stored pull mandate so the owner ceremony can redeem each. Owner-only data (caller gated upstream).
 app.post('/tools/list_due_subscriptions', async (c) => {
