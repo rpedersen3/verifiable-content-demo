@@ -298,7 +298,6 @@ function accessBar(via,rem){
 function updateSrcUI(){const s=document.getElementById('srcSel');if(s)s.value=activeEdition;}
 function selectSource(ed){activeEdition=ed;localStorage.setItem('bx.edition',ed);updateSrcUI();
   if(ed==='bsb'){hideLicenseGate();}else if(!isConnected()){licenseGate({gated:ed,reason:'sign-in required'});}
-  else{ensureTreasuryResolved();} // licensed + connected → resolve the treasury up front so the gate is right
   if(typeof applyHash==='function')applyHash();}
 function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.style.display='none';}
 // x402 pay-per-use (Phase 4). INERT until the lbsb treasury + PaymentEnforcer + fee asset are
@@ -309,9 +308,8 @@ function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.s
 // your sign-in credential, and grants a pass sized to what you paid. No wallet popup here, no fallback.
 async function buyLbsbAccess(ed,tierId){
   if(!requireConnect('buy '+ed+' access'))return;
-  // No person-treasury ⇒ no wallet to pay from. Alert + send them to the Portal to create one (don't run a
-  // Buy-access ceremony that would silently no-op). Covers ALL custodians (wallet / passkey / social).
-  if(!hasTreasury()){needTreasuryNotice();return;}
+  // Privacy-preserving: the app never checks/holds your treasury. It just initiates the purchase; your HOME
+  // determines whether a treasury is connected (and helps you set one up) during the ceremony.
   const tier=lbsbTier(tierId);
   const msg=tier.kind==='subscription'
     ?('Start the '+tier.label+' subscription ('+tier.usdc+' USDC / period)?\\n\\nYou authorize ONE standing charge mandate from your treasury to the lbsb treasury. You then read freely each period — no per-read charge — up to a fair-use limit of '+tier.reads+' reads/period, and the lbsb treasury charges you '+tier.usdc+' USDC each period. Cancel anytime.')
@@ -319,35 +317,12 @@ async function buyLbsbAccess(ed,tierId){
   if(!confirm(msg))return;
   connectStartPay(ed,tier.id);
 }
-// Resolve the reader's treasury from the service (their on-chain payment/subscription history) when the
-// session didn't carry it — so a reader who clearly HAS a treasury isn't told to create one. Self-heals
-// the gate (re-renders) if one is found. The relying app never needs to guess: the home shares it at
-// connect, and the service confirms it from what you've already paid.
-let __lastGate=null,__treResolving=false;
-async function ensureTreasuryResolved(){
-  if(!isConnected()||readerTreasury()||__treResolving)return;
-  __treResolving=true;
-  try{
-    const ed=(activeEdition&&activeEdition!=='bsb')?activeEdition:'lbsb';
-    const acc=await a2aPost('/pay/access',{id_token:session.idToken,edition:ed});
-    if(acc&&acc.treasury){
-      accTreasuryAddr=acc.treasury;if(typeof acc.treasuryUsdc!=='undefined'&&acc.treasuryUsdc!=null)accTreasuryUsdc=acc.treasuryUsdc;
-      const lb=document.getElementById('licbar');if(lb&&lb.style.display!=='none'&&__lastGate)licenseGate(__lastGate); // re-render with the treasury known
-    }
-  }catch(e){}
-  __treResolving=false;
-}
 function licenseGate(info){
-  __lastGate=info;
   let el=document.getElementById('licbar');
   if(!el){el=document.createElement('div');el.id='licbar';el.className='licbar';document.body.appendChild(el);}
   const ed=String(info.gated||activeEdition);
   if(info.reason==='sign-in required'||!isConnected()){
     el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> is a licensed Bible — connect to request access. Every query is verified against your entitlement.</span> <span class="licacts"><button onclick="promptConnect()">Connect</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Use public BSB</button></span>';
-  }else if(!hasTreasury()){
-    // Connected but the SESSION doesn't know a treasury — ask the service (payment history) before nagging.
-    ensureTreasuryResolved();
-    el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> is licensed. You need a <b>personal treasury</b> — the wallet that pays for reads — before you can buy access.</span> <span class="licacts"><button onclick="openPortal()">Create a treasury</button> <button onclick="reconnectAccount()" title="Refresh after creating one">I have one — reconnect</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Public BSB</button></span>';
   }else{
     // Two-option chooser: pay-as-you-go OR a subscription tier (bigger pass, volume discount) — plus a
     // free owner grant. One credential prompt charges the chosen amount; the pass is sized to what you pay.
@@ -458,21 +433,15 @@ const CONNECT_DOMAIN='impact-agent.me',CLIENT_ID='bible-explorer',CENTRAL_AUTH_O
 let session=null;
 function loadSession(){try{const j=JSON.parse(localStorage.getItem('sa.session')||'null');session=(j&&j.exp*1000>Date.now())?j:null;if(!session)localStorage.removeItem('sa.session');}catch(e){session=null;}}
 function isConnected(){return !!session;}
-// The connected member's person-treasury (the wallet that pays for licensed reads). Resolved by the home
-// at connect (session.treasury); a prior Buy access also proves one exists (payDelegation.delegator IS the
-// treasury). null ⇒ the member has no treasury yet and CANNOT do financial ops — they must create one first.
-// Resolved treasury + balance from /pay/access (server: the wallet you've actually paid from for lbsb).
-let accTreasuryAddr=null,accTreasuryUsdc=null;
-function readerTreasury(){if(!session)return accTreasuryAddr||null;if(session.treasury)return session.treasury;if(session.payDelegation&&session.payDelegation.delegator)return session.payDelegation.delegator;return accTreasuryAddr||null;}
-function hasTreasury(){return !!readerTreasury();}
+// PRIVACY: the relying app does NOT learn or hold your treasury address. It gates on ACCESS state
+// (subscription / grant / prepaid — its own data), and the HOME owns the treasury question during a purchase.
 // Their Global.Church home (where treasuries are created/managed) — the per-member subdomain when known.
 function portalUrl(){return authOriginFor(session&&session.name||'');}
 function openPortal(){try{window.open(portalUrl(),'_blank','noopener');}catch(e){location.href=portalUrl();}}
-// Re-run site-login to refresh the session (picks up a treasury created in the Portal since last connect).
-function reconnectAccount(){connectStart(session&&session.name||'');}
-// Shown when a member with NO treasury attempts a financial op. Offers to open their home to create one.
-function needTreasuryNotice(){
-  if(confirm('You don\\'t have a personal treasury yet.\\n\\nA treasury is the wallet that pays for licensed scripture reads. Create one in your Global.Church home, then come back and Buy access.\\n\\nOpen your Global.Church home now to set one up?'))openPortal();
+// Shown ONLY as a RESULT of a purchase the home couldn't complete because no treasury is connected — the
+// home determines that during the ceremony; the app never inspects your treasury, it just relays the result.
+function noTreasuryNotice(){
+  if(confirm('Your Global.Church home doesn\\'t have a personal treasury connected yet — that\\'s the wallet that pays for a subscription. Open your home to set one up, then subscribe?'))openPortal();
 }
 function b64url(b){let s='';for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s).split('+').join('-').split('/').join('_').replace(/=+$/,'');}
 function fromB64url(seg){const bin=atob(seg.split('-').join('+').split('_').join('/'));const o=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)o[i]=bin.charCodeAt(i);return o;}
@@ -525,13 +494,15 @@ async function exchangePayCode(pend,code){
     if(!tr.id_token)throw new Error(tr.error||'no id_token returned');
     await verifyIdToken(pend.authOrigin,tr.id_token,pend.nonce);
     const pd=tr.paymentDelegation||null;
-    if(session){session.payDelegation=pd;if(typeof tr.treasury!=='undefined')session.treasury=tr.treasury||null;localStorage.setItem('sa.session',JSON.stringify(session));}
+    if(session){session.payDelegation=pd;localStorage.setItem('sa.session',JSON.stringify(session));}
     if(pd)await storePayDelegation(pd);
     // tr.pullDelegation = the standing subscription mandate (subscription tiers only); forwarded to /pay/claim,
     // which records the subscription + holds the mandate provider-side (the lbsb service's subscriptions store).
     if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:tr.id_token,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash,tierId:pend.tier,pullDelegation:tr.pullDelegation||null});
       if(cl&&cl.ok){toastPaidMsg(claimToast(cl));if(typeof loadTreasury==='function')loadTreasury();}
       else{alert('Charged, but the read pass could not be minted ('+((cl&&cl.error)||'verify failed')+'). Try reading again.');}}
+    // No payment delegation minted ⇒ the home found NO connected treasury (it owns that determination). Relay it.
+    else if(!pd){noTreasuryNotice();}
     // (no render here — handlePayPopup closes the popup; the main window refreshes via the sa.paid storage event)
   }catch(e){alert('Buy access failed: '+(e&&e.message?e.message:e));}
 }
@@ -601,7 +572,7 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
       // (returned as tr.paymentDelegation, distinct from the site-login tr.delegation). Attach it to the
       // session AND persist it to the reader's vault so the reader can redeem it (push) per paid read.
       const pd=tr.paymentDelegation||null;
-      if(session){session.payDelegation=pd;if(typeof tr.treasury!=='undefined')session.treasury=tr.treasury||null;localStorage.setItem('sa.session',JSON.stringify(session));}
+      if(session){session.payDelegation=pd;localStorage.setItem('sa.session',JSON.stringify(session));}
       if(pd)await storePayDelegation(pd);
       // The home ceremony may have CHARGED the first payment (all-custodian) and returned a settlementHash.
       // Claim it → the a2a verifies on-chain + mints the reader's access pass. This is what makes passkey/
@@ -612,9 +583,10 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
           if(cl&&cl.ok){toastPaidMsg(claimToast(cl));if(typeof loadTreasury==='function')loadTreasury();}
         }catch(e){}
       }
+      else if(!pd){noTreasuryNotice();} // home found no connected treasury
       sessionStorage.removeItem('sa.pending');hideLicenseGate();if(typeof applyHash==='function')applyHash();return true;
     }
-    session={idToken:tr.id_token,delegation:tr.delegation||null,name:claims.agent_name||pend.name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp,treasury:(typeof tr.treasury!=='undefined'?(tr.treasury||null):null)};
+    session={idToken:tr.id_token,delegation:tr.delegation||null,name:claims.agent_name||pend.name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp};
     localStorage.setItem('sa.session',JSON.stringify(session));sessionStorage.removeItem('sa.pending');return true;
   }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));sessionStorage.removeItem('sa.pending');return false;}}
 function disconnect(){session=null;localStorage.removeItem('sa.session');renderConnect();}
@@ -657,7 +629,7 @@ loadSession();
 var __sp=(typeof location!=='undefined')?new URLSearchParams(location.search):new URLSearchParams('');
 var __pp=null;try{__pp=JSON.parse(localStorage.getItem('sa.paypend')||'null');}catch(e){}
 if(__sp.get('code')&&__pp&&__pp.state===__sp.get('state')){handlePayPopup(__pp,__sp.get('code'));}
-else{renderConnect();updateSrcUI();window.addEventListener('storage',onPaidStorage);connectCallback().then(ok=>{if(ok)renderConnect();applyHash();if(isConnected()&&activeEdition&&activeEdition!=='bsb')ensureTreasuryResolved();});}
+else{renderConnect();updateSrcUI();window.addEventListener('storage',onPaidStorage);connectCallback().then(ok=>{if(ok)renderConnect();applyHash();});}
 
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
@@ -719,9 +691,7 @@ async function openLicensedPassage(osis){
   let r=await a2aPost('/resolve-licensed',{id_token:session.idToken,reference:ref,edition:ed,entitlement:g?g.entitlement:undefined}).catch(er=>({ok:false,error:String(er)}));
   if(r&&r.gated&&!r.ok){
     licenseGate({gated:ed,reason:r.reason||'payment required'}); // also flips the persistent license bar
-    const pay=hasTreasury()
-      ?'<button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="closePassage();buyLbsbAccess(\\''+esc(ed)+'\\')">Buy access</button>'
-      :'<button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="closePassage();openPortal()">Create a treasury</button>';
+    const pay='<button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="closePassage();buyLbsbAccess(\\''+esc(ed)+'\\')">Subscribe / buy access</button>';
     box.innerHTML='<span class="x" onclick="closePassage()">×</span><h3>'+esc(ref)+'</h3><div style="font-size:13px;color:#b45309">🔒 Payment required for <b>'+EU+'</b>. '+pay+' '+bsbBtn+'</div>';
     return;
   }
@@ -969,15 +939,10 @@ function accBalanceHTML(via,rem){
     :via==='prepaid'?'<span class="acc-st acc-granted">🎟 prepaid pass</span> <b>LBSB</b> · <b>'+esc(String(rem))+'</b> verse read'+(String(rem)==='1'?'':'s')+' left'
     :'<span class="acc-st acc-pending">🔒 locked</span> no <b>LBSB</b> access yet';
   if(via==='grant')return body;
-  const tre=readerTreasury();
-  // Active subscription: show treasury + balance, no buy button (the subscription card below manages it).
-  if(via==='subscription'){const b2=(accTreasuryUsdc!=null)?(' · <b>'+esc(String(accTreasuryUsdc))+'</b> USDC available'):'';return body+(tre?'<div class="muted" style="font-size:11px;margin-top:3px">💰 your treasury <span class="mono">'+esc(tre.slice(0,10))+'…'+esc(tre.slice(-4))+'</span>'+b2+'</div>':'');}
-  // No treasury at all ⇒ point at the Portal to create one instead of offering Buy/Top-up.
-  if(!tre)return body+' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="openPortal()" title="You need a personal treasury to pay for reads">Create a treasury</button>';
-  // Has a treasury ⇒ show its address + spendable mock-USDC, plus Buy/Top-up (NOT "create a treasury").
-  const bal=(accTreasuryUsdc!=null)?(' · <b>'+esc(String(accTreasuryUsdc))+'</b> USDC available'):'';
-  return body+'<div class="muted" style="font-size:11px;margin-top:3px">💰 your treasury <span class="mono">'+esc(tre.slice(0,10))+'…'+esc(tre.slice(-4))+'</span>'+bal+'</div>'+
-    ' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\'lbsb\\')">'+(via==='prepaid'?'Top up':'Buy access')+'</button>';
+  // Active subscription: managed by the subscription card below — no buy button, no treasury address (privacy).
+  if(via==='subscription')return body;
+  // Locked / prepaid: offer Subscribe/Buy. The app never checks a treasury — the home owns that at purchase.
+  return body+' <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\'lbsb\\')">'+(via==='prepaid'?'Top up':'Subscribe / buy access')+'</button>';
 }
 function setAccBalance(via,rem){const el=document.getElementById('acc-balance');if(el)el.innerHTML=accBalanceHTML(via,rem);}
 // Active-subscription card: the recurring lane. One consent minted a standing person-treasury → lbsb-treasury
@@ -1034,8 +999,6 @@ async function loadAccess(){
   try{
     const r=await Promise.all([a2aPost('/my-entitlements',{id_token:session.idToken}),a2aPost('/my-requests',{id_token:session.idToken}),a2aPost('/pay/access',{id_token:session.idToken,edition:'lbsb'}).catch(function(){return{};})]);
     const held=(r[0]&&r[0].entitlements)||[],reqs=(r[1]&&r[1].requests)||[],acc=r[2]||{};accessEnts=held;
-    // Capture the server-resolved treasury (the wallet you've paid lbsb from) + its spendable balance.
-    accTreasuryAddr=acc.treasury||accTreasuryAddr||null;accTreasuryUsdc=(typeof acc.treasuryUsdc!=='undefined'?acc.treasuryUsdc:accTreasuryUsdc);
     const heldEd={},pendEd={};held.forEach(e=>heldEd[e.edition]=1);reqs.forEach(q=>{if(q.status==='pending')pendEd[q.edition]=1;});
     let h='';
     // LBSB access-state header (kept in sync after each verse read via setAccBalance).
@@ -1074,9 +1037,7 @@ async function accReadInto(edition,ref,entitlement){
   // x402 pay-per-verse: no grant + no pass ⇒ gated. ALL custodians do the SAME thing — top up via the home
   // ceremony (Buy access), which charges + mints a multi-read pass; then the read draws from the pass.
   if(r&&r.gated&&!r.ok){
-    out.innerHTML=hasTreasury()
-      ?'<div style="color:#b45309;font-size:13px">Payment required for '+esc(edition.toUpperCase())+'. <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\''+esc(edition)+'\\')">Buy access</button> — your home charges the fee (one credential prompt) and grants a read pass. Then read again.</div>'
-      :'<div style="color:#b45309;font-size:13px">Payment required for '+esc(edition.toUpperCase())+'. You need a <b>personal treasury</b> to pay — <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="openPortal()">Create a treasury</button> in your Global.Church home, then come back.</div>';
+    out.innerHTML='<div style="color:#b45309;font-size:13px">Payment required for '+esc(edition.toUpperCase())+'. <button class="map-basbtn" style="border:1px solid var(--line);border-radius:7px" onclick="buyLbsbAccess(\\''+esc(edition)+'\\')">Subscribe / buy access</button> — one credential prompt at your home; if no treasury is connected, your home helps you set one up.</div>';
     return;
   }
   if(r&&r.ok){
