@@ -193,8 +193,13 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <div id="fblist"><p class="muted">Connect as the corpus owner to review feedback.</p></div></div>
 </div>
 <div id="page-tre" style="display:none">
+<div class="card"><h3 style="margin-top:0">Subscriptions · collect what's due</h3>
+<p class="muted" style="font-size:13px">Each subscriber authorized a standing <b>charge mandate</b> (their treasury → your <span class="mono">lbsb-treasury.impact</span>) at subscribe time. When a period ends, you collect: <b>one ceremony</b> signs the redemption of every due mandate with your own credential — no held key, no per-subscriber prompt.</p>
+<div id="substat" class="ownb" style="background:#f3f0ff;border:1px solid #d9d2f5;color:#4b2e83">—</div>
+<div style="margin:8px 0"><button class="ap" id="chargeBtn" onclick="chargeDueSubscriptions()">Charge due subscriptions</button> <button onclick="loadSubscriptions()">Refresh</button></div>
+<div id="sublist"><p class="muted">Connect as the corpus owner to view subscriptions.</p></div></div>
 <div class="card"><h3 style="margin-top:0">Treasury · x402 settlements</h3>
-<p class="muted" style="font-size:13px">Per-use payments collected for this corpus's licensed edition — each reader's agent wallet pays a fee to the <b>lbsb treasury</b> agent on access. Pay-per-use is <b>inert</b> until the treasury agent + PaymentEnforcer + fee asset are configured; this ledger fills as charges settle.</p>
+<p class="muted" style="font-size:13px">Per-use payments + subscription charges collected for this corpus's licensed edition — money lands at the <b>lbsb-treasury.impact</b> agent. This ledger fills as charges settle.</p>
 <div id="trestat" class="ownb" style="background:#eef3fb;border:1px solid #d4e0f5;color:#27457e">—</div>
 <div id="trelist"><p class="muted">Connect as the corpus owner to view the treasury.</p></div></div>
 </div>
@@ -202,6 +207,10 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <script>
 const esc=(s)=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const CONNECT_DOMAIN='impact-agent.me',CLIENT_ID='demo-corpus',CENTRAL_AUTH_ORIGIN='https://www.'+CONNECT_DOMAIN,CONNECT_DELEGATE='0x89D13c596c45E4eE80Af5ae06C727FE9A820ffD0';
+// The content service exposing the owner-gated subscription due/collected endpoints (verified on-chain).
+const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
+// Corpus → licensed edition the subscriptions live under (matches the a2a EDITION_SERVICE map).
+function editionOf(){return corpusKey==='lbsb'?'lbsb':(corpusKey==='bsb'?'demo-licensed':'lbsb');}
 // Corpora this manager administers. Pick one FIRST, then connect AS that corpus's service agent (the
 // manager signs in at <short>.impact-agent.me as <agent>); the claim verifies custody via agent-naming.
 const CORPORA=[{key:'bsb',label:'BSB',short:'bsb',agent:'bsb.impact'},{key:'lbsb',label:'Licensed BSB',short:'lbsb',agent:'lbsb.impact'}];
@@ -291,13 +300,14 @@ async function render(){
   if(cl&&cl.ok&&cl.isOwner){
     window.isOwnerNow=true;
     if(ob)ob.innerHTML='<div class="ownb own-yes">'+(cl.claimed?'🎉 You just <b>claimed the '+esc(cp.label)+' corpus</b> — you are the owner.':'✓ You are the <b>'+esc(cp.label)+' corpus owner</b> ('+esc(cp.agent)+').')+'</div>';
-    loadQueue();loadIssued();loadFeedback();loadTreasury();
+    loadQueue();loadIssued();loadFeedback();loadTreasury();loadSubscriptions();
   }else{
     window.isOwnerNow=false;
     if(ob)ob.innerHTML='<div class="ownb own-no">'+esc(cp.label)+' is owned by <span class="mono">'+esc((cl&&cl.ownerSub||'').slice(0,20))+'…</span> — you are not the owner'+((cl&&cl.reason)?' ('+esc(cl.reason)+')':'')+'.</div>';
     if(q)q.innerHTML='<p class="muted">Only the corpus owner can review requests.</p>';if(is)is.innerHTML='';
     if(fbl)fbl.innerHTML='<p class="muted">Only the corpus owner can review feedback.</p>';
     const tr=document.getElementById('trelist');if(tr)tr.innerHTML='<p class="muted">Only the corpus owner can view the treasury.</p>';
+    const sl=document.getElementById('sublist');if(sl)sl.innerHTML='<p class="muted">Only the corpus owner can view subscriptions.</p>';const ss=document.getElementById('substat');if(ss)ss.innerHTML='—';
   }
 }
 let fbTimer=null;
@@ -326,7 +336,7 @@ function showPage(name){
   Object.keys(PAGES).forEach(function(k){const p=document.getElementById(PAGES[k][0]);if(p)p.style.display=(k===name)?'':'none';const n=document.getElementById(PAGES[k][1]);if(n)n.className='navlink'+(k===name?' active':'');});
   const want=PAGES[name][2];if(location.hash!==want)history.replaceState(null,'',location.pathname+want);
   if(name==='fb'&&window.isOwnerNow)loadFeedback();
-  if(name==='tre'&&window.isOwnerNow)loadTreasury();}
+  if(name==='tre'&&window.isOwnerNow){loadTreasury();loadSubscriptions();}}
 function route(){const h=location.hash;showPage(h==='#feedback'?'fb':h==='#treasury'?'tre':'ent');}
 async function loadTreasury(){
   const el=document.getElementById('trelist'),st=document.getElementById('trestat');if(!el)return;
@@ -337,6 +347,41 @@ async function loadTreasury(){
   const s=r.settlements||[];
   if(st)st.innerHTML='Gross collected: <b>'+esc(r.total||'0')+'</b> atomic units · <b>'+s.length+'</b> settlement'+(s.length===1?'':'s')+' (this edition)';
   el.innerHTML=s.length?s.map(x=>'<div class="req"><div><b>'+esc(x.amount||'?')+'</b> <span class="muted">'+esc(x.asset||'')+'</span> · <span class="fb-st" style="background:#475569;color:#fff">'+esc(x.lane||'settlement')+'</span> '+esc(x.reference||'')+'<div class="muted" style="font-size:11px">from <span class="mono">'+esc(String(x.payer||'').slice(0,18))+'…</span>'+(x.settlement_hash?' · tx <span class="mono">'+esc(String(x.settlement_hash).slice(0,12))+'…</span>':'')+' · '+esc((x.created_at||'').slice(0,16))+'</div></div></div>').join(''):'<p class="muted">No settlements yet. They appear here once pay-per-use is activated and readers pay to access the licensed edition.</p>';}
+// ── Subscriptions: list what's due + launch the owner collection ceremony ──
+// The due-list + balances are READ straight from the content service (a2a), owner-gated by the owner's
+// id_token (aud=demo-corpus, accepted). Collection itself runs in the HOME (it holds the credential).
+async function loadSubscriptions(){
+  const el=document.getElementById('sublist'),st=document.getElementById('substat');if(!el)return;
+  if(!window.isOwnerNow){el.innerHTML='<p class="muted">Only the corpus owner can view subscriptions.</p>';if(st)st.innerHTML='—';return;}
+  el.innerHTML='<p class="muted">loading…</p>';
+  const r=await tfetch(A2A_BASE+'/admin/subscriptions/due',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id_token:session.idToken,edition:editionOf()})},12000).then(x=>x.json()).catch(e=>({ok:false,error:String(e)}));
+  if(!r||!r.ok){el.innerHTML='<p style="color:#c0392b">'+esc((r&&r.error)||'failed')+'</p>';if(st)st.innerHTML='—';return;}
+  const due=r.due||[];
+  const btn=document.getElementById('chargeBtn');if(btn)btn.disabled=!due.length;
+  if(st)st.innerHTML='<b>'+due.length+'</b> subscription'+(due.length===1?'':'s')+' due for renewal'+(due.length?' — click <b>Charge due subscriptions</b> to bill them all in one signing.':' right now.');
+  el.innerHTML=due.length?due.map(function(d){return '<div class="req"><div><b>'+esc(d.tier_label||d.tier||'subscription')+'</b> <span class="muted">'+esc(String(d.subject||'').slice(0,24))+'…</span><div class="muted" style="font-size:11px">'+esc(String(d.reads_per_period||0))+' reads / period · '+(Number(d.amount_per_period||0)/1e6)+' USDC · due since '+esc(String(d.current_period_end||'').slice(0,10))+'</div></div></div>';}).join(''):'<p class="muted">No subscriptions are due right now.</p>';
+}
+// Charge due subscriptions: hand off to the HOME collection ceremony. The home recognizes the owner,
+// they authorize once, and it redeems every due mandate AS lbsb-treasury (owner credential, no held key),
+// then redirects back here with ?collect=1&collected=N. The owner id_token rides as collect_token so the
+// home can drive the owner-gated a2a calls.
+async function chargeDueSubscriptions(){
+  if(!window.isOwnerNow){alert('Connect as the corpus owner first.');return;}
+  const state=randB64(16),nonce=randB64(16),pk=await pkce();
+  sessionStorage.setItem('corp.collect',JSON.stringify({state}));
+  const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','subscription-collect');u.searchParams.set('collect_token',session.idToken);
+  location.href=u.toString();
+}
+// On return from the collection ceremony (?collect=1&collected=N), surface the result + refresh.
+function collectCallback(){
+  const p=new URLSearchParams(location.search);if(p.get('collect')!=='1')return false;
+  const collected=p.get('collected')||'0',attempted=p.get('attempted')||'0';
+  history.replaceState(null,'',location.pathname+'#treasury');
+  setTimeout(function(){alert('✓ Collected '+collected+' of '+attempted+' due subscription'+(attempted==='1'?'':'s')+'. The ledger + due list are refreshed.');},300);
+  return true;
+}
 window.addEventListener('hashchange',route);
-loadSession();renderPicker();connectCallback().then(()=>render()).then(route);
+loadSession();renderPicker();
+if(collectCallback()){render().then(function(){showPage('tre');loadSubscriptions();});}
+else{connectCallback().then(()=>render()).then(route);}
 </script></body></html>`;
