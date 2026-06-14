@@ -413,10 +413,37 @@ async function connectStart(name){const state=randB64(16),nonce=randB64(16),pk=a
 // x402-pay budget connect: the reader approves a SPEND BUDGET once — the home mints an x402-pay payment
 // delegation (payee = lbsb treasury, USDC, per-charge + session caps). Attached to the session as payDelegation.
 const LBSB_TREASURY='0xa9e0acecfbce08548358b4f5681b13a00a5cab7a',LBSB_USDC='0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C';
+// Buy access in a POPUP (seamless): the home opens in a small window, recognizes you via its 1-hour
+// ap_sso session (no fresh login — just one signature to authorize the CHARGE), posts the code back, and
+// closes. We stay on the Explorer. Popup blocked → full-redirect fallback (handled by connectCallback).
 async function connectStartPay(ed){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(session.name||'');
-  sessionStorage.setItem('sa.pending',JSON.stringify({state,nonce,verifier:pk.verifier,authOrigin,name:session.name||'',pay:1,ed:ed||'lbsb'}));
   const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',session.name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','x402-pay');
-  u.searchParams.set('pay_payee',LBSB_TREASURY);u.searchParams.set('pay_asset',LBSB_USDC);u.searchParams.set('pay_max_per_charge','1000');u.searchParams.set('pay_budget','100000');location.href=u.toString();}
+  const pend={state,nonce,verifier:pk.verifier,authOrigin,name:session.name||'',pay:1,ed:ed||'lbsb'};
+  const w=window.open(u.toString()+'&mode=popup','gc_pay','width=460,height=760,menubar=no,toolbar=no');
+  if(!w){sessionStorage.setItem('sa.pending',JSON.stringify(pend));location.href=u.toString();return;} // blocked → redirect
+  const homeOrigin=new URL(authOrigin).origin;
+  function onMsg(ev){if(ev.origin!==homeOrigin&&ev.origin!==location.origin)return;const d=ev.data||{};
+    if(d.type==='AC_SUCCESS'&&d.state===state){window.removeEventListener('message',onMsg);try{w.close();}catch(e){}exchangePayCode(pend,d.code);}
+    else if(d.type==='AC_CANCEL'){window.removeEventListener('message',onMsg);try{w.close();}catch(e){}}}
+  window.addEventListener('message',onMsg);
+}
+// Exchange the popup's auth code for the token (which carries the payment delegation + the in-ceremony
+// charge's settlementHash), then claim the read pass — same as the redirect path, but the page never left.
+async function exchangePayCode(pend,code){
+  try{
+    const base=pend.authOrigin.endsWith('/')?pend.authOrigin.slice(0,-1):pend.authOrigin;
+    const tr=await fetch(base+'/token',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({grant_type:'authorization_code',code:code,code_verifier:pend.verifier,client_id:CLIENT_ID,redirect_uri:location.origin+'/'})}).then(r=>r.json());
+    if(!tr.id_token)throw new Error(tr.error||'no id_token returned');
+    await verifyIdToken(pend.authOrigin,tr.id_token,pend.nonce);
+    const pd=tr.paymentDelegation||null;
+    if(session){session.payDelegation=pd;localStorage.setItem('sa.session',JSON.stringify(session));}
+    if(pd)await storePayDelegation(pd);
+    if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:session.idToken,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash});
+      if(cl&&cl.ok){toastPaid();if(typeof loadTreasury==='function')loadTreasury();}
+      else{alert('Charged, but the read pass could not be minted ('+((cl&&cl.error)||'verify failed')+'). Try reading again.');}}
+    hideLicenseGate();if(typeof applyHash==='function')applyHash();
+  }catch(e){alert('Buy access failed: '+(e&&e.message?e.message:e));}
+}
 function toastPaid(){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.textContent='✓ paid 0.001 USDC → lbsb treasury';el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},3500);}
 // VAULT-BACKED budget: read the reader's x402-pay budget delegation (delegator = their nameless TREASURY
 // SA) from THEIR vault — provisioned once by the home. The PERSON SA redeems it to pay (no per-mint).
@@ -516,6 +543,9 @@ function renderConnect(){const el=document.getElementById('connectBtn');if(!el)r
 function toggleAcctMenu(e){if(e){e.stopPropagation();}const p=document.getElementById('acctmenuPop');if(p)p.classList.toggle('open');}
 function closeAcctMenu(){const p=document.getElementById('acctmenuPop');if(p)p.classList.remove('open');}
 document.addEventListener('click',function(e){const p=document.getElementById('acctmenuPop');if(p&&p.classList.contains('open')&&!e.target.closest('.acctmenu'))p.classList.remove('open');});
+// Popup relay (spec 257): if the Buy-access popup lost its opener to COOP, the home redirects it HERE with
+// ?ac_relay=1&code&state. We're that popup → hand the code to our opener (the main Explorer) and close.
+(function(){try{var rp=new URLSearchParams(location.search);if(rp.get('ac_relay')==='1'&&rp.get('code')&&window.opener){window.opener.postMessage({type:'AC_SUCCESS',code:rp.get('code'),state:rp.get('state')},location.origin);window.close();}}catch(e){}})();
 loadSession();renderConnect();updateSrcUI();connectCallback().then(ok=>{if(ok){renderConnect();if(activeEdition!=='bsb')applyHash();}});
 
 // ── Home gateway ──
