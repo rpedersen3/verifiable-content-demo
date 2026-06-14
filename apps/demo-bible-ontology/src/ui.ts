@@ -20,6 +20,12 @@ export const UI = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 .licbar button{background:#f0a020;color:#1a1206;border:0;border-radius:7px;padding:6px 13px;font-weight:600;cursor:pointer;margin-left:6px}
 .licbar .lic-x{background:transparent;color:#ffe8c2;border:1px solid #6b5a3a}
 .licacts{flex-shrink:0;white-space:nowrap}
+.licbar.licok{background:#0f3d24;color:#c9f5dd}
+.licbar.licok button{background:#1f9d57;color:#04140b}
+.licbar.licok .lic-x{background:transparent;color:#c9f5dd;border:1px solid #2f6b48}
+.licbar.licpulse{animation:licpulse .5s ease}
+@keyframes licpulse{0%{box-shadow:0 -2px 12px rgba(0,0,0,.25)}35%{box-shadow:0 0 0 3px rgba(47,157,87,.55),0 -2px 18px rgba(31,157,87,.5)}100%{box-shadow:0 -2px 12px rgba(0,0,0,.25)}}
+.licbar button .tiermeta{display:block;font-weight:500;font-size:10px;opacity:.85;margin-top:1px}
 nav{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--line)}
 nav button{background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:7px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:background .1s,color .1s,border-color .1s}
 nav button:hover{background:#eef2fb;color:var(--accent);border-color:#d0dbf5}
@@ -266,8 +272,24 @@ async function api(p){
   // No SIWE-only auto-pay, no wallet popup here, no per-custodian branch.
   let j={};try{j=await r.json();}catch(e){}
   if((r.status===401||r.status===402||r.status===403)&&j&&j.gated){licenseGate(j);}
-  else if(activeEdition!=='bsb'&&r.ok){hideLicenseGate();}
+  else if(activeEdition!=='bsb'&&r.ok){accessBar(r.headers.get('X-Lbsb-Access'),r.headers.get('X-Lbsb-Remaining'));}
   return j;
+}
+// Visual reinforcement on EVERY licensed read: a green bar shows access was accounted for — via a free
+// GRANT, your PREPAID pass (+ reads left), or a fresh PAYMENT — and PULSES on each read so you see it react.
+let __accSig='';
+function accessBar(via,rem){
+  if(activeEdition==='bsb'||!via){hideLicenseGate();return;}
+  let el=document.getElementById('licbar');
+  if(!el){el=document.createElement('div');el.id='licbar';el.className='licbar';document.body.appendChild(el);}
+  const ed=activeEdition.toUpperCase();
+  const label=via==='grant'?'a free <b>grant</b> (your entitlement)':(via==='prepaid'?'your <b>prepaid pass</b>'+(rem?' · <b>'+esc(rem)+'</b> read'+(rem==='1'?'':'s')+' left':''):'a <b>fresh payment</b>');
+  el.className='licbar licok';
+  el.innerHTML='<span>🔓 <b>'+esc(ed)+'</b> access accounted for — via '+label+'.</span> <span class="licacts"><button onclick="buyLbsbAccess(\\''+esc(activeEdition)+'\\')">Top up</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Public BSB</button></span>';
+  el.style.display='flex';
+  el.classList.remove('licpulse');void el.offsetWidth;el.classList.add('licpulse'); // pulse on each read
+  const sig=via+'|'+(rem||'');if(sig!==__accSig&&via==='prepaid'&&rem){toastPaidMsg('🔓 access · '+esc(rem)+' read'+(rem==='1'?'':'s')+' left on your pass');}
+  __accSig=sig;
 }
 function updateSrcUI(){const s=document.getElementById('srcSel');if(s)s.value=activeEdition;}
 function selectSource(ed){activeEdition=ed;localStorage.setItem('bx.edition',ed);updateSrcUI();
@@ -277,13 +299,15 @@ function hideLicenseGate(){const el=document.getElementById('licbar');if(el)el.s
 // x402 pay-per-use (Phase 4). INERT until the lbsb treasury + PaymentEnforcer + fee asset are
 // configured; then this approves a spend budget (x402-pay delegation) and buys a prepaid pass / pays
 // per access (reader agent wallet → lbsb treasury), auto-paying on a 402 with no per-call popup.
-async function buyLbsbAccess(ed){
+// Buy a pass (pay-as-you-go OR a subscription tier). ONE path for EVERY custodian (wallet / passkey /
+// social): the home charges the chosen amount from your person-treasury → lbsb treasury, signed ONCE by
+// your sign-in credential, and grants a pass sized to what you paid. No wallet popup here, no fallback.
+async function buyLbsbAccess(ed,tierId){
   if(!requireConnect('buy '+ed+' access'))return;
-  // ONE path for EVERY custodian (wallet / passkey / social): your Global.Church home charges the fee from
-  // your person-treasury → lbsb treasury, signed ONCE by your sign-in credential, and grants a multi-read
-  // pass. No wallet popup in this app, no per-custodian branch, no fallback.
-  if(!confirm('Buy access to '+ed.toUpperCase()+'?\\n\\nYour home will charge a small fee from your person-treasury to the lbsb treasury — authorized once by your sign-in credential (wallet, passkey, or social) — and grant you a multi-read pass.'))return;
-  connectStartPay(ed);
+  const tier=lbsbTier(tierId);
+  const what=tier.kind==='subscription'?('the '+tier.label+' subscription — '+tier.reads+' reads for '+tier.usdc+' USDC'):('pay-as-you-go — '+tier.reads+' reads for '+tier.usdc+' USDC');
+  if(!confirm('Buy '+what+'?\\n\\nYour home charges '+tier.usdc+' USDC from your person-treasury to the lbsb treasury, authorized once by your sign-in credential (wallet, passkey, or social), and grants a '+tier.reads+'-read pass.'))return;
+  connectStartPay(ed,tier.id);
 }
 function licenseGate(info){
   let el=document.getElementById('licbar');
@@ -292,8 +316,10 @@ function licenseGate(info){
   if(info.reason==='sign-in required'||!isConnected()){
     el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> is a licensed Bible — connect to request access. Every query is verified against your entitlement.</span> <span class="licacts"><button onclick="promptConnect()">Connect</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Use public BSB</button></span>';
   }else{
-    const pay=info.reason==='payment required';
-    el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> '+(pay?'is <b>pay-per-use</b> — your agent wallet pays a small fee per access to the lbsb treasury.':'needs access ('+esc(info.reason||'no entitlement')+'). Three ways in: a free owner <b>grant</b>, a prepaid <b>pass</b>, or <b>pay-per-access</b> (x402).')+'</span> <span class="licacts"><button onclick="accRequest(\\''+esc(ed)+'\\')">Request grant</button> <button onclick="buyLbsbAccess(\\''+esc(ed)+'\\')">Buy access</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Use public BSB</button></span>';
+    // Two-option chooser: pay-as-you-go OR a subscription tier (bigger pass, volume discount) — plus a
+    // free owner grant. One credential prompt charges the chosen amount; the pass is sized to what you pay.
+    const tierBtns=LBSB_TIERS.map(t=>'<button onclick="buyLbsbAccess(\\''+esc(ed)+'\\',\\''+t.id+'\\')" title="'+t.reads+' reads for '+t.usdc+' USDC">'+(t.kind==='subscription'?'⭐ ':'💳 ')+esc(t.label)+'<span class="tiermeta">'+t.reads+' reads · '+t.usdc+'</span></button>').join('');
+    el.innerHTML='<span>🔒 <b>'+esc(ed.toUpperCase())+'</b> '+(info.reason==='payment required'?'is <b>pay-per-use</b>.':'needs access.')+' Pick <b>pay-as-you-go</b> or a <b>subscription</b> — one credential prompt charges your person-treasury → lbsb treasury.</span> <span class="licacts">'+tierBtns+' <button onclick="accRequest(\\''+esc(ed)+'\\')">Request grant</button> <button class="lic-x" onclick="selectSource(\\'bsb\\')">Public BSB</button></span>';
   }
   el.style.display='flex';
 }
@@ -413,12 +439,20 @@ async function connectStart(name){const state=randB64(16),nonce=randB64(16),pk=a
 // x402-pay budget connect: the reader approves a SPEND BUDGET once — the home mints an x402-pay payment
 // delegation (payee = lbsb treasury, USDC, per-charge + session caps). Attached to the session as payDelegation.
 const LBSB_TREASURY='0xa9e0acecfbce08548358b4f5681b13a00a5cab7a',LBSB_USDC='0x8fb56ff3C13347DFC4E1287aE83E88deE5a7211C';
+// Two options, one mechanism (must mirror the a2a LBSB_TIERS): pay-as-you-go = a tiny pass; the
+// subscription tiers = bigger passes at a volume discount. amount = atomic 6-dp mock USDC.
+const LBSB_TIERS=[
+  {id:'payg', label:'Pay-as-you-go', kind:'payg',         reads:5,   amount:'1000',  usdc:'0.001'},
+  {id:'basic',label:'Basic',         kind:'subscription', reads:50,  amount:'8000',  usdc:'0.008'},
+  {id:'plus', label:'Plus',          kind:'subscription', reads:500, amount:'60000', usdc:'0.06'}
+];
+const lbsbTier=(id)=>LBSB_TIERS.find(t=>t.id===id)||LBSB_TIERS[0];
 // Buy access in a POPUP (seamless): the home opens in a small window, recognizes you via its 1-hour
 // ap_sso session (no fresh login — just one signature to authorize the CHARGE), posts the code back, and
 // closes. We stay on the Explorer. Popup blocked → full-redirect fallback (handled by connectCallback).
-async function connectStartPay(ed){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(session.name||'');
-  const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',session.name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','x402-pay');
-  const pend={state,nonce,verifier:pk.verifier,authOrigin,name:session.name||'',pay:1,ed:ed||'lbsb'};
+async function connectStartPay(ed,tierId){const state=randB64(16),nonce=randB64(16),pk=await pkce(),authOrigin=authOriginFor(session.name||'');const tier=lbsbTier(tierId);
+  const u=new URL('/',authOrigin);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name',session.name||'');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','x402-pay');u.searchParams.set('pay_amount',tier.amount);
+  const pend={state,nonce,verifier:pk.verifier,authOrigin,name:session.name||'',pay:1,ed:ed||'lbsb',tier:tier.id};
   const w=window.open(u.toString()+'&mode=popup','gc_pay','width=460,height=760,menubar=no,toolbar=no');
   if(!w){sessionStorage.setItem('sa.pending',JSON.stringify(pend));location.href=u.toString();return;} // blocked → redirect
   const homeOrigin=new URL(authOrigin).origin;
@@ -439,12 +473,13 @@ async function exchangePayCode(pend,code){
     if(session){session.payDelegation=pd;localStorage.setItem('sa.session',JSON.stringify(session));}
     if(pd)await storePayDelegation(pd);
     if(tr.settlementHash){const cl=await a2aPost('/pay/claim',{id_token:session.idToken,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash});
-      if(cl&&cl.ok){toastPaid();if(typeof loadTreasury==='function')loadTreasury();}
+      if(cl&&cl.ok){toastPaidMsg('✓ paid '+(Number(cl.amount||0)/1e6)+' USDC · '+esc(cl.tierLabel||'access')+' · '+(cl.passUses||0)+'-read pass');if(typeof loadTreasury==='function')loadTreasury();}
       else{alert('Charged, but the read pass could not be minted ('+((cl&&cl.error)||'verify failed')+'). Try reading again.');}}
     hideLicenseGate();if(typeof applyHash==='function')applyHash();
   }catch(e){alert('Buy access failed: '+(e&&e.message?e.message:e));}
 }
-function toastPaid(){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.textContent='✓ paid 0.001 USDC → lbsb treasury';el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},3500);}
+function toastPaidMsg(msg){let el=document.getElementById('paytoast');if(!el){el=document.createElement('div');el.id='paytoast';el.style.cssText='position:fixed;right:16px;bottom:16px;background:#136c3a;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.25)';document.body.appendChild(el);}el.innerHTML=msg;el.style.display='block';setTimeout(function(){if(el)el.style.display='none';},4000);}
+function toastPaid(){toastPaidMsg('✓ paid · access added');}
 // VAULT-BACKED budget: read the reader's x402-pay budget delegation (delegator = their nameless TREASURY
 // SA) from THEIR vault — provisioned once by the home. The PERSON SA redeems it to pay (no per-mint).
 async function loadPayBudget(){
@@ -512,7 +547,7 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
       if(tr.settlementHash){
         try{
           const cl=await a2aPost('/pay/claim',{id_token:session.idToken,edition:pend.ed||'lbsb',settlementHash:tr.settlementHash});
-          if(cl&&cl.ok){toastPaid();if(typeof loadTreasury==='function')loadTreasury();}
+          if(cl&&cl.ok){toastPaidMsg('✓ paid '+(Number(cl.amount||0)/1e6)+' USDC · '+esc(cl.tierLabel||'access')+' · '+(cl.passUses||0)+'-read pass');if(typeof loadTreasury==='function')loadTreasury();}
         }catch(e){}
       }
       sessionStorage.removeItem('sa.pending');hideLicenseGate();if(typeof applyHash==='function')applyHash();return true;
@@ -546,7 +581,10 @@ document.addEventListener('click',function(e){const p=document.getElementById('a
 // Popup relay (spec 257): if the Buy-access popup lost its opener to COOP, the home redirects it HERE with
 // ?ac_relay=1&code&state. We're that popup → hand the code to our opener (the main Explorer) and close.
 (function(){try{var rp=new URLSearchParams(location.search);if(rp.get('ac_relay')==='1'&&rp.get('code')&&window.opener){window.opener.postMessage({type:'AC_SUCCESS',code:rp.get('code'),state:rp.get('state')},location.origin);window.close();}}catch(e){}})();
-loadSession();renderConnect();updateSrcUI();connectCallback().then(ok=>{if(ok){renderConnect();if(activeEdition!=='bsb')applyHash();}});
+// Single render path: when returning from a connect/Buy-access redirect (?code), DON'T paint gated
+// content until connectCallback finishes (it exchanges the code + claims the pass) — otherwise the reads
+// race the async claim and flash 402s. Normal load: connectCallback resolves immediately → render now.
+loadSession();renderConnect();updateSrcUI();connectCallback().then(ok=>{if(ok)renderConnect();applyHash();});
 
 // ── Home gateway ──
 const SVG_MAP='<svg viewBox="0 0 200 92" preserveAspectRatio="xMidYMid slice"><rect width="200" height="92" fill="#e9eef6"/><path d="M30 8 Q60 28 52 58 T78 90" stroke="#a9bdda" fill="none" stroke-width="2"/><path d="M128 4 Q116 40 138 72" stroke="#a9bdda" fill="none" stroke-width="2"/>'+[[55,30],[72,55],[100,40],[128,24],[145,60],[92,74],[44,18]].map(p=>'<circle cx="'+p[0]+'" cy="'+p[1]+'" r="4" fill="#2f6df0"/>').join('')+'</svg>';
@@ -1379,5 +1417,7 @@ async function valFilter(a){
    d.terms.map(t=>'<tr><td class="mono">'+esc(t.curie)+'</td><td>'+esc(t.label)+'</td><td class="mono muted">'+esc(t.parent||'')+'</td><td class="muted">'+esc((t.comment||'').slice(0,120))+'</td></tr>').join('')+'</table></div>';
   document.getElementById('vterms').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
-applyHash();
+// Initial paint — but NOT while a connect/Buy-access redirect is being processed (?code present); in that
+// case connectCallback() does the single render after it claims the pass, so gated reads don't flash 402.
+if(typeof location==='undefined'||!new URLSearchParams(location.search).get('code'))applyHash();
 </script></body></html>`;

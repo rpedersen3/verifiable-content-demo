@@ -569,9 +569,10 @@ app.post('/tools/verify_access', async (c) => {
   // Lane 1 — GRANT: an owner-issued entitlement (the demo-corpus approval flow).
   const led = await c.env.DB.prepare("SELECT status, valid_until FROM entitlements_issued WHERE subject=? AND edition=? AND status='granted' ORDER BY id DESC LIMIT 1").bind(b.subject, edition).first<{ status: string; valid_until: string | null }>();
   if (led && (!led.valid_until || new Date(led.valid_until).getTime() >= Date.now())) return c.json({ ok: true, allowed: true, edition, policy: 'licensed', via: 'grant' });
-  // Lane 2 — PREPAID: an active, unexpired prepaid pass with reads remaining (x402 'entitlement' lane).
-  const pre = await c.env.DB.prepare("SELECT id FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?) LIMIT 1").bind(b.subject, edition, new Date().toISOString()).first();
-  if (pre) return c.json({ ok: true, allowed: true, edition, policy: 'licensed', via: 'prepaid' });
+  // Lane 2 — PREPAID: active, unexpired prepaid pass(es) with reads remaining (x402 'entitlement' lane).
+  // Return the TOTAL remaining reads across active passes, so the Explorer can show "N reads left".
+  const pre = await c.env.DB.prepare("SELECT COALESCE(SUM(max_uses - used),0) AS remaining FROM prepaid_entitlements WHERE subject=? AND edition=? AND status='active' AND used < max_uses AND (valid_until IS NULL OR valid_until > ?)").bind(b.subject, edition, new Date().toISOString()).first<{ remaining: number }>();
+  if (pre && pre.remaining > 0) return c.json({ ok: true, allowed: true, edition, policy: 'licensed', via: 'prepaid', remaining: pre.remaining });
   // Neither — the caller (lbsb A2A gate) decides: 402 settlement (x402) or 403.
   return c.json({ ok: true, allowed: false, edition, policy, reason: 'no entitlement or prepaid balance' });
 });

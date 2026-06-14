@@ -30,7 +30,7 @@ interface Env {
 }
 
 const app = new Hono<{ Bindings: Env }>();
-app.use('*', cors());
+app.use('*', cors({ exposeHeaders: ['X-Lbsb-Access', 'X-Lbsb-Remaining'] }));
 
 // In production the a2a reaches the mcp via a SERVICE BINDING (env.MCP) — a
 // Worker cannot fetch another Worker on the same account by public URL (CF error
@@ -176,6 +176,13 @@ app.get('/vault/*', async (c) => {
       await mcpPost(c.env, '/tools/record_settlement', { edition, payer: charged.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: charged.amount, mandateId: charged.mandateId, settlementHash: charged.settlementHash, lane: 'settlement', reference: c.req.path });
       await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject, maxUses: charged.passUses, validUntil: new Date(Date.now() + charged.passTtl * 1000).toISOString(), settlementHash: charged.settlementHash });
     }
+    // Surface HOW access was accounted for, so the Explorer can show a per-read status (visual
+    // reinforcement). 'grant' = free entitlement; 'prepaid' = a paid pass (+ reads remaining); 'paid' =
+    // just settled. CORS-exposed below.
+    const allowedVia = (acc.body && (acc.body as { allowed?: boolean }).allowed) ? String((acc.body as { via?: string }).via || 'grant') : 'paid';
+    c.header('X-Lbsb-Access', allowedVia);
+    const rem = acc.body && (acc.body as { remaining?: number }).remaining;
+    if (rem != null) c.header('X-Lbsb-Remaining', String(rem));
   }
   const sub = c.req.path.replace(/^\/vault/, '');
   // Forward the active edition so the ontology can scope signals/scores to the corpus (per-edition).
@@ -189,10 +196,20 @@ app.get('/vault/*', async (c) => {
 //  SAME way: the home connect ceremony builds + signs + submits the redemption (chargePayment), and the
 //  app just verifies the resulting settlementHash via /pay/claim. No SIWE-only path.)
 
-// pay/claim — the home's connect ceremony charged the FIRST x402 payment (all-custodian, via chargePayment)
-// and returned a settlementHash. Verify it on-chain (keyless) + mint the access pass for the reader. This
-// is how the ceremony charge turns into reads, for SIWE/passkey/social alike (the charge was signed by the
-// reader's own credential at the home — no held key here, just an RPC confirm + the pass).
+// Two payment options, ONE mechanism: every option is a prepaid PASS the reader buys via the home
+// ceremony — they differ only in size + price-per-read. Pay-as-you-go is a tiny pass; the subscription
+// tiers are bigger passes at a volume discount (a "period" of access). Atomic units, 6-dp mock USDC.
+const LBSB_TIERS = [
+  { id: 'payg',  label: 'Pay-as-you-go', kind: 'payg',         reads: 5,   amount: '1000',  ttlSeconds: 3600 },     // 0.001 USDC → 5 reads
+  { id: 'basic', label: 'Basic',         kind: 'subscription', reads: 50,  amount: '8000',  ttlSeconds: 2592000 },  // 0.008 → 50 reads (20% off)
+  { id: 'plus',  label: 'Plus',          kind: 'subscription', reads: 500, amount: '60000', ttlSeconds: 2592000 },  // 0.06  → 500 reads (40% off)
+];
+app.get('/pay/tiers', (c) => c.json({ ok: true, tiers: LBSB_TIERS, asset: (c.env as unknown as { PAY_ASSET?: string }).PAY_ASSET ?? null }));
+
+// pay/claim — the home's connect ceremony charged an x402 payment (all-custodian, via chargePayment) and
+// returned a settlementHash. Verify on-chain (keyless) + mint the access pass. The pass SIZE is the best
+// tier the payment actually covers (amount-based — you get what you paid for; the tier the UI requested is
+// only a hint). For SIWE/passkey/social alike — the charge was signed by the reader's own credential.
 app.post('/pay/claim', async (c) => {
   const b = await c.req.json<{ id_token?: string; edition?: string; settlementHash?: string }>().catch(() => ({}) as Record<string, never>);
   try {
@@ -205,9 +222,11 @@ app.post('/pay/claim', async (c) => {
     if (!verified) return c.json({ ok: false, error: 'settlement not verified on-chain' }, 402);
     const dup = await mcpPost(c.env, '/tools/check_settlement', { settlementHash: verified.settlementHash });
     if (dup.body && (dup.body as { seen?: boolean }).seen) return c.json({ ok: true, alreadyClaimed: true, edition, subject: sub });
-    await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: 'settlement', reference: '/pay/claim' });
-    await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: sub, maxUses: verified.passUses, validUntil: new Date(Date.now() + verified.passTtl * 1000).toISOString(), settlementHash: verified.settlementHash });
-    return c.json({ ok: true, edition, subject: sub, amount: verified.amount, passUses: verified.passUses, settlementHash: verified.settlementHash });
+    // Grant the BEST tier the on-chain amount covers (largest amount ≤ paid). Defaults to payg.
+    const tier = [...LBSB_TIERS].sort((x, y) => (BigInt(y.amount) > BigInt(x.amount) ? 1 : -1)).find((t) => BigInt(verified.amount) >= BigInt(t.amount)) ?? LBSB_TIERS[0]!;
+    await mcpPost(c.env, '/tools/record_settlement', { edition, payer: verified.payer, payee: env.PAY_TREASURY_SA, asset: env.PAY_ASSET, amount: verified.amount, settlementHash: verified.settlementHash, lane: tier.kind === 'subscription' ? 'subscription' : 'settlement', reference: '/pay/claim' });
+    await mcpPost(c.env, '/tools/mint_prepaid', { edition, subject: sub, maxUses: tier.reads, validUntil: new Date(Date.now() + tier.ttlSeconds * 1000).toISOString(), settlementHash: verified.settlementHash });
+    return c.json({ ok: true, edition, subject: sub, amount: verified.amount, tier: tier.id, tierLabel: tier.label, passUses: tier.reads, settlementHash: verified.settlementHash });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
