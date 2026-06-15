@@ -30,7 +30,7 @@ const VC_CONTEXTS = [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT];
 import { getCorpora, inclusionProof, EDITIONS, type BuiltCorpus } from './editions/registry.js';
 import { loadD1Corpus, findD1Verse, findD1RangeByLeaf, leafIndexFor, chapterBounds, d1InclusionProof, type D1Like } from './editions/d1.js';
 import { verifySignedEntitlement } from './lib/trust.js';
-import { resolveTrust, type McpEnv, type TrustContext } from './lib/trust-context.js';
+import { resolveTrust, resolveContentSignerKeys, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
@@ -160,7 +160,7 @@ app.get('/health', async (c) => {
 // list_editions — public edition registry.
 app.get('/mcp/editions', async (c) => {
   const trust = await resolveTrust(c.env);
-  const corpora = await getCorpora(trust);
+  const corpora = await getCorpora(trust.signerForEdition, trust.cacheKey);
   const editions = EDITIONS.map((e) => {
     const b = corpora.get(e.edition)!;
     return {
@@ -191,7 +191,7 @@ app.get('/corpus/:edition', async (c) => {
     return c.json({ ok: true, edition, corpusRef: d1.corpusRef, corpusRoot: d1.corpusRoot, leafCount: d1.leafCount, commitments: [] });
   }
   const trust = await resolveTrust(c.env);
-  const corpus = (await getCorpora(trust)).get(edition);
+  const corpus = (await getCorpora(trust.signerForEdition, trust.cacheKey)).get(edition);
   if (!corpus) return c.json({ ok: false, error: 'unknown edition' }, 404);
   const rows = [...corpus.byCanonicalId.values()].sort((a, b) => a.leafIndex - b.leafIndex);
   return c.json({
@@ -237,7 +237,7 @@ app.post('/tools/resolve', async (c) => {
       rowByDescId.set(r.descriptor.id, { corpusRef: d1.corpusRef, corpusRoot: d1.corpusRoot, leafIndex: r.leafIndex, inclusion: () => d1InclusionProof(d1, r.leafIndex), issuerName: 'bsb.impact' });
     }
   }
-  for (const corpus of (await getCorpora(trust)).values()) {
+  for (const corpus of (await getCorpora(trust.signerForEdition, trust.cacheKey)).values()) {
     if (d1 && corpus.entry.edition === 'bsb') continue; // bsb served from D1
     const row = findRow(corpus, parsed.reference.id);
     if (row) {
@@ -264,7 +264,7 @@ app.post('/tools/resolve', async (c) => {
       }
       const incl = where.inclusion();
       const verification = cand.admitted
-        ? await verifyContentDescriptor(cand.descriptor, { verifySignature: trust.verifySignature, corpusRoot, inclusionProof: incl })
+        ? await verifyContentDescriptor(cand.descriptor, { verifySignature: trust.verifySignature, verifyDelegatedAuthority: trust.verifyDelegatedAuthority, corpusRoot, inclusionProof: incl })
         : undefined;
       return {
         descriptorId: cand.descriptor.id,
@@ -415,7 +415,7 @@ app.post('/tools/get_passage_text', async (c) => {
     audit('content.text.access', 'success', parsed.reference.alias ?? body.reference, { edition: 'bsb', commitmentOk });
     return c.json({ ok: true, text: r.text, commitment: r.descriptor.commitment, commitmentOk, descriptor: r.descriptor, accessPolicy: 'public' });
   }
-  const corpus = (await getCorpora(trust)).get(body.edition);
+  const corpus = (await getCorpora(trust.signerForEdition, trust.cacheKey)).get(body.edition);
   if (!corpus) return c.json({ ok: false, error: `unknown edition: ${body.edition}` }, 404);
   let row = findRow(corpus, parsed.reference.id);
   // lbsb is the SAME BSB source under a licensed policy — its embedded corpus is only a small SAMPLE, but
@@ -444,7 +444,7 @@ app.post('/tools/get_passage_text', async (c) => {
   if (accessPolicy !== 'public') {
     let grantOk = false;
     if (body.entitlement) {
-      const sig = await verifySignedEntitlement(body.entitlement, corpus.manifest.issuer, trust.verifySignature);
+      const sig = await verifySignedEntitlement(body.entitlement, corpus.manifest.issuer, trust.verifySignature, trust.verifyDelegatedAuthority);
       if (!sig.ok) { // a presented VC that doesn't verify is forgery — hard fail, never fall through
         audit('content.entitlement.verify', 'denied', parsed.reference.alias ?? body.reference, { edition: body.edition, reason: sig.reason ?? 'bad signature' });
         return c.json({ ok: false, error: 'entitlement signature invalid', detail: sig, accessPolicy }, 403);
@@ -516,7 +516,7 @@ app.post('/tools/issue_entitlement', async (c) => {
     .catch(() => ({}) as { edition?: string; subject?: string; ttlSeconds?: number; requestId?: number; issuedBySub?: string });
   if (!body.edition) return c.json({ ok: false, error: 'edition required' }, 400);
   const trust = await resolveTrust(c.env);
-  const corpus = (await getCorpora(trust)).get(body.edition);
+  const corpus = (await getCorpora(trust.signerForEdition, trust.cacheKey)).get(body.edition);
   if (!corpus) return c.json({ ok: false, error: `unknown edition: ${body.edition}` }, 404);
   if (corpus.manifest.accessPolicy === 'public') {
     return c.json({ ok: false, error: 'public edition needs no entitlement' }, 400);
@@ -524,17 +524,19 @@ app.post('/tools/issue_entitlement', async (c) => {
 
   const subject = body.subject ?? 'urn:scripture:reader';
   const nowMs = Date.now();
+  // Sign the grant as the EDITION's own issuer (e.g. lbsb grants under lbsb.impact), via its KMS delegate.
+  const { signer: edSigner, delegatingSigner: edDeleg } = trust.credentialSignerForEdition(body.edition!);
   const unsigned: UnsignedCredential<{ id: string; corpusRef: `0x${string}`; accessPolicy: string }> = {
     '@context': VC_CONTEXTS,
     type: ['VerifiableCredential', 'Entitlement'],
     // The verifier requires a CAIP-10 eip155 issuer matching the signer (not a did:) — else the
     // structural check rejects it before the signature is even verified.
-    issuer: `eip155:${trust.credentialSigner.chainId}:${trust.credentialSigner.issuerAddress}`,
+    issuer: `eip155:${edSigner.chainId}:${edSigner.issuerAddress}`,
     validFrom: new Date(nowMs - 60_000).toISOString(),
     validUntil: new Date(nowMs + (body.ttlSeconds ?? 31_536_000) * 1000).toISOString(),
     credentialSubject: { id: subject, corpusRef: corpus.manifest.corpusRef, accessPolicy: corpus.manifest.accessPolicy },
   };
-  const entitlement = await signCredential(unsigned, trust.credentialSigner);
+  const entitlement = await signCredential(unsigned, edSigner, { delegatingSigner: edDeleg });
   // Issuer revocation + audit ledger (the CANONICAL held copy is the VC in the reader's vault).
   if (c.env.DB) {
     const now = new Date(nowMs).toISOString();
@@ -796,6 +798,36 @@ app.post('/tools/list_due_subscriptions', async (c) => {
   return c.json({ ok: true, edition, due });
 });
 
+// ── Per-edition content-signer delegations (delegated trust mode) ──
+// content_signer_keys — the per-issuer Cloud-KMS key ADDRESS each issuer must authorize. Drives the
+// demo-corpus "Authorize content signing" ceremony (owner signs issuer SA → this delegate key). No secrets.
+app.post('/tools/content_signer_keys', async (c) => {
+  try {
+    const keys = await resolveContentSignerKeys(c.env as unknown as McpEnv);
+    return c.json({ ok: true, signers: keys });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 503); }
+});
+
+// store_content_signer — persist the owner-signed delegation (issuer SA → its KMS key) so the MCP can sign
+// + verify per-edition content under the right issuer. Replaces any prior leaf for the issuer (rotation).
+app.post('/tools/store_content_signer', async (c) => {
+  const b = await c.req.json<{ issuerName?: string; issuerSa?: string; delegateKey?: string; delegationLeaf?: unknown }>().catch(() => ({}) as Record<string, never>);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  if (!b.issuerName || !b.issuerSa || !b.delegateKey || !b.delegationLeaf) return c.json({ ok: false, error: 'issuerName, issuerSa, delegateKey, delegationLeaf required' }, 400);
+  const now = new Date().toISOString();
+  await c.env.DB.prepare('INSERT INTO content_signers(issuer_name,issuer_sa,delegate_key,delegation_leaf,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(issuer_name) DO UPDATE SET issuer_sa=excluded.issuer_sa, delegate_key=excluded.delegate_key, delegation_leaf=excluded.delegation_leaf, updated_at=excluded.updated_at')
+    .bind(b.issuerName, b.issuerSa, b.delegateKey, JSON.stringify(b.delegationLeaf), now, now).run();
+  audit('content.signer.authorize', 'success', b.issuerName, { issuerSa: b.issuerSa, delegateKey: b.delegateKey });
+  return c.json({ ok: true });
+});
+
+// list_content_signers — the authorized per-issuer content signers (for the owner UI). No secrets.
+app.post('/tools/list_content_signers', async (c) => {
+  if (!c.env.DB) return c.json({ ok: true, signers: [] });
+  const rows = (await c.env.DB.prepare('SELECT issuer_name, issuer_sa, delegate_key, updated_at FROM content_signers ORDER BY issuer_name').all()).results;
+  return c.json({ ok: true, signers: rows });
+});
+
 // subject_treasury — resolve the person-treasury SA a reader has paid FROM for an edition (so the Access
 // view can show "your treasury 0x… · N USDC" instead of a stale "create one" prompt). Prefers an active
 // subscription's payer, else the payer of the reader's latest prepaid settlement. null ⇒ never paid here.
@@ -921,7 +953,7 @@ app.post('/tools/verify_citation', async (c) => {
   } catch (e) {
     return c.json({ ok: false, error: (e as Error).message }, 400);
   }
-  const corpus = (await getCorpora(await resolveTrust(c.env))).get(body.edition);
+  const corpus = (await (async()=>{const t=await resolveTrust(c.env);return getCorpora(t.signerForEdition,t.cacheKey);})()).get(body.edition);
   const row = corpus && findRow(corpus, parsed.reference.id);
   if (!row) return c.json({ ok: false, error: 'not found' }, 404);
   const expected = row.descriptor.commitment?.value ?? '';
@@ -979,14 +1011,15 @@ app.post('/tools/get_trust_signals', async (c) => {
   const actions = ((d.signals as Record<string, unknown>[] | undefined) ?? []).map((s) => ({ polarity: s.polarity, basis: s.basis, verse: s.osis }));
   const trust = await resolveTrust(c.env);
   const nowMs = Date.now();
+  const { signer: tpSigner, delegatingSigner: tpDeleg } = trust.credentialSignerForEdition('bsb');
   const unsigned: UnsignedCredential<{ id: string; label: string; dimensions: unknown[]; actions: unknown[] }> = {
     '@context': VC_CONTEXTS,
     type: ['VerifiableCredential', 'TrustProfileCredential'],
-    issuer: `eip155:${trust.credentialSigner.chainId}:${trust.credentialSigner.issuerAddress}`,
+    issuer: `eip155:${tpSigner.chainId}:${tpSigner.issuerAddress}`,
     validFrom: new Date(nowMs - 60_000).toISOString(),
     credentialSubject: { id, label: String(n.label ?? ''), dimensions, actions },
   };
-  const credential = await signCredential(unsigned, trust.credentialSigner);
+  const credential = await signCredential(unsigned, tpSigner, { delegatingSigner: tpDeleg });
   audit('vault.get_trust_signals', 'success', id, { label: String(n.label ?? ''), dimensions: dimensions.length, actions: actions.length });
   return c.json({ ok: true, entity: { id, label: n.label, kind: n.kind }, dimensions, actions, credential });
 });
@@ -1016,14 +1049,15 @@ app.post('/tools/submit_feedback', async (c) => {
     proposedCorrection: { action: b.proposedCorrection?.action ?? null, note: b.proposedCorrection?.note ?? null },
     author: { agentId: b.author.agentId, name: b.author.name ?? '' },
   };
+  const { signer: fbSigner, delegatingSigner: fbDeleg } = trust.credentialSignerForEdition('bsb');
   const unsigned: UnsignedCredential<typeof subject> = {
     '@context': VC_CONTEXTS,
     type: ['VerifiableCredential', 'TrustSignalFeedback'],
-    issuer: `eip155:${trust.credentialSigner.chainId}:${trust.credentialSigner.issuerAddress}`,
+    issuer: `eip155:${fbSigner.chainId}:${fbSigner.issuerAddress}`,
     validFrom: new Date(nowMs - 60_000).toISOString(),
     credentialSubject: subject,
   };
-  const assertion = await signCredential(unsigned, trust.credentialSigner);
+  const assertion = await signCredential(unsigned, fbSigner, { delegatingSigner: fbDeleg });
   // Persist into the ontology's public feedback thread (with the structured fields + signed assertion).
   await ontPost(c.env, '/api/feedback', {
     subject_id: t.entityId, subject_label: t.entityLabel ?? '', sig_kind: t.signalKind ?? '', basis: t.basis ?? '', osis: t.verse ?? '',

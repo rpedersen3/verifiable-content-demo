@@ -21,6 +21,7 @@ import {
   type AccessPolicy,
   type RightsStatus,
   type SignatureVerifier,
+  type DelegatingSigner,
   type CorpusTree,
 } from '@agenticprimitives/content-primitives';
 import {
@@ -91,7 +92,7 @@ export const EDITIONS: EditionEntry[] = [
     edition: 'lbsb',
     version: BSB_VERSION,
     displayName: 'Licensed BSB',
-    issuerName: 'bsb.impact',
+    issuerName: 'lbsb.impact', // per-edition issuer: lbsb descriptors are attributed to lbsb.impact (its own SA)
     language: 'en',
     accessPolicy: 'licensed',
     rightsStatus: 'licensed',
@@ -114,10 +115,15 @@ export interface BuiltCorpus {
   byCanonicalId: Map<string, DescriptorRow>;
 }
 
-/** The issuer + signing strategy a corpus is built/signed with (dev or on-chain). */
+/** The issuer + signing strategy a corpus is built/signed with (dev, on-chain, or delegated/KMS). */
 export interface CorpusSigner {
+  /** The issuer SA this edition's descriptors are attributed to (per-edition: bsb.impact / lbsb.impact). */
   issuer: Address;
+  /** Signs the descriptor digest. In delegated mode this is the issuer-AUTHORIZED KMS key (not the issuer). */
   signDigest: (hash: Hex) => Promise<Hex>;
+  /** Present in delegated mode: the issuer→delegate-key authorization carried on each descriptor so a
+   *  verifier roots trust in `issuer` while the day-to-day signer is a delegated, rotatable KMS key. */
+  delegatingSigner?: DelegatingSigner;
 }
 
 async function buildCorpus(entry: EditionEntry, signer: CorpusSigner): Promise<BuiltCorpus> {
@@ -166,6 +172,7 @@ async function buildCorpus(entry: EditionEntry, signer: CorpusSigner): Promise<B
         corpusRef: ref,
       },
       (hash: Hex) => signer.signDigest(hash),
+      signer.delegatingSigner,
     );
     byCanonicalId.set(canonicalId.toLowerCase(), { descriptor, leafIndex: i, osis: r.osis });
   }
@@ -173,23 +180,28 @@ async function buildCorpus(entry: EditionEntry, signer: CorpusSigner): Promise<B
   return { entry, manifest, tree, byCanonicalId };
 }
 
-// Cache the built corpora per issuer, so dev + on-chain modes don't collide.
-const corporaByIssuer = new Map<string, Promise<Map<string, BuiltCorpus>>>();
+// Cache the built corpora per cache key, so dev / on-chain / delegated modes don't collide.
+const corporaByKey = new Map<string, Promise<Map<string, BuiltCorpus>>>();
 
-/** Build (once per issuer) and cache all editions' corpora for the given signer. */
-export function getCorpora(signer: CorpusSigner): Promise<Map<string, BuiltCorpus>> {
-  const key = signer.issuer.toLowerCase();
-  if (!corporaByIssuer.has(key)) {
-    corporaByIssuer.set(
+/** A per-edition signer source — dev/on-chain pass the same signer for every edition; delegated mode
+ *  returns each edition's own issuer SA + its KMS delegate signer + the issuer's authorization leaf. */
+export type SignerForEdition = CorpusSigner | ((entry: EditionEntry) => CorpusSigner | Promise<CorpusSigner>);
+
+/** Build (once per cache key) + cache all editions' corpora, each signed by its edition's signer. */
+export function getCorpora(signerSource: SignerForEdition, cacheKey?: string): Promise<Map<string, BuiltCorpus>> {
+  const resolve = typeof signerSource === 'function' ? signerSource : () => signerSource;
+  const key = cacheKey ?? (typeof signerSource === 'function' ? 'fn' : signerSource.issuer.toLowerCase());
+  if (!corporaByKey.has(key)) {
+    corporaByKey.set(
       key,
       (async () => {
         const map = new Map<string, BuiltCorpus>();
-        for (const entry of EDITIONS) map.set(entry.edition, await buildCorpus(entry, signer));
+        for (const entry of EDITIONS) map.set(entry.edition, await buildCorpus(entry, await resolve(entry)));
         return map;
       })(),
     );
   }
-  return corporaByIssuer.get(key)!;
+  return corporaByKey.get(key)!;
 }
 
 export function inclusionProof(corpus: BuiltCorpus, leafIndex: number): Hex[] {

@@ -212,6 +212,10 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <div id="fblist"><p class="muted">Connect as the corpus owner to review feedback.</p></div></div>
 </div>
 <div id="page-tre" style="display:none">
+<div class="card"><h3 style="margin-top:0">Content signing · authorize the issuer keys</h3>
+<p class="muted" style="font-size:13px">Each licensed edition is signed by its <b>own issuer</b> (e.g. <span class="mono">lbsb.impact</span>) using a key held in an <b>HSM-backed Cloud KMS</b> — the key never leaves the HSM. Authorize once: <b>one ceremony</b> signs, with your own credential, a delegation binding each issuer SA → its HSM signing key. The content service then signs descriptors <i>as the right issuer</i>, with no held private key.</p>
+<div id="csstat" class="ownb" style="background:#eefbf3;border:1px solid #cfeede;color:#1d6b45">—</div>
+<div style="margin:8px 0"><button class="ap" id="csBtn" onclick="authorizeContentSigning()">Authorize content signing</button></div></div>
 <div class="card"><h3 style="margin-top:0">Subscriptions · collect what's due</h3>
 <p class="muted" style="font-size:13px">Each subscriber authorized a standing <b>charge mandate</b> (their treasury → your <span class="mono">lbsb-treasury.impact</span>) at subscribe time. When a period ends, you collect: <b>one ceremony</b> signs the redemption of every due mandate with your own credential — no held key, no per-subscriber prompt.</p>
 <div id="substat" class="ownb" style="background:#f3f0ff;border:1px solid #d9d2f5;color:#4b2e83">—</div>
@@ -336,13 +340,14 @@ async function render(){
     window.isOwnerNow=true;
     if(ob)ob.innerHTML='<div class="ownb own-yes">'+(cl.claimed?'🎉 You just <b>claimed the '+esc(cp.label)+' corpus</b> — you are the owner.':'✓ You are the <b>'+esc(cp.label)+' corpus owner</b> ('+esc(cp.agent)+').')+'</div>';
     loadQueue();loadIssued();loadFeedback();loadTreasury();loadSubscriptions();
+    const cs=document.getElementById('csstat');if(cs)cs.innerHTML='Ready to authorize. The ceremony binds each issuer SA you custody (e.g. <b>lbsb.impact</b>) to its <b>HSM-backed Cloud KMS</b> signing key — one signing, revocable later.';
   }else{
     window.isOwnerNow=false;
     if(ob)ob.innerHTML='<div class="ownb own-no">'+esc(cp.label)+' is owned by <span class="mono">'+esc((cl&&cl.ownerSub||'').slice(0,20))+'…</span> — you are not the owner'+((cl&&cl.reason)?' ('+esc(cl.reason)+')':'')+'.</div>';
     if(q)q.innerHTML='<p class="muted">Only the corpus owner can review requests.</p>';if(is)is.innerHTML='';
     if(fbl)fbl.innerHTML='<p class="muted">Only the corpus owner can review feedback.</p>';
     const tr=document.getElementById('trelist');if(tr)tr.innerHTML='<p class="muted">Only the corpus owner can view the treasury.</p>';
-    const sl=document.getElementById('sublist');if(sl)sl.innerHTML='<p class="muted">Only the corpus owner can view subscriptions.</p>';const ss=document.getElementById('substat');if(ss)ss.innerHTML='—';
+    const sl=document.getElementById('sublist');if(sl)sl.innerHTML='<p class="muted">Only the corpus owner can view subscriptions.</p>';const ss=document.getElementById('substat');if(ss)ss.innerHTML='—';const cs=document.getElementById('csstat');if(cs)cs.innerHTML='—';
   }
 }
 let fbTimer=null;
@@ -412,12 +417,26 @@ async function chargeDueSubscriptions(){
   const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','subscription-collect');u.searchParams.set('collect_token',session.idToken);
   location.href=u.toString();
 }
+// Authorize content signing: hand off to the HOME content-signer ceremony. The home recognizes the
+// owner, fetches each issuer's KMS signing-key address, and the owner signs (with their own credential,
+// per issuer they custody) the issuer SA → key delegation; the content service stores it. No held key.
+async function authorizeContentSigning(){
+  if(!window.isOwnerNow){alert('Connect as the corpus owner first.');return;}
+  const state=randB64(16),nonce=randB64(16),pk=await pkce();
+  sessionStorage.setItem('corp.collect',JSON.stringify({state}));
+  const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','content-signer');u.searchParams.set('collect_token',session.idToken);
+  location.href=u.toString();
+}
 // On return from the collection ceremony (?collect=1&collected=N), surface the result + refresh.
 function collectCallback(){
   const p=new URLSearchParams(location.search);if(p.get('collect')!=='1')return false;
-  const collected=p.get('collected')||'0',attempted=p.get('attempted')||'0';
+  const collected=p.get('collected')||'0',attempted=p.get('attempted')||'0',kind=p.get('collect_kind')||'';
   history.replaceState(null,'',location.pathname+'#treasury');
-  setTimeout(function(){alert('✓ Collected '+collected+' of '+attempted+' due subscription'+(attempted==='1'?'':'s')+'. The ledger + due list are refreshed.');},300);
+  if(kind==='content-signer'){
+    setTimeout(function(){alert('✓ Authorized '+collected+' of '+attempted+' content issuer signing key'+(attempted==='1'?'':'s')+'. Descriptors now sign as the right issuer.');},300);
+  }else{
+    setTimeout(function(){alert('✓ Collected '+collected+' of '+attempted+' due subscription'+(attempted==='1'?'':'s')+'. The ledger + due list are refreshed.');},300);
+  }
   return true;
 }
 window.addEventListener('hashchange',route);

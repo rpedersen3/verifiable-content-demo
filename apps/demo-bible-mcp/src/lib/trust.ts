@@ -41,10 +41,23 @@ export async function verifySignedEntitlement(
   vc: Entitlement,
   expectedIssuer: Address,
   verify: SignatureVerifier,
+  verifyDelegatedAuthority?: (a: { delegatorIssuer: Address; delegateKey: Address; delegationLeaf: unknown }) => Promise<boolean> | boolean,
 ): Promise<EntitlementCheck> {
   const r = verifyCredentialStructural(vc as unknown as Parameters<typeof verifyCredentialStructural>[0]);
   if (!r.structural) return { ok: false, reason: `entitlement failed structural check: ${r.issues.join('; ')}` };
   if (!r.expectedDigest || !r.proofValue) return { ok: false, reason: 'entitlement has no signature' };
+  // Delegated grants: signed by an issuer-AUTHORIZED key. Verify the leaf (delegate authorized by the
+  // expected issuer SA) + the delegate's signature. Trust still roots in `expectedIssuer`.
+  const ds = ((vc as { proof?: { delegatingSigner?: { delegatorIssuer?: Address; delegateKey?: Address; delegationLeaf?: unknown } } }).proof)?.delegatingSigner;
+  if (ds?.delegateKey && ds.delegatorIssuer) {
+    if (ds.delegatorIssuer.toLowerCase() !== expectedIssuer.toLowerCase()) return { ok: false, reason: 'grant delegatorIssuer ≠ corpus issuer' };
+    if (!verifyDelegatedAuthority) return { ok: false, reason: 'grant is delegate-signed but no delegated-authority verifier provided' };
+    const authOk = await verifyDelegatedAuthority({ delegatorIssuer: ds.delegatorIssuer, delegateKey: ds.delegateKey, delegationLeaf: ds.delegationLeaf });
+    if (!authOk) return { ok: false, reason: 'issuer did not authorize the grant signing key' };
+    const sigOk = await verify({ signer: ds.delegateKey, hash: r.expectedDigest, signature: r.proofValue });
+    if (!sigOk) return { ok: false, reason: 'grant delegate-key signature did not verify' };
+    return { ok: true, signer: expectedIssuer };
+  }
   const ok = await verify({ signer: expectedIssuer, hash: r.expectedDigest, signature: r.proofValue });
   if (!ok) return { ok: false, reason: 'entitlement not validly signed by the corpus issuer' };
   return { ok: true, signer: expectedIssuer };

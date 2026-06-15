@@ -66,3 +66,16 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sub_subj ON subscriptions(subject, edition, status);
+
+-- Content-signer delegations (per-edition issuer trust): the owner-signed leaf binding an issuer SA
+-- (e.g. lbsb.impact) to its Cloud-KMS content-signing key. Provisioned ONCE by the demo-corpus
+-- "Authorize content signing" ceremony; loaded by the MCP resolveTrust(delegated) for signing + verify.
+-- No private keys here — the KMS key never leaves Cloud KMS; this row holds the public authorization.
+CREATE TABLE IF NOT EXISTS content_signers (
+  issuer_name TEXT PRIMARY KEY,     -- e.g. 'lbsb.impact'
+  issuer_sa TEXT NOT NULL,          -- the issuer Smart Agent address (0x91b4…)
+  delegate_key TEXT NOT NULL,       -- the Cloud-KMS key's derived address (the authorized signer)
+  delegation_leaf TEXT NOT NULL,    -- JSON of the signed delegation (issuer SA → delegate key)
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
