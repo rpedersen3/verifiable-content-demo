@@ -120,6 +120,31 @@ async function ensureSigningKey(token, project, issuer) {
   throw new Error(`${issuer} version 1 did not reach ENABLED within timeout`);
 }
 
+// Grant the RUNTIME service account data-plane access (sign + viewPublicKey) on the keyring.
+// roles/cloudkms.admin (used to CREATE keys) does NOT include sign/viewPublicKey — those live in
+// roles/cloudkms.signerVerifier — so without this the MCP's runtime SA 403s on every signing/verify.
+// Bound at the keyRing level so it covers every issuer key under it. Idempotent (skips if already a member).
+const SIGNER_ROLE = 'roles/cloudkms.signerVerifier';
+async function ensureSignerBinding(token, project, runtimeSaEmail) {
+  const keyRingPath = `projects/${project}/locations/${LOCATION}/keyRings/${KEYRING}`;
+  const member = `serviceAccount:${runtimeSaEmail}`;
+  const got = await kms(token, `${keyRingPath}:getIamPolicy`);
+  if (!got.ok) throw new Error(`getIamPolicy failed: HTTP ${got.status}: ${JSON.stringify(got.json).slice(0, 300)}`);
+  const policy = got.json && typeof got.json === 'object' ? got.json : {};
+  policy.bindings = policy.bindings || [];
+  let binding = policy.bindings.find((b) => b.role === SIGNER_ROLE);
+  if (binding && (binding.members || []).includes(member)) {
+    console.log(`  IAM: ${runtimeSaEmail} already has ${SIGNER_ROLE} on ${KEYRING}`);
+    return;
+  }
+  if (!binding) { binding = { role: SIGNER_ROLE, members: [] }; policy.bindings.push(binding); }
+  binding.members = binding.members || [];
+  binding.members.push(member);
+  const set = await kms(token, `${keyRingPath}:setIamPolicy`, { method: 'POST', body: { policy } });
+  if (!set.ok) throw new Error(`setIamPolicy failed: HTTP ${set.status}: ${JSON.stringify(set.json).slice(0, 300)}`);
+  console.log(`  IAM: granted ${SIGNER_ROLE} to ${runtimeSaEmail} on ${KEYRING}`);
+}
+
 async function main() {
   const sa = loadServiceAccount();
   const project = sa.project_id;
@@ -132,6 +157,12 @@ async function main() {
   for (const issuer of ISSUERS) {
     map[issuer] = await ensureSigningKey(token, project, issuer);
   }
+
+  // The runtime SA that the MCP authenticates as. Defaults to THIS SA (the common case: the same
+  // GCP_SERVICE_ACCOUNT_JSON is used to provision + set as the MCP secret). Override RUNTIME_SA_EMAIL
+  // if the MCP runs under a different SA than the one provisioning.
+  const runtimeSa = process.env.RUNTIME_SA_EMAIL ?? sa.client_email;
+  await ensureSignerBinding(token, project, runtimeSa);
 
   const json = JSON.stringify(map);
   console.log('\n✅ CONTENT_SIGNER_KEYS (issuerName → KMS cryptoKeyVersion):\n');
