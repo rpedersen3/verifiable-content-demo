@@ -27,6 +27,11 @@
       "address": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
       "name": "scripture-resolver.impact",
       "tld": "impact"
+    },
+    "licensed": {
+      "sa": "0x91b43817d8f9ff449a4c68cb187821b13b5feabe",
+      "name": "lbsb.impact",
+      "tld": "impact"
     }
   }
 }
