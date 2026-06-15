@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
-    "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.5",
+    "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.6",
     "@verifiable-content-demo/zk-membership": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0",
@@ -37,13 +37,13 @@
       "@agenticprimitives/audit": "1.0.0-alpha.9",
       "@agenticprimitives/connect": "1.0.0-alpha.9",
       "@agenticprimitives/connect-auth": "1.0.0-alpha.9",
-      "@agenticprimitives/content-primitives": "1.0.0-alpha.9",
+      "@agenticprimitives/content-primitives": "1.0.0-alpha.10",
       "@agenticprimitives/identity-directory": "1.0.0-alpha.9",
       "@agenticprimitives/key-custody": "1.0.0-alpha.9",
       "@agenticprimitives/mcp-runtime": "1.0.0-alpha.9",
       "@agenticprimitives/tool-policy": "1.0.0-alpha.9",
       "@agenticprimitives/types": "1.0.0-alpha.9",
-      "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.5",
+      "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.6",
       "@agenticprimitives/payments": "0.0.0-alpha.5"
     }
   },
