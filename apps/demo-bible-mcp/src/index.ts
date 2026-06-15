@@ -140,7 +140,11 @@ declareTool({ name: 'get_passage' }, VAULT_CLS);
 // issuer is the dev EOA or the on-chain issuer SA). A descriptor is a POLICY
 // INPUT, not a grant (ADR-0033 R5).
 function trustProfile(trust: TrustContext): TrustProfileConfig {
-  return { profile: 'public-domain-demo', trustedIssuers: trust.trustedIssuers, allowedRightsStatus: ['public-domain'], requireTrustedIssuer: true };
+  // Admit BOTH public-domain and licensed works for resolution + provenance verification. Admission only
+  // governs "can I verify who published this + that it's authentically signed" — TEXT access stays gated by
+  // accessPolicy/entitlement (get_passage_text). So a licensed edition (lbsb) is verifiably attributed to its
+  // issuer (lbsb.impact) here, while reading its text still requires a license. (spec 266 per-edition issuers.)
+  return { profile: 'public-domain-demo', trustedIssuers: trust.trustedIssuers, allowedRightsStatus: ['public-domain', 'licensed'], requireTrustedIssuer: true };
 }
 
 const auditSink: AuditSink = composeSinks(createConsoleAuditSink({ prefix: '[audit bible-mcp]' }));
@@ -231,7 +235,7 @@ app.post('/tools/resolve', async (c) => {
 
   const d1 = c.env.DB ? await loadD1Corpus(c.env.DB, 'bsb').catch(() => null) : null;
   if (d1 && c.env.DB) {
-    const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust).catch(() => null);
+    const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust.signerForEdition(EDITIONS.find((e) => e.edition === 'bsb')!)).catch(() => null);
     if (r) {
       descriptors.push(r.descriptor);
       rowByDescId.set(r.descriptor.id, { corpusRef: d1.corpusRef, corpusRoot: d1.corpusRoot, leafIndex: r.leafIndex, inclusion: () => d1InclusionProof(d1, r.leafIndex), issuerName: 'bsb.impact' });
@@ -409,7 +413,7 @@ app.post('/tools/get_passage_text', async (c) => {
   // Full BSB (public) is served from D1 when bound — text + on-demand descriptor.
   if (c.env.DB && body.edition === 'bsb') {
     const d1 = await loadD1Corpus(c.env.DB, 'bsb');
-    const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust);
+    const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust.signerForEdition(EDITIONS.find((e) => e.edition === 'bsb')!));
     if (!r) return c.json({ ok: false, error: `no verse for ${parsed.reference.alias} in bsb` }, 404);
     const commitmentOk = !!r.descriptor.commitment && verifyCommitment(r.text, r.descriptor.commitment);
     audit('content.text.access', 'success', parsed.reference.alias ?? body.reference, { edition: 'bsb', commitmentOk });
@@ -425,7 +429,7 @@ app.post('/tools/get_passage_text', async (c) => {
   let d1Descriptor: unknown;
   if (!row && c.env.DB && body.edition === 'lbsb') {
     const d1 = await loadD1Corpus(c.env.DB, 'bsb');
-    const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust);
+    const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust.signerForEdition(EDITIONS.find((e) => e.edition === 'bsb')!));
     if (r) { d1Text = r.text; d1Descriptor = r.descriptor; }
   }
   if (!row && d1Text === undefined) return c.json({ ok: false, error: `no descriptor for ${parsed.reference.alias} in ${body.edition}` }, 404);

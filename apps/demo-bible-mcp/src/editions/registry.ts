@@ -196,7 +196,15 @@ export function getCorpora(signerSource: SignerForEdition, cacheKey?: string): P
       key,
       (async () => {
         const map = new Map<string, BuiltCorpus>();
-        for (const entry of EDITIONS) map.set(entry.edition, await buildCorpus(entry, await resolve(entry)));
+        for (const entry of EDITIONS) {
+          // RESILIENT: an edition whose signer can't be resolved (e.g. an unconfigured per-edition issuer
+          // in delegated mode — demo-licensed.impact) is SKIPPED + surfaced, not fatal. Configured editions
+          // (bsb, lbsb) still build; the skipped edition is simply not served rather than 500-ing resolution.
+          let signer;
+          try { signer = await resolve(entry); }
+          catch (e) { console.warn(`[corpora] skipping edition "${entry.edition}": ${(e as Error).message}`); continue; }
+          map.set(entry.edition, await buildCorpus(entry, signer));
+        }
         return map;
       })(),
     );

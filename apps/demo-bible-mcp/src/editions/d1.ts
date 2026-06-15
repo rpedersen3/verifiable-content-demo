@@ -77,6 +77,10 @@ export async function findD1Verse(db: D1Like, edition: string, canonicalId: stri
       corpusRef: corpus.corpusRef,
     },
     (h) => signer.signDigest(h),
+    // Delegated mode: carry the issuer→KMS-key authorization leaf so the D1-served edition (bsb) verifies
+    // the SAME way as getCorpora-built editions (lbsb). Without this, bsb is delegate-signed but un-attributable
+    // → verifyContentDescriptor falls to the "issuer signature did not verify" branch. Undefined in dev/onchain.
+    signer.delegatingSigner,
   );
   return { descriptor, leafIndex: v.leaf_index, osis: v.osis, text: v.text, commitment };
 }

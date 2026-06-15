@@ -26,6 +26,14 @@ workers_dev = true
 
 [env.production.vars]
 SCHEME_ID = "bible-verse"
+# spec 266 — delegated content signing. PREREQUISITE before flipping this on: each issuer
+# (bsb.impact, lbsb.impact) must authorize its Cloud-KMS key via the demo-corpus "Authorize content
+# signing" ceremony (stores the issuer→delegate ERC-7710 leaf in the DB). Until then, resolveTrust
+# throws "no content-signer delegation stored" and every content endpoint 500s. Keys + secrets are
+# provisioned (CONTENT_SIGNER_KEYS / GCP_SERVICE_ACCOUNT_JSON); set TRUST_MODE="delegated" AFTER the
+# ceremony, then redeploy. CEREMONY DONE 2026-06-15: bsb.impact + lbsb.impact delegations stored in D1.
+# buildDelegated is resilient — unconfigured issuers (e.g. demo-licensed.impact) degrade per-edition, no crash.
+TRUST_MODE = "delegated"
 ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 RELAY_URL = "https://demo-a2a-production.richardpedersen3.workers.dev"
 RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
@@ -34,6 +42,9 @@ RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.
 SELF_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
 A2A_CHAIN_ID = "84532"
 A2A_DELEGATION_MANAGER = "0x3a8E2cE74564f699b135db6f266ccDb563979C05"
+# spec 266 delegated trust — buildDelegated hashes the issuer→KMS delegation leaf against this
+# DelegationManager (same one the home ceremony signed with). Required when TRUST_MODE="delegated".
+DELEGATION_MANAGER = "0x3a8E2cE74564f699b135db6f266ccDb563979C05"
 A2A_UNIVERSAL_VALIDATOR = "0xe8F3e531429F44D77dC3A331C18032bfa1550D84"
 A2A_ENF_TARGETS = "0xe3909FdEfD8b74B7D006E045DCd678e97D469Bfd"
 A2A_ENF_METHODS = "0xf77cf06aCd8b9e2f3204fe4bE16449B3594c9633"
