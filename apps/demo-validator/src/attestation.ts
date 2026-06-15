@@ -22,6 +22,8 @@ const KMS_KEY = process.env.VALIDATOR_KMS_KEY;
 const KMS_LEAF_JSON = process.env.VALIDATOR_DELEGATION_LEAF;
 const GCP_SA = process.env.GCP_SERVICE_ACCOUNT_JSON;
 let kmsMode = !!(SA && KMS_KEY && KMS_LEAF_JSON && GCP_SA);
+let kmsReason: string | null = kmsMode ? null
+  : `missing env: ${[!SA && 'VALIDATOR_SA', !KMS_KEY && 'VALIDATOR_KMS_KEY', !KMS_LEAF_JSON && 'VALIDATOR_DELEGATION_LEAF', !GCP_SA && 'GCP_SERVICE_ACCOUNT_JSON'].filter(Boolean).join(', ')}`;
 
 let delegatingSigner: { delegatorIssuer: Address; delegateKey: Address; delegationLeaf: unknown } | undefined;
 let kmsSignDigest: ((hash: Hex) => Promise<Hex>) | undefined;
@@ -36,12 +38,15 @@ if (kmsMode) {
     delegatingSigner = { delegatorIssuer: SA!, delegateKey: leaf.delegate as Address, delegationLeaf: leaf };
   } catch (e) {
     kmsMode = false;
+    kmsReason = (e as Error).message;
     // eslint-disable-next-line no-console
-    console.error('[validator] KMS signing DISABLED (invalid config — falling back to dev signer):', (e as Error).message);
+    console.error('[validator] KMS signing DISABLED (invalid config — falling back to dev signer):', kmsReason);
   }
 }
 /** Whether the validator is signing attestations via the delegated HSM-KMS key (vs the dev held key). */
 export const KMS_SIGNING = kmsMode;
+/** Diagnostics for /health — which KMS env vars are present + why KMS is off (no secret values). */
+export const KMS_DEBUG = { sa: !!SA, kmsKey: !!KMS_KEY, leaf: !!KMS_LEAF_JSON, gcpSa: !!GCP_SA, reason: kmsReason };
 
 // DEV-ONLY held-key fallback (when KMS isn't configured). NOT used in delegated mode.
 const OWNER_PK = (process.env.VALIDATOR_OWNER_PK ?? process.env.VALIDATOR_SIGNER_PK ?? '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6') as Hex;

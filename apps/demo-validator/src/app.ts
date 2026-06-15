@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { validateBundle } from './validate.js';
 import { makeOnchainVerifier, makeDelegatedAuthorityVerifier } from './onchain.js';
-import { buildValidationAttestation, hashJson, VALIDATOR_AGENT_ID, VALIDATOR_NAME, KMS_SIGNING } from './attestation.js';
+import { buildValidationAttestation, hashJson, VALIDATOR_AGENT_ID, VALIDATOR_NAME, KMS_SIGNING, KMS_DEBUG } from './attestation.js';
 import { buildTrustGraph } from './trust-graph.js';
 import { anchorAttestation } from './anchor.js';
 import type { EvidenceBundle } from './bundle.js';
@@ -37,6 +37,7 @@ app.get('/health', (c) =>
     service: 'demo-validator',
     mode: verifySignature ? 'onchain' : 'dev',
     attestationSigner: KMS_SIGNING ? 'kms-delegated (demo-validator.impact, no held key)' : 'dev-held-key',
+    kms: KMS_DEBUG,
     trustedIssuers: TRUSTED_ISSUERS,
     mcp: MCP_URL,
     anchorConfigured: { registry: !!process.env.ATTESTATION_REGISTRY, relayer: !!process.env.VALIDATOR_ANCHOR_PK, rpc: !!process.env.VALIDATOR_RPC_URL },
