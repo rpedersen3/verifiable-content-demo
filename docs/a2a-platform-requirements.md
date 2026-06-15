@@ -238,6 +238,8 @@ other (and reader agents call them) via `A2aWireAdapter`.
 
 ---
 
-*Companion docs in this repo: the entitlement/vault decision (reader's demo-mcp vault, delivered
-at grant time) and the corpus-ownership/KMS plan live alongside this; the A2A transport here is the
-bus those flows ride.*
+*Companion docs in this repo:
+[`corpus-ownership-and-entitlements.md`](./corpus-ownership-and-entitlements.md)
+defines the corpus-owner/KMS plan and request/grant/deliver entitlement flow, and
+[`corpus-entitlements-consumer-spec.md`](./corpus-entitlements-consumer-spec.md)
+maps that flow into this repo. The A2A transport here is the bus those flows ride.*

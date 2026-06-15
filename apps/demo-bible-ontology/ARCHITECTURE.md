@@ -2,7 +2,13 @@
 
 How the Bible Explorer UI, the Scripture Agent (A2A), the MCP vault, and the
 ontology data layer fit together — and the exact interaction flows for
-**reading verse text** and **posting user feedback** on a trust signal.
+**reading verse text**, **requesting licensed access**, and **posting user
+feedback** on a trust signal.
+
+Related system docs live in [`../../docs`](../../docs):
+[`corpus-ownership-and-entitlements.md`](../../docs/corpus-ownership-and-entitlements.md),
+[`corpus-entitlements-consumer-spec.md`](../../docs/corpus-entitlements-consumer-spec.md),
+and [`a2a-platform-requirements.md`](../../docs/a2a-platform-requirements.md).
 
 ## Applications & services
 
@@ -11,10 +17,11 @@ ontology data layer fit together — and the exact interaction flows for
 | **Bible Explorer UI** (`src/ui.ts`) | Browser SPA, served by this Worker | Explore the knowledge graph, read verses, challenge trust signals, post feedback | `localStorage`: `sa.session` (connect session), `ont.imgMode` (image pref) · `sessionStorage`: `sa.pending` (PKCE state) |
 | **demo-bible-ontology** (this Worker) | Cloudflare Worker, port 8795 | **Graph data layer only.** Serves the UI + static images, and `/api/*` (entities, edges, signals, scores, map, lineage, feedback thread) | D1 `bible-ontology` (node, edge, node_verse, signal, score, signal_feedback, …) |
 | **demo-bible-a2a** — "Scripture Agent" | Cloudflare Worker, port 8791 | Public **agent surface** (A2A agent card + skills). The only endpoint the browser talks to for data: `/vault/*`, `/passage`, `/analyze`, `/submit-feedback`, `/resolve`, `/verify` | none (stateless; in-memory transparency log) |
-| **demo-bible-mcp** — vault | Cloudflare Worker, port 8790 | MCP **tools** behind the agent: `get_passage`, `graph_query`, `submit_feedback`, `resolve`, `get_passage_text`, `get_entity`, `get_trust_signals`, … Signs credentials, gates by policy, audits | D1 `demo-bible-bsb` (full BSB verse corpus + Merkle leaf commitments + corpusRoot) |
+| **demo-bible-mcp** — BSB archive + vault | Cloudflare Worker, port 8790 | MCP **tools** behind the agent: `get_passage`, `graph_query`, `submit_feedback`, `request_entitlement`, `list_entitlements`, `issue_entitlement`, `resolve`, `get_passage_text`, `get_entity`, `get_trust_signals`, … Signs credentials, gates by policy, audits | D1 `demo-bible-bsb` (full BSB verse corpus + Merkle leaf commitments + corpusRoot + entitlement request/grant ledger) |
+| **demo-corpus** | Cloudflare Worker + admin SPA, port 8796 | Corpus/admin surface. First connected owner claims the corpus service, reviews access requests, approves/denies/revokes entitlements, and manages BSB/ontology/signals. | D1 `demo-bible-bsb` + D1 `bible-ontology`; service binding to MCP |
 | **demo-validator** | Vercel | Independent validator for evidence bundles (`/trust/validate` flow) | — |
 | **Anthropic API** | external | LLM behind `/analyze` (Signal-Court trust audit) | — |
-| **Global.Church identity** (`*.impact-agent.me`) | external | OIDC + PKCE "Connect" sign-in; JWKS-verified id_token. Required before posting feedback | — |
+| **Global.Church identity** (`*.impact-agent.me`) | external | OIDC + PKCE "Connect" sign-in; JWKS-verified id_token. Required before posting feedback, requesting access, and approving grants. | — |
 
 ### Wiring
 
@@ -27,21 +34,28 @@ ontology data layer fit together — and the exact interaction flows for
   allowlisted `/api/*` GET paths, `submit_feedback` POSTs to `/api/feedback`.
 - Verse **text** lives only in the MCP's D1 corpus (single source of truth);
   this Worker stores verse *links* (`node_verse.osis`), never passage text.
+- Licensed access uses **request → grant → deliver**: connected readers request
+  access through A2A, the corpus owner approves in `demo-corpus`, MCP stores
+  the signed entitlement in the BSB vault ledger, and readers pick it up via
+  `/my-entitlements`.
 
 ```mermaid
 flowchart LR
   B["Browser<br/>Bible Explorer UI"]
   A["demo-bible-a2a<br/>Scripture Agent"]
   M["demo-bible-mcp<br/>vault / tools"]
+  C["demo-corpus<br/>admin + grants"]
   O["demo-bible-ontology<br/>graph data layer"]
   D1O[("D1 bible-ontology<br/>graph + feedback")]
-  D1M[("D1 demo-bible-bsb<br/>verse corpus + commitments")]
+  D1M[("D1 demo-bible-bsb<br/>verse corpus · commitments<br/>requests · entitlements")]
   V["demo-validator (Vercel)"]
   LLM["Anthropic API"]
   ID["Global.Church OIDC<br/>*.impact-agent.me"]
 
-  B -- "/vault/* · /passage · /analyze<br/>/submit-feedback" --> A
+  B -- "/vault/* · /passage · /analyze<br/>/submit-feedback<br/>/request-entitlement · /my-entitlements" --> A
   B -. "Connect (PKCE): /token, /jwks" .-> ID
+  C -. "Owner connect (PKCE)" .-> ID
+  C -- "approve / deny / revoke" --> M
   A -- "service binding MCP<br/>/tools/*" --> M
   A -- "/validate (trust flow)" --> V
   A -- "/analyze prompt" --> LLM
@@ -86,7 +100,52 @@ Notes:
   commitment verification, and a signed `CitationAssertion`; `/passage` is the
   lightweight read-in-context path used by this UI.
 
-## Flow 2 — Posting feedback on a trust signal
+## Flow 2 — Requesting Licensed Verse Access
+
+For gated editions, the reader does not self-issue an entitlement. The reader
+requests access, the corpus owner grants it in `demo-corpus`, and the reader
+picks up the signed entitlement from the BSB vault on the next connected read.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor R as Reader
+  participant UI as Bible Explorer UI (browser)
+  participant ID as Global.Church OIDC
+  participant A2A as demo-bible-a2a (Scripture Agent)
+  participant MCP as demo-bible-mcp (BSB vault)
+  participant CORP as demo-corpus (owner admin)
+  participant DB as D1 demo-bible-bsb
+
+  R->>UI: Connect
+  UI->>ID: OIDC PKCE
+  ID-->>UI: id_token (sub = reader canonical agent id)
+  R->>UI: Request access to gated edition
+  UI->>A2A: POST /request-entitlement {id_token, edition, note}
+  A2A->>A2A: verify id_token via home JWKS
+  A2A->>MCP: POST /tools/request_entitlement {subject=sub, edition, note}
+  MCP->>DB: INSERT entitlement_requests(status='pending')
+  MCP-->>A2A: {ok, requestId}
+  A2A-->>UI: {ok, requestId}
+
+  CORP->>DB: list pending entitlement_requests
+  CORP->>MCP: POST /tools/issue_entitlement {requestId, edition, subject}
+  MCP->>MCP: sign Entitlement VC as corpus issuer
+  MCP->>DB: INSERT entitlements_issued(status='granted')<br/>UPDATE request → granted
+
+  UI->>A2A: POST /my-entitlements {id_token}
+  A2A->>MCP: POST /tools/list_entitlements {subject=sub}
+  MCP->>DB: SELECT granted entitlements for subject
+  MCP-->>A2A: signed entitlement VC
+  A2A-->>UI: signed entitlement VC
+  UI->>A2A: POST /resolve-licensed {reference, edition, entitlement, id_token}
+  A2A->>MCP: POST /tools/get_passage_text {subject=sub, entitlement}
+  MCP->>MCP: verify signature, subject binding, expiry, revocation
+  MCP-->>A2A: gated verse text
+  A2A-->>UI: gated verse text
+```
+
+## Flow 3 — Posting feedback on a trust signal
 
 From the **Signal Court** modal: the user must be *connected* (Global.Church
 OIDC + PKCE), can optionally run the AI audit (`/analyze`), then posts a

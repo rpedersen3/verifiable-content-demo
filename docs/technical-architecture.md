@@ -17,7 +17,7 @@ packages/
   legal-content-extension/  second vertical proving genericity
 scripts/
   check-no-licensed-content.ts
-documents/
+docs/
   architecture documentation
 ```
 
