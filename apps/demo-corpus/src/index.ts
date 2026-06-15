@@ -429,7 +429,7 @@ async function authorizeContentSigning(){
   const state=randB64(16),nonce=randB64(16),pk=await pkce();
   sessionStorage.setItem('corp.collect',JSON.stringify({state}));
   // PER-CUSTODIAN: authorize ONLY the identity you connected as (its custodian can sign just its SA's leaf).
-  const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','content-signer');u.searchParams.set('collect_token',session.idToken);u.searchParams.set('content_signer_target',cp.agent);
+  const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','content-signer');u.searchParams.set('collect_token',session.idToken);u.searchParams.set('content_signer_target',cp.agent);u.searchParams.set('prompt','select_account');
   location.href=u.toString();
 }
 // On return from the collection ceremony (?collect=1&collected=N), surface the result + refresh.
