@@ -212,8 +212,8 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <div id="fblist"><p class="muted">Connect as the corpus owner to review feedback.</p></div></div>
 </div>
 <div id="page-tre" style="display:none">
-<div class="card"><h3 style="margin-top:0">Content signing · authorize the issuer keys</h3>
-<p class="muted" style="font-size:13px">Each licensed edition is signed by its <b>own issuer</b> (e.g. <span class="mono">lbsb.impact</span>) using a key held in an <b>HSM-backed Cloud KMS</b> — the key never leaves the HSM. Authorize once: <b>one ceremony</b> signs, with your own credential, a delegation binding each issuer SA → its HSM signing key. The content service then signs descriptors <i>as the right issuer</i>, with no held private key.</p>
+<div class="card"><h3 style="margin-top:0">Signing identities · authorize the keys</h3>
+<p class="muted" style="font-size:13px">Every signing identity on the platform — content issuers (<span class="mono">bsb.impact</span>, <span class="mono">lbsb.impact</span>), the independent validator (<span class="mono">demo-validator.impact</span>), and the resolver agent — signs with a key held in an <b>HSM-backed Cloud KMS</b>; the key never leaves the HSM. Authorize once: <b>one ceremony</b> signs, with your own credential, a delegation binding each SA you custody → its HSM signing key. Each service then signs its credentials <i>as the right identity</i>, with no held private key.</p>
 <div id="csstat" class="ownb" style="background:#eefbf3;border:1px solid #cfeede;color:#1d6b45">—</div>
 <div style="margin:8px 0"><button class="ap" id="csBtn" onclick="authorizeContentSigning()">Authorize content signing</button></div></div>
 <div class="card"><h3 style="margin-top:0">Subscriptions · collect what's due</h3>
@@ -340,7 +340,7 @@ async function render(){
     window.isOwnerNow=true;
     if(ob)ob.innerHTML='<div class="ownb own-yes">'+(cl.claimed?'🎉 You just <b>claimed the '+esc(cp.label)+' corpus</b> — you are the owner.':'✓ You are the <b>'+esc(cp.label)+' corpus owner</b> ('+esc(cp.agent)+').')+'</div>';
     loadQueue();loadIssued();loadFeedback();loadTreasury();loadSubscriptions();
-    const cs=document.getElementById('csstat');if(cs)cs.innerHTML='Ready to authorize. The ceremony binds each issuer SA you custody (e.g. <b>lbsb.impact</b>) to its <b>HSM-backed Cloud KMS</b> signing key — one signing, revocable later.';
+    const cs=document.getElementById('csstat');if(cs)cs.innerHTML='Ready to authorize. The ceremony binds each SA you custody (e.g. <b>lbsb.impact</b>, <b>demo-validator.impact</b>) to its <b>HSM-backed Cloud KMS</b> signing key — one signing, revocable later.';
   }else{
     window.isOwnerNow=false;
     if(ob)ob.innerHTML='<div class="ownb own-no">'+esc(cp.label)+' is owned by <span class="mono">'+esc((cl&&cl.ownerSub||'').slice(0,20))+'…</span> — you are not the owner'+((cl&&cl.reason)?' ('+esc(cl.reason)+')':'')+'.</div>';

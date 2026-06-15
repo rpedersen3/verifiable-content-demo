@@ -273,9 +273,12 @@ async function buildDelegated(env: McpEnv): Promise<TrustContext> {
   };
 }
 
-/** Derive the per-issuer Cloud-KMS content-signing key ADDRESSES (no signing, no held key) so the
- *  demo-corpus ceremony knows which key each issuer must authorize. Returns issuerName + issuer SA +
- *  the KMS key's derived address per distinct edition issuer. */
+/** Derive the per-identity Cloud-KMS signing-key ADDRESSES (no signing, no held key) so the demo-corpus
+ *  ceremony knows which key each signing identity must authorize. Returns name + SA + KMS key address per
+ *  DISTINCT signer. The signer set is the UNION of edition issuers (bsb.impact, lbsb.impact) AND every other
+ *  name configured in CONTENT_SIGNER_KEYS — so platform agents/services (demo-validator.impact, and later
+ *  scripture-resolver.impact) join the SAME owner ceremony just by being provisioned a key. Edition issuers
+ *  that lack a key are still surfaced as skipped (data-integrity rule). */
 export async function resolveContentSignerKeys(env: McpEnv): Promise<{ signers: Array<{ issuerName: string; issuerSa: Address; delegateKey: Address }>; skipped: Array<{ issuerName: string; reason: string }> }> {
   if (!env.RPC_URL || !env.GCP_SERVICE_ACCOUNT_JSON || !env.CONTENT_SIGNER_KEYS || !env.REGISTRY || !env.UNIVERSAL_RESOLVER) {
     throw new Error('content-signer KMS config missing (RPC_URL / GCP_SERVICE_ACCOUNT_JSON / CONTENT_SIGNER_KEYS / REGISTRY / UNIVERSAL_RESOLVER)');
@@ -284,13 +287,15 @@ export async function resolveContentSignerKeys(env: McpEnv): Promise<{ signers: 
   const keys = JSON.parse(env.CONTENT_SIGNER_KEYS) as Record<string, string>;
   const naming = new AgentNamingClient({ rpcUrl: env.RPC_URL, chainId, registry: env.REGISTRY as Address, universalResolver: env.UNIVERSAL_RESOLVER as Address });
   const signers: Array<{ issuerName: string; issuerSa: Address; delegateKey: Address }> = [];
-  // Per data-integrity rule: surface dropped issuers (missing key / unresolvable name) — never hide them.
+  // Per data-integrity rule: surface dropped names (missing key / unresolvable name) — never hide them.
   const skipped: Array<{ issuerName: string; reason: string }> = [];
-  for (const issuerName of Array.from(new Set(EDITIONS.map((e) => e.issuerName)))) {
+  // Union: every edition issuer + every name explicitly provisioned a KMS key (agents/services).
+  const names = Array.from(new Set([...EDITIONS.map((e) => e.issuerName), ...Object.keys(keys)]));
+  for (const issuerName of names) {
     const keyName = keys[issuerName];
     if (!keyName) { skipped.push({ issuerName, reason: 'no key in CONTENT_SIGNER_KEYS' }); continue; }
     const issuerSa = (await naming.resolveName(issuerName)) as Address | null;
-    if (!issuerSa) { skipped.push({ issuerName, reason: 'agent-naming did not resolve this issuer name' }); continue; }
+    if (!issuerSa) { skipped.push({ issuerName, reason: 'agent-naming did not resolve this name' }); continue; }
     const kms = new GcpKmsSigner({ cryptoKeyVersionName: keyName, serviceAccountJson: env.GCP_SERVICE_ACCOUNT_JSON });
     signers.push({ issuerName, issuerSa, delegateKey: await kms.getSignerAddress() });
   }

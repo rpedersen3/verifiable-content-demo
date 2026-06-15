@@ -17,9 +17,10 @@
 //   KMS_LOCATION=us-east1 KMS_KEYRING=content-signers \
 //   node scripts/provision-content-signer-keys.mjs [issuer ...]
 //
-// Defaults: location=us-east1, keyring=content-signers, issuers="bsb.impact lbsb.impact".
-// Prints the CONTENT_SIGNER_KEYS JSON map to paste into `wrangler secret put` for BOTH the
-// MCP and (if you wire delegated citations later) the A2A worker.
+// Defaults: location=us-east1, keyring=content-signers, names="bsb.impact lbsb.impact demo-validator.impact".
+// The set is every KMS-delegated SIGNING IDENTITY on the platform — content issuers + the validator (and
+// later the resolver agent). Prints the CONTENT_SIGNER_KEYS JSON map to paste into `wrangler secret put`
+// for the MCP (and the validator/a2a, which fetch their own delegation + sign their VCs via these keys).
 
 import { createSign } from 'node:crypto';
 
@@ -29,7 +30,7 @@ const SCOPE = 'https://www.googleapis.com/auth/cloudkms';
 
 const LOCATION = process.env.KMS_LOCATION ?? 'us-east1';
 const KEYRING = process.env.KMS_KEYRING ?? 'content-signers';
-const ISSUERS = process.argv.slice(2).length ? process.argv.slice(2) : ['bsb.impact', 'lbsb.impact'];
+const ISSUERS = process.argv.slice(2).length ? process.argv.slice(2) : ['bsb.impact', 'lbsb.impact', 'demo-validator.impact'];
 
 function b64url(buf) {
   return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
