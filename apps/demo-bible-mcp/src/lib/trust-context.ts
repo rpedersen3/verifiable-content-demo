@@ -187,27 +187,35 @@ async function buildDelegated(env: McpEnv): Promise<TrustContext> {
   };
 
   // Resolve, per DISTINCT issuerName: its SA + KMS signer (delegate key) + the owner-signed leaf (from D1).
+  // RESILIENT: an issuer that isn't fully configured (no key / unresolved name / no stored delegation) is
+  // SKIPPED + surfaced — it must NOT crash the whole MCP. A placeholder edition (e.g. demo-licensed.impact,
+  // never provisioned) would otherwise take down every content endpoint on the flip to delegated mode.
+  // Editions whose issuer is skipped fail per-request only; configured issuers (bsb.impact, lbsb.impact) work.
   const issuerNames = Array.from(new Set(EDITIONS.map((e) => e.issuerName)));
   type Resolved = { issuerSa: Address; delegateKey: Address; signDigest: (h: Hex) => Promise<Hex>; leaf: unknown };
   const byIssuer = new Map<string, Resolved>();
+  const skippedIssuers: Array<{ issuerName: string; reason: string }> = [];
   for (const issuerName of issuerNames) {
     const keyName = keys[issuerName];
-    if (!keyName) throw new Error(`TRUST_MODE=delegated: CONTENT_SIGNER_KEYS has no KMS key for issuer ${issuerName}`);
+    if (!keyName) { skippedIssuers.push({ issuerName, reason: 'no key in CONTENT_SIGNER_KEYS' }); continue; }
     const issuerSa = (await naming.resolveName(issuerName)) as Address | null;
-    if (!issuerSa) throw new Error(`agent-naming could not resolve ${issuerName}`);
+    if (!issuerSa) { skippedIssuers.push({ issuerName, reason: 'agent-naming did not resolve this issuer name' }); continue; }
     const kms = new GcpKmsSigner({ cryptoKeyVersionName: keyName, serviceAccountJson: saJson });
     const delegateKey = await kms.getSignerAddress();
     const signDigest = async (hash: Hex): Promise<Hex> => bytesToHex((await kms.signA2AAction({ digest: toBytes(hash) })).signature);
     const row = env.DB
       ? await env.DB.prepare('SELECT delegation_leaf, delegate_key FROM content_signers WHERE issuer_name=?').bind(issuerName).first<{ delegation_leaf: string; delegate_key: string }>()
       : null;
-    if (!row) throw new Error(`TRUST_MODE=delegated: no content-signer delegation stored for ${issuerName} — run the demo-corpus "Authorize content signing" ceremony`);
-    if (row.delegate_key.toLowerCase() !== delegateKey.toLowerCase()) throw new Error(`stored delegate ${row.delegate_key} ≠ KMS key address ${delegateKey} for ${issuerName}`);
+    if (!row) { skippedIssuers.push({ issuerName, reason: 'no content-signer delegation stored (run the demo-corpus "Authorize content signing" ceremony)' }); continue; }
+    if (row.delegate_key.toLowerCase() !== delegateKey.toLowerCase()) { skippedIssuers.push({ issuerName, reason: `stored delegate ${row.delegate_key} ≠ KMS key address ${delegateKey}` }); continue; }
     byIssuer.set(issuerName, { issuerSa, delegateKey, signDigest, leaf: JSON.parse(row.delegation_leaf) });
   }
+  // Surface dropped issuers — never hide them (data-integrity rule). They degrade per-edition, not globally.
+  if (skippedIssuers.length) console.warn('[trust:delegated] issuers without a usable content signer:', JSON.stringify(skippedIssuers));
+  if (byIssuer.size === 0) throw new Error(`TRUST_MODE=delegated: no issuer is fully configured (${skippedIssuers.map((s) => `${s.issuerName}: ${s.reason}`).join('; ')})`);
   const issuerOf = (entry: EditionEntry): Resolved => {
     const d = byIssuer.get(entry.issuerName);
-    if (!d) throw new Error(`no delegated content signer for issuer ${entry.issuerName}`);
+    if (!d) throw new Error(`edition "${entry.edition}" is unavailable in delegated mode: issuer ${entry.issuerName} has no configured content signer`);
     return d;
   };
 
@@ -246,17 +254,19 @@ async function buildDelegated(env: McpEnv): Promise<TrustContext> {
     };
   }
 
-  const primary = issuerOf(EDITIONS[0]!);
+  // Primary = the first edition whose issuer IS configured (not blindly EDITIONS[0], which could be skipped).
+  const primaryEntry = EDITIONS.find((e) => byIssuer.has(e.issuerName)) ?? EDITIONS[0]!;
+  const primary = issuerOf(primaryEntry);
   return {
     mode: 'delegated',
     issuer: primary.issuerSa,
-    issuerName: EDITIONS[0]!.issuerName,
+    issuerName: primaryEntry.issuerName,
     signDigest: primary.signDigest,
     verifySignature,
     trustedIssuers: Array.from(byIssuer.values()).map((d) => d.issuerSa),
-    credentialSigner: credentialSignerForEdition(EDITIONS[0]!.edition).signer,
+    credentialSigner: credentialSignerForEdition(primaryEntry.edition).signer,
     corpusRootReader,
-    cacheKey: `delegated:${issuerNames.join(',')}`,
+    cacheKey: `delegated:${Array.from(byIssuer.keys()).join(',')}`,
     signerForEdition,
     verifyDelegatedAuthority,
     credentialSignerForEdition,
