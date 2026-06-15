@@ -165,13 +165,16 @@ app.get('/health', async (c) => {
 app.get('/mcp/editions', async (c) => {
   const trust = await resolveTrust(c.env);
   const corpora = await getCorpora(trust.signerForEdition, trust.cacheKey);
-  const editions = EDITIONS.map((e) => {
-    const b = corpora.get(e.edition)!;
-    return {
+  // Skip editions getCorpora dropped (an unconfigured per-edition issuer in delegated mode — e.g. the
+  // demo-licensed.impact placeholder); they aren't served, so they don't appear in the registry.
+  const editions = EDITIONS.flatMap((e) => {
+    const b = corpora.get(e.edition);
+    if (!b) return [];
+    return [{
       edition: e.edition, version: e.version, displayName: e.displayName, issuerName: e.issuerName,
       issuer: trust.issuer, language: e.language, accessPolicy: e.accessPolicy, rightsStatus: e.rightsStatus,
       corpusRef: b.manifest.corpusRef, corpusRoot: b.manifest.corpusRoot, verseCount: b.byCanonicalId.size,
-    };
+    }];
   });
   return c.json({ ok: true, editions });
 });
