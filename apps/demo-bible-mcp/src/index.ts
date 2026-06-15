@@ -803,8 +803,8 @@ app.post('/tools/list_due_subscriptions', async (c) => {
 // demo-corpus "Authorize content signing" ceremony (owner signs issuer SA → this delegate key). No secrets.
 app.post('/tools/content_signer_keys', async (c) => {
   try {
-    const keys = await resolveContentSignerKeys(c.env as unknown as McpEnv);
-    return c.json({ ok: true, signers: keys });
+    const { signers, skipped } = await resolveContentSignerKeys(c.env as unknown as McpEnv);
+    return c.json({ ok: true, signers, skipped });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 503); }
 });
 
