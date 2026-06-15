@@ -15,6 +15,24 @@ const HALF_N = SECP256K1_N >> 1n;
 
 interface ServiceAccount { client_email: string; private_key: string }
 
+/** Parse JSON that may have LITERAL newlines/tabs inside string values (a common env-var paste mistake for a
+ *  service-account `private_key`). Escapes control chars ONLY inside strings (preserving inter-field
+ *  whitespace), so both a clean single-line value and a multi-line paste parse. */
+export function parseLooseJson<T>(raw: string): T {
+  try { return JSON.parse(raw) as T; } catch { /* fall through to repair */ }
+  let out = '', inStr = false, esc = false;
+  for (const ch of raw) {
+    if (esc) { out += ch; esc = false; continue; }
+    if (ch === '\\') { out += ch; esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; out += ch; continue; }
+    if (inStr && ch === '\n') { out += '\\n'; continue; }
+    if (inStr && ch === '\r') { out += '\\r'; continue; }
+    if (inStr && ch === '\t') { out += '\\t'; continue; }
+    out += ch;
+  }
+  return JSON.parse(out) as T;
+}
+
 function b64url(buf: Buffer | Uint8Array): string {
   return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
@@ -51,7 +69,7 @@ export interface KmsSigner {
  * the one that recovers to this address.
  */
 export function makeKmsSigner(opts: { keyName: string; serviceAccountJson: string; expectedAddress: Address }): KmsSigner {
-  const sa = JSON.parse(opts.serviceAccountJson) as ServiceAccount;
+  const sa = parseLooseJson<ServiceAccount>(opts.serviceAccountJson);
   let token: { value: string; exp: number } | null = null;
 
   async function accessToken(): Promise<string> {
