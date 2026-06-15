@@ -16,6 +16,7 @@ overrides:
   '@agenticprimitives/connect-auth': 1.0.0-alpha.9
   '@agenticprimitives/content-primitives': 1.0.0-alpha.9
   '@agenticprimitives/identity-directory': 1.0.0-alpha.9
+  '@agenticprimitives/key-custody': 1.0.0-alpha.9
   '@agenticprimitives/mcp-runtime': 1.0.0-alpha.9
   '@agenticprimitives/tool-policy': 1.0.0-alpha.9
   '@agenticprimitives/types': 1.0.0-alpha.9
@@ -59,6 +60,9 @@ importers:
       '@agenticprimitives/delegation':
         specifier: 1.0.0-alpha.9
         version: 1.0.0-alpha.9(@agenticprimitives/agent-account@1.0.0-alpha.9(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/key-custody@1.0.0-alpha.9(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3))
+      '@agenticprimitives/key-custody':
+        specifier: 1.0.0-alpha.9
+        version: 1.0.0-alpha.9(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3))
       '@agenticprimitives/payments':
         specifier: 0.0.0-alpha.5
         version: 0.0.0-alpha.5(@agenticprimitives/agent-account@1.0.0-alpha.9(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/key-custody@1.0.0-alpha.9(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/ontology@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3))
@@ -111,6 +115,9 @@ importers:
       '@agenticprimitives/delegation':
         specifier: 1.0.0-alpha.9
         version: 1.0.0-alpha.9(@agenticprimitives/agent-account@1.0.0-alpha.9(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/key-custody@1.0.0-alpha.9(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3))
+      '@agenticprimitives/key-custody':
+        specifier: 1.0.0-alpha.9
+        version: 1.0.0-alpha.9(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3))
       '@agenticprimitives/scripture-content-extension':
         specifier: ^1.0.0-alpha.6
         version: 1.0.0-alpha.6(@agenticprimitives/content-primitives@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(@agenticprimitives/verifiable-credentials@0.0.0-alpha.5(@agenticprimitives/ontology@1.0.0-alpha.9)(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(viem@2.52.2(typescript@5.9.3)))
