@@ -21,16 +21,27 @@ export const VALIDATOR_NAME = process.env.VALIDATOR_NAME ?? 'demo-validator.agen
 const KMS_KEY = process.env.VALIDATOR_KMS_KEY;
 const KMS_LEAF_JSON = process.env.VALIDATOR_DELEGATION_LEAF;
 const GCP_SA = process.env.GCP_SERVICE_ACCOUNT_JSON;
-const kmsMode = !!(SA && KMS_KEY && KMS_LEAF_JSON && GCP_SA);
+let kmsMode = !!(SA && KMS_KEY && KMS_LEAF_JSON && GCP_SA);
 
 let delegatingSigner: { delegatorIssuer: Address; delegateKey: Address; delegationLeaf: unknown } | undefined;
 let kmsSignDigest: ((hash: Hex) => Promise<Hex>) | undefined;
 if (kmsMode) {
-  const leaf = JSON.parse(KMS_LEAF_JSON!) as { delegate: string };
-  const kms = makeKmsSigner({ keyName: KMS_KEY!, serviceAccountJson: GCP_SA!, expectedAddress: leaf.delegate as Address });
-  kmsSignDigest = (hash: Hex) => kms.signDigest(hash);
-  delegatingSigner = { delegatorIssuer: SA!, delegateKey: leaf.delegate as Address, delegationLeaf: JSON.parse(KMS_LEAF_JSON!) };
+  // FAIL-SAFE: a malformed VALIDATOR_DELEGATION_LEAF / GCP_SERVICE_ACCOUNT_JSON must NOT crash the whole
+  // validator at module load — disable KMS and fall back to the dev signer, logging why (surfaced in health).
+  try {
+    const leaf = JSON.parse(KMS_LEAF_JSON!) as { delegate: string };
+    if (!leaf?.delegate) throw new Error('VALIDATOR_DELEGATION_LEAF has no `delegate`');
+    const kms = makeKmsSigner({ keyName: KMS_KEY!, serviceAccountJson: GCP_SA!, expectedAddress: leaf.delegate as Address });
+    kmsSignDigest = (hash: Hex) => kms.signDigest(hash);
+    delegatingSigner = { delegatorIssuer: SA!, delegateKey: leaf.delegate as Address, delegationLeaf: leaf };
+  } catch (e) {
+    kmsMode = false;
+    // eslint-disable-next-line no-console
+    console.error('[validator] KMS signing DISABLED (invalid config — falling back to dev signer):', (e as Error).message);
+  }
 }
+/** Whether the validator is signing attestations via the delegated HSM-KMS key (vs the dev held key). */
+export const KMS_SIGNING = kmsMode;
 
 // DEV-ONLY held-key fallback (when KMS isn't configured). NOT used in delegated mode.
 const OWNER_PK = (process.env.VALIDATOR_OWNER_PK ?? process.env.VALIDATOR_SIGNER_PK ?? '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6') as Hex;
