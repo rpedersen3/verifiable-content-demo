@@ -302,6 +302,37 @@ export async function resolveContentSignerKeys(env: McpEnv): Promise<{ signers: 
   return { signers, skipped };
 }
 
+/** Verify an owner-signed signer-delegation leaf BEFORE storing it. The name must resolve to the claimed SA
+ *  (anti-spoof), the leaf must bind that SA → the delegate key, and the issuer SA must have SIGNED
+ *  hashDelegation(leaf) (ERC-1271). This is the cryptographic authorization — only an identity's true
+ *  custodian can produce a leaf its SA validates — so storing needs no privileged access gate. Per-custodian:
+ *  bsb.impact / lbsb.impact / demo-validator.impact are each authorized only by whoever custodies that SA. */
+export async function verifyContentSignerLeaf(
+  env: McpEnv,
+  input: { issuerName: string; issuerSa: Address; delegateKey: Address; delegationLeaf: unknown },
+): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    if (!env.RPC_URL || !env.REGISTRY || !env.UNIVERSAL_RESOLVER || !env.FACTORY || !env.ENTRY_POINT || !env.DELEGATION_MANAGER) {
+      return { ok: false, reason: 'verification config missing (RPC_URL/REGISTRY/UNIVERSAL_RESOLVER/FACTORY/ENTRY_POINT/DELEGATION_MANAGER)' };
+    }
+    const chainId = Number(env.CHAIN_ID ?? DEV_CHAIN_ID);
+    const naming = new AgentNamingClient({ rpcUrl: env.RPC_URL, chainId, registry: env.REGISTRY as Address, universalResolver: env.UNIVERSAL_RESOLVER as Address });
+    const aac = new AgentAccountClient({ rpcUrl: env.RPC_URL, factory: env.FACTORY as Address, entryPoint: env.ENTRY_POINT as Address, chainId });
+    const resolved = (await naming.resolveName(input.issuerName)) as Address | null;
+    if (!resolved || resolved.toLowerCase() !== input.issuerSa.toLowerCase()) return { ok: false, reason: `${input.issuerName} does not resolve to ${input.issuerSa}` };
+    const leaf = input.delegationLeaf as { delegator?: string; delegate?: string; signature?: Hex };
+    if (!leaf?.delegator || !leaf?.delegate || !leaf?.signature) return { ok: false, reason: 'leaf missing delegator/delegate/signature' };
+    if (leaf.delegator.toLowerCase() !== input.issuerSa.toLowerCase()) return { ok: false, reason: 'leaf delegator ≠ issuer SA' };
+    if (leaf.delegate.toLowerCase() !== input.delegateKey.toLowerCase()) return { ok: false, reason: 'leaf delegate ≠ delegate key' };
+    const leafHash = hashDelegation(leaf as Parameters<typeof hashDelegation>[0], chainId, env.DELEGATION_MANAGER as Address);
+    const valid = await aac.isValidSignature(input.issuerSa, leafHash, leaf.signature);
+    if (!valid) return { ok: false, reason: 'issuer SA did not sign the delegation (ERC-1271 rejected) — only the identity’s custodian can authorize it' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: (e as Error).message };
+  }
+}
+
 let cached: Promise<TrustContext> | null = null;
 
 /** Resolve (once, cached) the trust context for this Worker from its env. */

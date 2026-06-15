@@ -30,7 +30,7 @@ const VC_CONTEXTS = [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT];
 import { getCorpora, inclusionProof, EDITIONS, type BuiltCorpus } from './editions/registry.js';
 import { loadD1Corpus, findD1Verse, findD1RangeByLeaf, leafIndexFor, chapterBounds, d1InclusionProof, type D1Like } from './editions/d1.js';
 import { verifySignedEntitlement } from './lib/trust.js';
-import { resolveTrust, resolveContentSignerKeys, type McpEnv, type TrustContext } from './lib/trust-context.js';
+import { resolveTrust, resolveContentSignerKeys, verifyContentSignerLeaf, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
@@ -818,6 +818,11 @@ app.post('/tools/store_content_signer', async (c) => {
   const b = await c.req.json<{ issuerName?: string; issuerSa?: string; delegateKey?: string; delegationLeaf?: unknown }>().catch(() => ({}) as Record<string, never>);
   if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
   if (!b.issuerName || !b.issuerSa || !b.delegateKey || !b.delegationLeaf) return c.json({ ok: false, error: 'issuerName, issuerSa, delegateKey, delegationLeaf required' }, 400);
+  // PER-CUSTODIAN AUTHORIZATION: cryptographically verify the leaf is signed by THIS issuer's SA (ERC-1271)
+  // before storing — only the identity's true custodian can produce it. This (not an access gate) is the
+  // authorization, so any connected custodian may store ONLY a delegation their own SA validates.
+  const v = await verifyContentSignerLeaf(c.env as unknown as McpEnv, { issuerName: b.issuerName, issuerSa: b.issuerSa as Address, delegateKey: b.delegateKey as Address, delegationLeaf: b.delegationLeaf });
+  if (!v.ok) { audit('content.signer.authorize', 'denied', b.issuerName, { reason: v.reason ?? 'unknown' }); return c.json({ ok: false, error: `delegation not authorized: ${v.reason}` }, 403); }
   const now = new Date().toISOString();
   await c.env.DB.prepare('INSERT INTO content_signers(issuer_name,issuer_sa,delegate_key,delegation_leaf,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(issuer_name) DO UPDATE SET issuer_sa=excluded.issuer_sa, delegate_key=excluded.delegate_key, delegation_leaf=excluded.delegation_leaf, updated_at=excluded.updated_at')
     .bind(b.issuerName, b.issuerSa, b.delegateKey, JSON.stringify(b.delegationLeaf), now, now).run();

@@ -54,6 +54,9 @@ async function verifyIdToken(env: Env, idToken: string): Promise<{ sub: string; 
 const CORPORA = {
   bsb: { service: 'bsb-archive', agent: 'bsb.impact', edition: 'demo-licensed' },
   lbsb: { service: 'lbsb', agent: 'lbsb.impact', edition: 'lbsb' },
+  // Not a corpus — the independent validator's signing identity. Listed so its OWN custodian can authorize
+  // its KMS key (per-custodian, spec 266). No edition: the requests/treasury panels are simply empty for it.
+  validator: { service: 'validator', agent: 'demo-validator.impact', edition: '' },
 } as const;
 const corpusOf = (k?: string) => (k && k in CORPORA ? CORPORA[k as keyof typeof CORPORA] : CORPORA.bsb);
 
@@ -236,7 +239,7 @@ const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
 function editionOf(){return corpusKey==='lbsb'?'lbsb':(corpusKey==='bsb'?'demo-licensed':'lbsb');}
 // Corpora this manager administers. Pick one FIRST, then connect AS that corpus's service agent (the
 // manager signs in at <short>.impact-agent.me as <agent>); the claim verifies custody via agent-naming.
-const CORPORA=[{key:'bsb',label:'BSB',short:'bsb',agent:'bsb.impact'},{key:'lbsb',label:'Licensed BSB',short:'lbsb',agent:'lbsb.impact'}];
+const CORPORA=[{key:'bsb',label:'BSB',short:'bsb',agent:'bsb.impact'},{key:'lbsb',label:'Licensed BSB',short:'lbsb',agent:'lbsb.impact'},{key:'validator',label:'Validator',short:'validator',agent:'demo-validator.impact'}];
 let corpusKey=localStorage.getItem('corp.corpus')||'';
 function curCorpus(){return CORPORA.filter(x=>x.key===corpusKey)[0]||null;}
 let session=null;
@@ -303,7 +306,7 @@ function renderPicker(){
   const cp=curCorpus();
   if(!cp){
     if(nv)nv.style.display='none';if(pe)pe.style.display='none';if(pf)pf.style.display='none';if(ob)ob.style.display='none';if(chip)chip.innerHTML='';if(hsub)hsub.textContent='select a corpus';
-    if(pk){pk.style.display='block';pk.innerHTML='<div class="cpick"><h2>Which scripture corpus do you manage?</h2><p class="muted" style="font-size:14px">Pick a corpus, then connect as its service agent. Only that agent\\'s custodian can administer it.</p><div class="cpickbtns">'+CORPORA.map(x=>'<div class="cpickcard" onclick="pickCorpus(\\''+x.key+'\\')"><b>'+esc(x.label)+'</b><span class="muted" style="font-size:12px">connect as <span class="mono">'+esc(x.agent)+'</span></span></div>').join('')+'</div></div>';}
+    if(pk){pk.style.display='block';pk.innerHTML='<div class="cpick"><h2>Which identity do you manage?</h2><p class="muted" style="font-size:14px">Pick a corpus or signing identity, then connect as its custodian. Only that identity\\'s custodian can administer it or authorize its signing key.</p><div class="cpickbtns">'+CORPORA.map(x=>'<div class="cpickcard" onclick="pickCorpus(\\''+x.key+'\\')"><b>'+esc(x.label)+'</b><span class="muted" style="font-size:12px">connect as <span class="mono">'+esc(x.agent)+'</span></span></div>').join('')+'</div></div>';}
   }else{
     if(pk){pk.style.display='none';pk.innerHTML='';}if(nv)nv.style.display='';if(ob)ob.style.display='';
     if(chip)chip.innerHTML='<span class="muted">'+esc(cp.label)+' · '+esc(cp.agent)+'</span> · <span class="chipbtn" onclick="switchCorpus()">switch</span>';
@@ -421,10 +424,12 @@ async function chargeDueSubscriptions(){
 // owner, fetches each issuer's KMS signing-key address, and the owner signs (with their own credential,
 // per issuer they custody) the issuer SA → key delegation; the content service stores it. No held key.
 async function authorizeContentSigning(){
-  if(!window.isOwnerNow){alert('Connect as the corpus owner first.');return;}
+  if(!window.isOwnerNow){alert('Connect as this identity\\'s custodian first.');return;}
+  const cp=curCorpus();
   const state=randB64(16),nonce=randB64(16),pk=await pkce();
   sessionStorage.setItem('corp.collect',JSON.stringify({state}));
-  const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','content-signer');u.searchParams.set('collect_token',session.idToken);
+  // PER-CUSTODIAN: authorize ONLY the identity you connected as (its custodian can sign just its SA's leaf).
+  const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','content-signer');u.searchParams.set('collect_token',session.idToken);u.searchParams.set('content_signer_target',cp.agent);
   location.href=u.toString();
 }
 // On return from the collection ceremony (?collect=1&collected=N), surface the result + refresh.
@@ -433,7 +438,7 @@ function collectCallback(){
   const collected=p.get('collected')||'0',attempted=p.get('attempted')||'0',kind=p.get('collect_kind')||'';
   history.replaceState(null,'',location.pathname+'#treasury');
   if(kind==='content-signer'){
-    setTimeout(function(){alert('✓ Authorized '+collected+' of '+attempted+' content issuer signing key'+(attempted==='1'?'':'s')+'. Descriptors now sign as the right issuer.');},300);
+    setTimeout(function(){alert('✓ Authorized '+collected+' of '+attempted+' signing key'+(attempted==='1'?'':'s')+' for this identity. It now signs via its HSM-backed KMS key — no held key.');},300);
   }else{
     setTimeout(function(){alert('✓ Collected '+collected+' of '+attempted+' due subscription'+(attempted==='1'?'':'s')+'. The ledger + due list are refreshed.');},300);
   }

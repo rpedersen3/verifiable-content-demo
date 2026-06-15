@@ -367,23 +367,26 @@ app.post('/admin/subscriptions/list', async (c) => {
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
-// ── Per-edition content-signer authorization (spec 266 delegated trust) ──
-// /admin/content-signer-keys — owner reads each content issuer's Cloud-KMS signing-key address (so the home
-// ceremony can sign issuerSA → key delegations). Owner-gated against the licensed corpus.
+// ── Per-custodian signing-identity authorization (spec 266 delegated trust) ──
+// Authorization is CRYPTOGRAPHIC, not by access gate: the MCP's store verifies each delegation leaf is
+// signed by that identity's SA (ERC-1271), so only an identity's true custodian can authorize its key.
+// These endpoints therefore only AUTHENTICATE (any connected custodian) — the per-identity check is the leaf.
+// /admin/content-signer-keys — read the signing identities + their KMS key addresses (non-secret list).
 app.post('/admin/content-signer-keys', async (c) => {
   const b = await c.req.json<{ id_token?: string }>().catch(() => ({}) as Record<string, never>);
   try {
-    await ownerGateA2A(c.env, String(b.id_token ?? ''), 'lbsb');
+    await verifyIdToken(String(b.id_token ?? '')); // authenticate any connected custodian
     const r = await mcpPost(c.env, '/tools/content_signer_keys', {});
     return c.json(r.body, r.status as 200);
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
 
-// /admin/store-content-signer — owner stores a signed issuerSA → KMS-key delegation. Owner-gated.
+// /admin/store-content-signer — store a signed SA→KMS-key delegation. The MCP rejects any leaf the named
+// identity's SA didn't sign, so each custodian can store ONLY their own identity's delegation.
 app.post('/admin/store-content-signer', async (c) => {
   const b = await c.req.json<{ id_token?: string; issuerName?: string; issuerSa?: string; delegateKey?: string; delegationLeaf?: unknown }>().catch(() => ({}) as Record<string, never>);
   try {
-    await ownerGateA2A(c.env, String(b.id_token ?? ''), 'lbsb');
+    await verifyIdToken(String(b.id_token ?? '')); // authenticate; the MCP leaf-signature check is the authorization
     const r = await mcpPost(c.env, '/tools/store_content_signer', { issuerName: b.issuerName, issuerSa: b.issuerSa, delegateKey: b.delegateKey, delegationLeaf: b.delegationLeaf });
     return c.json(r.body, r.status as 200);
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
