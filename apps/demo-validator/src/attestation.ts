@@ -9,19 +9,42 @@
 import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT, type UnsignedCredential } from '@agenticprimitives/verifiable-credentials';
 import { keccak256, toBytes, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { makeKmsSigner } from './kms-signer.js';
 
+const SA = process.env.VALIDATOR_SA as Address | undefined;
+export const VALIDATOR_CHAIN_ID = Number(process.env.VALIDATOR_CHAIN_ID ?? 84532);
+export const VALIDATOR_NAME = process.env.VALIDATOR_NAME ?? 'demo-validator.agent';
+
+// spec 266 — KMS-DELEGATED signing, NO held key: the validator's SA (demo-validator.impact) authorized a
+// Cloud-KMS key via a stored ERC-7710 delegation. The KMS key signs the attestation; the proof carries the
+// leaf so verifiers root trust in the SA via ERC-1271 while the day-to-day signer is the (rotatable) HSM key.
+const KMS_KEY = process.env.VALIDATOR_KMS_KEY;
+const KMS_LEAF_JSON = process.env.VALIDATOR_DELEGATION_LEAF;
+const GCP_SA = process.env.GCP_SERVICE_ACCOUNT_JSON;
+const kmsMode = !!(SA && KMS_KEY && KMS_LEAF_JSON && GCP_SA);
+
+let delegatingSigner: { delegatorIssuer: Address; delegateKey: Address; delegationLeaf: unknown } | undefined;
+let kmsSignDigest: ((hash: Hex) => Promise<Hex>) | undefined;
+if (kmsMode) {
+  const leaf = JSON.parse(KMS_LEAF_JSON!) as { delegate: string };
+  const kms = makeKmsSigner({ keyName: KMS_KEY!, serviceAccountJson: GCP_SA!, expectedAddress: leaf.delegate as Address });
+  kmsSignDigest = (hash: Hex) => kms.signDigest(hash);
+  delegatingSigner = { delegatorIssuer: SA!, delegateKey: leaf.delegate as Address, delegationLeaf: JSON.parse(KMS_LEAF_JSON!) };
+}
+
+// DEV-ONLY held-key fallback (when KMS isn't configured). NOT used in delegated mode.
 const OWNER_PK = (process.env.VALIDATOR_OWNER_PK ?? process.env.VALIDATOR_SIGNER_PK ?? '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6') as Hex;
 const owner = privateKeyToAccount(OWNER_PK);
-const SA = process.env.VALIDATOR_SA as Address | undefined;
 
 export const IS_SA = !!SA;
 export const VALIDATOR_ADDRESS = (SA ?? owner.address) as Address;
-export const VALIDATOR_CHAIN_ID = Number(process.env.VALIDATOR_CHAIN_ID ?? 84532);
 export const VALIDATOR_AGENT_ID = `eip155:${VALIDATOR_CHAIN_ID}:${VALIDATOR_ADDRESS}`;
-export const VALIDATOR_NAME = process.env.VALIDATOR_NAME ?? 'demo-validator.agent';
 
-// SA → owner signs EIP-191 (ERC-1271 validates); EOA → sign raw (recover validates).
-const signDigest = SA ? (hash: Hex) => owner.signMessage({ message: { raw: hash } }) : (hash: Hex) => owner.sign({ hash });
+// Digest signer: KMS delegate key (raw secp256k1, recovers to the delegate) in delegated mode; else the
+// dev held key — SA→EIP-191 (ERC-1271 validates) or EOA→raw.
+const signDigest: (hash: Hex) => Promise<Hex> = kmsMode
+  ? kmsSignDigest!
+  : SA ? (hash: Hex) => owner.signMessage({ message: { raw: hash } }) : (hash: Hex) => owner.sign({ hash });
 
 const credentialSigner = {
   issuerAddress: VALIDATOR_ADDRESS,
@@ -79,5 +102,6 @@ export async function buildValidationAttestation(input: AttestationInput) {
       checksHash: input.checksHash,
     },
   };
-  return signCredential(unsigned, credentialSigner);
+  // In delegated mode the proof carries the issuer→KMS-key leaf (delegate signs, SA is the root of trust).
+  return signCredential(unsigned, credentialSigner, kmsMode ? { delegatingSigner } : undefined);
 }
