@@ -218,9 +218,6 @@ importers:
       '@agenticprimitives/content-primitives':
         specifier: 1.0.0-alpha.10
         version: 1.0.0-alpha.10(@agenticprimitives/types@1.0.0-alpha.9)(@agenticprimitives/verifiable-credentials@0.0.0-alpha.6(@agenticprimitives/ontology@1.0.0-alpha.9)(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(viem@2.52.2(typescript@5.9.3))
-      '@agenticprimitives/delegation':
-        specifier: 1.0.0-alpha.9
-        version: 1.0.0-alpha.9(@agenticprimitives/agent-account@1.0.0-alpha.9(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/key-custody@1.0.0-alpha.9(@agenticprimitives/audit@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9))(@agenticprimitives/connect-auth@1.0.0-alpha.9(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3))
       '@agenticprimitives/verifiable-credentials':
         specifier: 0.0.0-alpha.6
         version: 0.0.0-alpha.6(@agenticprimitives/ontology@1.0.0-alpha.9)(@agenticprimitives/types@1.0.0-alpha.9)(viem@2.52.2(typescript@5.9.3))

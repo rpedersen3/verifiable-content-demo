@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@agenticprimitives/content-primitives": "^1.0.0-alpha.6",
-    "@agenticprimitives/delegation": "^1.0.0-alpha.6",
     "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.2",
     "@hono/node-server": "^1.13.0",
     "circomlibjs": "^0.1.7",
