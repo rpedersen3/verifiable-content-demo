@@ -12,23 +12,26 @@
 // Auth: GCP_SERVICE_ACCOUNT_JSON (the SAME service account already used by the A2A relayer's
 // GcpKmsSigner) → RS256 JWT → OAuth token. No private signing key is ever handled here.
 //
-// Usage:
-//   GCP_SERVICE_ACCOUNT_JSON="$(cat sa.json)" \
-//   KMS_LOCATION=us-east1 KMS_KEYRING=content-signers \
-//   node scripts/provision-content-signer-keys.mjs [issuer ...]
+// Usage (with the SA key file at ~/content-signer-admin-sa.json, zero flags needed):
+//   node scripts/provision-content-signer-keys.mjs [name ...]
+// Or point at the key explicitly:
+//   GCP_SERVICE_ACCOUNT_FILE=/path/to/sa.json node scripts/provision-content-signer-keys.mjs
 //
-// Defaults: location=us-east1, keyring=content-signers, names="bsb.impact lbsb.impact demo-validator.impact".
+// Defaults: location=us-central1, keyring=content-signers, names="bsb.impact lbsb.impact demo-validator.impact".
 // The set is every KMS-delegated SIGNING IDENTITY on the platform — content issuers + the validator (and
 // later the resolver agent). Prints the CONTENT_SIGNER_KEYS JSON map to paste into `wrangler secret put`
 // for the MCP (and the validator/a2a, which fetch their own delegation + sign their VCs via these keys).
 
 import { createSign } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const KMS_BASE = 'https://cloudkms.googleapis.com/v1';
 const SCOPE = 'https://www.googleapis.com/auth/cloudkms';
 
-const LOCATION = process.env.KMS_LOCATION ?? 'us-east1';
+const LOCATION = process.env.KMS_LOCATION ?? 'us-central1';
 const KEYRING = process.env.KMS_KEYRING ?? 'content-signers';
 const ISSUERS = process.argv.slice(2).length ? process.argv.slice(2) : ['bsb.impact', 'lbsb.impact', 'demo-validator.impact'];
 
@@ -37,10 +40,18 @@ function b64url(buf) {
 }
 
 function loadServiceAccount() {
-  const raw = process.env.GCP_SERVICE_ACCOUNT_JSON;
+  // SA can come from (in order): GCP_SERVICE_ACCOUNT_JSON (inline), GCP_SERVICE_ACCOUNT_FILE (a path),
+  // or a key file at ~/content-signer-admin-sa.json. So you can just drop the key in your home dir and run.
+  let raw = process.env.GCP_SERVICE_ACCOUNT_JSON;
   if (!raw) {
-    console.error('FATAL: GCP_SERVICE_ACCOUNT_JSON is required (the service-account JSON string).');
-    process.exit(1);
+    const file = process.env.GCP_SERVICE_ACCOUNT_FILE ?? join(homedir(), 'content-signer-admin-sa.json');
+    try {
+      raw = readFileSync(file, 'utf8');
+      console.error(`(loaded service account from ${file})`);
+    } catch {
+      console.error(`FATAL: provide the service account via GCP_SERVICE_ACCOUNT_JSON, GCP_SERVICE_ACCOUNT_FILE=<path>, or a key file at ${file}`);
+      process.exit(1);
+    }
   }
   let sa;
   try { sa = JSON.parse(raw); } catch { console.error('FATAL: GCP_SERVICE_ACCOUNT_JSON is not valid JSON.'); process.exit(1); }
