@@ -7,6 +7,7 @@ import {
   verifyContentDescriptor,
   verifyCommitment,
   type SignatureVerifier,
+  type DelegatedAuthorityVerifier,
 } from '@agenticprimitives/content-primitives';
 import { verifyCredentialStructural } from '@agenticprimitives/verifiable-credentials';
 import { poseidonRoot, toField, verifyMembership } from './zk.js';
@@ -20,6 +21,9 @@ export interface ValidateOpts {
   /** Signature verifier for descriptor/entitlement (EOA recovery by default;
    *  inject ERC-1271 for on-chain issuers). */
   verifySignature?: SignatureVerifier;
+  /** spec 266 — verify the issuer→KMS-key delegation (ERC-1271 on the issuer SA) so a delegate-signed
+   *  descriptor is trusted without the issuer's key being held. Omit for non-delegated bundles. */
+  verifyDelegatedAuthority?: DelegatedAuthorityVerifier;
 }
 
 const addrOf = (agentId: string): string => agentId.split(':').pop() ?? agentId;
@@ -62,6 +66,7 @@ export async function validateBundle(bundle: EvidenceBundle, opts: ValidateOpts)
   // 4. descriptor signature (issuer) + Merkle inclusion against the corpus root.
   const dv = await verifyContentDescriptor(descriptor, {
     verifySignature: verify,
+    verifyDelegatedAuthority: opts.verifyDelegatedAuthority,
     corpusRoot: proof.corpusRoot as Hex,
     inclusionProof: proof.inclusionProof as Hex[],
   });

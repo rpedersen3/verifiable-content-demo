@@ -5,19 +5,21 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { validateBundle } from './validate.js';
-import { makeOnchainVerifier } from './onchain.js';
+import { makeOnchainVerifier, makeDelegatedAuthorityVerifier } from './onchain.js';
 import { buildValidationAttestation, hashJson, VALIDATOR_AGENT_ID, VALIDATOR_NAME } from './attestation.js';
 import { buildTrustGraph } from './trust-graph.js';
 import { anchorAttestation } from './anchor.js';
 import type { EvidenceBundle } from './bundle.js';
 
 const MCP_URL = (process.env.MCP_URL ?? 'http://localhost:8790').replace(/\/$/, '');
-// On-chain SA issuer (Base Sepolia) by default; override with VALIDATOR_TRUSTED_ISSUERS.
-const TRUSTED_ISSUERS = (process.env.VALIDATOR_TRUSTED_ISSUERS ?? '0x72D8679435cF288689e157b1AA1F8648A7746851')
+// On-chain SA issuers (Base Sepolia) by default; override with VALIDATOR_TRUSTED_ISSUERS.
+// Per-edition issuers (spec 266): bsb.impact (0x72D8…) + lbsb.impact (0x91B4…).
+const TRUSTED_ISSUERS = (process.env.VALIDATOR_TRUSTED_ISSUERS ?? '0x72D8679435cF288689e157b1AA1F8648A7746851,0x91b43817d8f9ff449a4c68cb187821b13b5feabe')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
 const verifySignature = makeOnchainVerifier();
+const verifyDelegatedAuthority = makeDelegatedAuthorityVerifier();
 
 async function fetchCorpus(edition: string): Promise<string[]> {
   const res = await fetch(`${MCP_URL}/corpus/${edition}`);
@@ -48,7 +50,7 @@ app.post('/validate', async (c) => {
   const bundle = await c.req.json<EvidenceBundle>().catch(() => null);
   if (!bundle) return c.json({ ok: false, error: 'invalid bundle' }, 400);
   try {
-    const result = await validateBundle(bundle, { trustedIssuers: TRUSTED_ISSUERS, fetchCorpus, verifySignature });
+    const result = await validateBundle(bundle, { trustedIssuers: TRUSTED_ISSUERS, fetchCorpus, verifySignature, verifyDelegatedAuthority });
 
     // The validator is an ATTESTING agent: sign a ValidationAttestation over the
     // bundle + return a small trust graph around the validated output.
