@@ -137,6 +137,25 @@ app.post('/admin/feedback', async (c) => {
     return c.json((r.body as Record<string, unknown>) ?? r);
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 401); }
 });
+// Signing-identity roster (non-secret platform status): every identity that must authorize a Cloud-KMS
+// signing key, merged with which have ALREADY stored their owner-signed SA→key delegation. Ungated —
+// it's public status (no leaf bodies, no secrets), so the tab can show "already signed" before connect.
+app.post('/admin/signing-identities', async (c) => {
+  try {
+    const keys = await mcp(c.env, '/tools/content_signer_keys', {});
+    const stored = await mcp(c.env, '/tools/list_content_signers', {});
+    const signers = (keys.signers as Array<{ issuerName: string; issuerSa: string; delegateKey: string }>) ?? [];
+    const rows = (stored.signers as Array<{ issuer_name: string; delegate_key: string; updated_at: string }>) ?? [];
+    const byName = new Map(rows.map((r) => [r.issuer_name.toLowerCase(), r]));
+    const roster = signers.map((s) => {
+      const row = byName.get(s.issuerName.toLowerCase());
+      // authorized ONLY when a leaf is stored AND it binds the CURRENT KMS delegate key (rotation-safe).
+      const authorized = !!row && row.delegate_key.toLowerCase() === s.delegateKey.toLowerCase();
+      return { issuerName: s.issuerName, issuerSa: s.issuerSa, delegateKey: s.delegateKey, authorized, updatedAt: row?.updated_at ?? null };
+    });
+    return c.json({ ok: true, roster });
+  } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 503); }
+});
 app.get('/health', (c) => c.json({ ok: true, service: 'demo-corpus' }));
 app.get('/', (c) => c.html(SPA));
 
@@ -220,6 +239,7 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <div id="page-sign" style="display:none">
 <div class="card"><h3 style="margin-top:0">Signing identities · authorize the keys</h3>
 <p class="muted" style="font-size:13px">Every signing identity on the platform — content issuers (<span class="mono">bsb.impact</span>, <span class="mono">lbsb.impact</span>), the independent validator (<span class="mono">demo-validator.impact</span>), and the resolver agent (<span class="mono">scripture-resolver.impact</span>) — signs with a key held in an <b>HSM-backed Cloud KMS</b>; the key never leaves the HSM. Authorize once: <b>one ceremony</b> signs, with your own credential, a delegation binding each SA you custody → its HSM signing key. Each service then signs its credentials <i>as the right identity</i>, with no held private key.</p>
+<div id="signroster" style="margin:10px 0"><p class="muted" style="font-size:13px">Loading signing-identity status…</p></div>
 <div id="csstat" class="ownb" style="background:#eefbf3;border:1px solid #cfeede;color:#1d6b45">—</div>
 <div style="margin:8px 0"><button class="ap" id="csBtn" onclick="authorizeContentSigning()">Authorize content signing</button></div></div>
 </div>
@@ -384,7 +404,8 @@ function showPage(name){
   Object.keys(PAGES).forEach(function(k){const p=document.getElementById(PAGES[k][0]);if(p)p.style.display=(k===name)?'':'none';const n=document.getElementById(PAGES[k][1]);if(n)n.className='navlink'+(k===name?' active':'');});
   const want=PAGES[name][2];if(location.hash!==want)history.replaceState(null,'',location.pathname+want);
   if(name==='fb'&&window.isOwnerNow)loadFeedback();
-  if(name==='tre'&&window.isOwnerNow){loadTreasury();loadSubscriptions();}}
+  if(name==='tre'&&window.isOwnerNow){loadTreasury();loadSubscriptions();}
+  if(name==='sign')loadSigningIdentities();}
 function route(){const h=location.hash;showPage(h==='#feedback'?'fb':h==='#signing'?'sign':h==='#treasury'?'tre':'ent');}
 async function loadTreasury(){
   const el=document.getElementById('trelist'),st=document.getElementById('trestat');if(!el)return;
@@ -425,6 +446,27 @@ async function chargeDueSubscriptions(){
   const u=new URL('/',CENTRAL_AUTH_ORIGIN);u.searchParams.set('client_id',CLIENT_ID);u.searchParams.set('redirect_uri',location.origin+'/');u.searchParams.set('response_type','code');u.searchParams.set('scope','openid agent');u.searchParams.set('state',state);u.searchParams.set('nonce',nonce);u.searchParams.set('code_challenge',pk.challenge);u.searchParams.set('code_challenge_method','S256');u.searchParams.set('agent_name','');u.searchParams.set('delegate',CONNECT_DELEGATE);u.searchParams.set('delegation_template','subscription-collect');u.searchParams.set('collect_token',session.idToken);
   location.href=u.toString();
 }
+// Roster of every signing identity + which have ALREADY authorized (stored) their HSM-KMS delegation.
+// Non-secret platform status — loads whenever the Signing identities tab is shown, even before connect.
+async function loadSigningIdentities(){
+  const el=document.getElementById('signroster');if(!el)return;
+  const r=await post('/admin/signing-identities',{}).catch(function(e){return {ok:false,error:String(e)};});
+  if(!r||!r.ok){el.innerHTML='<p class="muted" style="font-size:13px">Could not load signing-identity status'+(r&&r.error?': '+esc(r.error):'')+'.</p>';return;}
+  const roster=r.roster||[];const cur=String(((curCorpus()||{}).agent)||'').toLowerCase();
+  const done=roster.filter(function(x){return x.authorized;}).length;
+  const rows=roster.map(function(x){
+    const isCur=x.issuerName.toLowerCase()===cur;
+    const badge=x.authorized
+      ?'<span style="background:#e6f7ee;color:#1d6b45;border:1px solid #bfe6cf;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:600;white-space:nowrap">&#10003; Authorized</span>'
+      :'<span style="background:#fff5e6;color:#8a5a00;border:1px solid #f0dcb0;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:600;white-space:nowrap">Not yet authorized</span>';
+    const when=x.authorized&&x.updatedAt?'<span class="muted" style="font-size:11px"> &middot; '+esc(String(x.updatedAt).slice(0,10))+'</span>':'';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px'+(isCur?';background:#f6faff;border-color:#cfe0f5':'')+'">'
+      +'<div style="flex:1;min-width:0"><div style="font-weight:600"><span class="mono">'+esc(x.issuerName)+'</span>'+(isCur?' <span class="muted" style="font-size:11px">&middot; connected</span>':'')+'</div>'
+      +'<div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">SA '+esc(x.issuerSa)+' &rarr; HSM key '+esc(x.delegateKey)+'</div></div>'
+      +badge+when+'</div>';
+  }).join('');
+  el.innerHTML='<div class="muted" style="font-size:12px;margin-bottom:6px"><b>'+done+' of '+roster.length+'</b> signing identities bound to their HSM-backed Cloud KMS key</div>'+rows;
+}
 // Authorize content signing: hand off to the HOME content-signer ceremony. The home recognizes the
 // owner, fetches each issuer's KMS signing-key address, and the owner signs (with their own credential,
 // per issuer they custody) the issuer SA → key delegation; the content service stores it. No held key.
@@ -447,6 +489,7 @@ function collectCallback(){
   const collected=p.get('collected')||'0',attempted=p.get('attempted')||'0',kind=p.get('collect_kind')||'';
   history.replaceState(null,'',location.pathname+(kind==='content-signer'?'#signing':'#treasury'));
   if(kind==='content-signer'){
+    loadSigningIdentities();
     setTimeout(function(){alert('✓ Authorized '+collected+' of '+attempted+' signing key'+(attempted==='1'?'':'s')+' for this identity. It now signs via its HSM-backed KMS key — no held key.');},300);
   }else{
     setTimeout(function(){alert('✓ Collected '+collected+' of '+attempted+' due subscription'+(attempted==='1'?'':'s')+'. The ledger + due list are refreshed.');},300);
