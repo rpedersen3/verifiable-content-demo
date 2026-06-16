@@ -8,7 +8,6 @@
 
 import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT, type UnsignedCredential } from '@agenticprimitives/verifiable-credentials';
 import { keccak256, toBytes, type Address, type Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { makeKmsSigner, parseLooseJson } from './kms-signer.js';
 
 const SA = process.env.VALIDATOR_SA as Address | undefined;
@@ -48,21 +47,20 @@ if (kmsMode) {
 /** Whether the validator is signing attestations via the delegated HSM-KMS key (vs the dev held key). */
 export const KMS_SIGNING = kmsMode;
 /** Diagnostics for /health — which KMS env vars are present + why KMS is off (no secret values). */
-export const KMS_DEBUG = { guard: 'trim-v4', sa: !!SA, kmsKey: !!KMS_KEY, leaf: !!KMS_LEAF_JSON, gcpSa: !!GCP_SA, reason: kmsReason };
+export const KMS_DEBUG = { guard: 'nofallback-v5', sa: !!SA, kmsKey: !!KMS_KEY, leaf: !!KMS_LEAF_JSON, gcpSa: !!GCP_SA, reason: kmsReason };
 
-// DEV-ONLY held-key fallback (when KMS isn't configured). NOT used in delegated mode.
-const OWNER_PK = (process.env.VALIDATOR_OWNER_PK ?? process.env.VALIDATOR_SIGNER_PK ?? '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6') as Hex;
-const owner = privateKeyToAccount(OWNER_PK);
-
+// NO held-key fallback. The validator signs ONLY via the KMS-delegated key (demo-validator.impact).
+// Identity is the SA (VALIDATOR_SA); the day-to-day signer is the rotatable HSM delegate. If KMS isn't
+// configured, signing FAILS CLOSED (reason surfaced in /health.kms) — it never silently signs with a dev key.
 export const IS_SA = !!SA;
-export const VALIDATOR_ADDRESS = (SA ?? owner.address) as Address;
+export const VALIDATOR_ADDRESS = SA as Address; // required; kmsMode already gates on SA being set
 export const VALIDATOR_AGENT_ID = `eip155:${VALIDATOR_CHAIN_ID}:${VALIDATOR_ADDRESS}`;
 
-// Digest signer: KMS delegate key (raw secp256k1, recovers to the delegate) in delegated mode; else the
-// dev held key — SA→EIP-191 (ERC-1271 validates) or EOA→raw.
-const signDigest: (hash: Hex) => Promise<Hex> = kmsMode
-  ? kmsSignDigest!
-  : SA ? (hash: Hex) => owner.signMessage({ message: { raw: hash } }) : (hash: Hex) => owner.sign({ hash });
+const noSigner = (): Promise<Hex> =>
+  Promise.reject(new Error(`validator signing not configured — KMS required, no held-key fallback (${kmsReason ?? 'KMS disabled'})`));
+
+// Digest signer: the KMS delegate key (raw secp256k1, recovers to the delegate). No fallback.
+const signDigest: (hash: Hex) => Promise<Hex> = kmsMode ? kmsSignDigest! : noSigner;
 
 const credentialSigner = {
   issuerAddress: VALIDATOR_ADDRESS,
@@ -71,10 +69,11 @@ const credentialSigner = {
   signDigest,
 };
 
-/** EIP-191 sign by the validator owner (for the on-chain attestation anchor;
- *  the registry's EOA + ERC-1271 verify paths both use EIP-191). */
+/** Sign the on-chain attestation-anchor digest via the SAME KMS delegate key (no held key). Anchoring is
+ *  env-gated and currently disabled; when enabled, registry verification must take the delegatingSigner /
+ *  ERC-1271 path since the signer is the delegate, not a direct SA custodian. */
 export function signAnchorDigest(digest: Hex): Promise<Hex> {
-  return owner.signMessage({ message: { raw: digest } });
+  return signDigest(digest);
 }
 
 export function hashJson(x: unknown): Hex {
