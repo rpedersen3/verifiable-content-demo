@@ -57,6 +57,9 @@ const CORPORA = {
   // Not a corpus — the independent validator's signing identity. Listed so its OWN custodian can authorize
   // its KMS key (per-custodian, spec 266). No edition: the requests/treasury panels are simply empty for it.
   validator: { service: 'validator', agent: 'demo-validator.impact', edition: '' },
+  // Not a corpus — the responding resolver agent's citation-signing identity. Same per-custodian ceremony:
+  // its custodian authorizes scripture-resolver.impact's KMS key so citations sign with no held key.
+  resolver: { service: 'resolver', agent: 'scripture-resolver.impact', edition: '' },
 } as const;
 const corpusOf = (k?: string) => (k && k in CORPORA ? CORPORA[k as keyof typeof CORPORA] : CORPORA.bsb);
 
@@ -239,7 +242,7 @@ const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
 function editionOf(){return corpusKey==='lbsb'?'lbsb':(corpusKey==='bsb'?'demo-licensed':'lbsb');}
 // Corpora this manager administers. Pick one FIRST, then connect AS that corpus's service agent (the
 // manager signs in at <short>.impact-agent.me as <agent>); the claim verifies custody via agent-naming.
-const CORPORA=[{key:'bsb',label:'BSB',short:'bsb',agent:'bsb.impact'},{key:'lbsb',label:'Licensed BSB',short:'lbsb',agent:'lbsb.impact'},{key:'validator',label:'Validator',short:'validator',agent:'demo-validator.impact'}];
+const CORPORA=[{key:'bsb',label:'BSB',short:'bsb',agent:'bsb.impact'},{key:'lbsb',label:'Licensed BSB',short:'lbsb',agent:'lbsb.impact'},{key:'validator',label:'Validator',short:'validator',agent:'demo-validator.impact'},{key:'resolver',label:'Resolver agent',short:'scripture-resolver',agent:'scripture-resolver.impact'}];
 let corpusKey=localStorage.getItem('corp.corpus')||'';
 function curCorpus(){return CORPORA.filter(x=>x.key===corpusKey)[0]||null;}
 let session=null;
