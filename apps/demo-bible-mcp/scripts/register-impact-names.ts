@@ -65,7 +65,7 @@ async function main() {
   const names: { label: string; target: Address; name: string }[] = [
     { label: d.agents.issuer.name.split('.')[0], target: d.agents.issuer.sa, name: d.agents.issuer.name },
     { label: d.agents.validator.name.split('.')[0], target: d.agents.validator.sa, name: d.agents.validator.name },
-    { label: d.agents.agent.name.split('.')[0], target: d.agents.agent.address, name: d.agents.agent.name },
+    { label: d.agents.agent.name.split('.')[0], target: d.agents.agent.sa, name: d.agents.agent.name },
     // lbsb.impact — the per-edition issuer for the licensed edition (spec 266 delegated content trust).
     ...(d.agents.licensed ? [{ label: d.agents.licensed.name.split('.')[0], target: d.agents.licensed.sa as Address, name: d.agents.licensed.name as string }] : []),
   ];
