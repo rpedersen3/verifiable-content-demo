@@ -1,4 +1,4 @@
-// BSB Corpus-Manager (bsb.impact) A2A skills — the reader-facing entitlement conversation on the
+// BSB Corpus-Manager (fbsb.impact) A2A skills — the reader-facing entitlement conversation on the
 // async, delegation-authorized bus (@agenticprimitives/a2a, spec 269). Handlers are transport-free:
 // they use ctx.principal (the verified reader = delegation.delegator), ctx.mcp (our entitlement
 // tools via the a2a→mcp seam), ctx.vault (deliver into a principal's vault), and ctx.emitArtifact.

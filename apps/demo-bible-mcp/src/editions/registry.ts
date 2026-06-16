@@ -69,7 +69,7 @@ export const EDITIONS: EditionEntry[] = [
     edition: BSB_EDITION,
     version: BSB_VERSION,
     displayName: 'Berean Standard Bible',
-    issuerName: 'bsb.impact',
+    issuerName: 'fbsb.impact',
     language: 'en',
     accessPolicy: 'public',
     rightsStatus: 'public-domain',
@@ -117,7 +117,7 @@ export interface BuiltCorpus {
 
 /** The issuer + signing strategy a corpus is built/signed with (dev, on-chain, or delegated/KMS). */
 export interface CorpusSigner {
-  /** The issuer SA this edition's descriptors are attributed to (per-edition: bsb.impact / lbsb.impact). */
+  /** The issuer SA this edition's descriptors are attributed to (per-edition: fbsb.impact / lbsb.impact). */
   issuer: Address;
   /** Signs the descriptor digest. In delegated mode this is the issuer-AUTHORIZED KMS key (not the issuer). */
   signDigest: (hash: Hex) => Promise<Hex>;

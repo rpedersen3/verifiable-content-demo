@@ -26,7 +26,7 @@ AGENT_NAME = "scripture-resolver.impact"
 A2A_AGENT_SA = "0x7008482Da2eb5050F1081aC9cF4eA9DFCdAa4378"
 A2A_CHAIN_ID = "84532"
 # Async A2A bus target: the BSB Corpus-Manager agent. INERT until BSB_AGENT_SA = the claimed
-# bsb.impact Smart Agent is set (and the BSB agent itself is activated with RPC + its claimed SA).
+# fbsb.impact Smart Agent is set (and the BSB agent itself is activated with RPC + its claimed SA).
 BSB_AGENT_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
 # BSB_AGENT_SA = "0x..."
 # Base Sepolia caveat enforcers — for building the reader's scoped grant (buildA2aGrantCaveats).

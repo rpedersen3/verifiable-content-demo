@@ -33,7 +33,7 @@ const SCOPE = 'https://www.googleapis.com/auth/cloudkms';
 
 const LOCATION = process.env.KMS_LOCATION ?? 'us-central1';
 const KEYRING = process.env.KMS_KEYRING ?? 'content-signers';
-const ISSUERS = process.argv.slice(2).length ? process.argv.slice(2) : ['bsb.impact', 'lbsb.impact', 'demo-validator.impact', 'scripture-resolver.impact'];
+const ISSUERS = process.argv.slice(2).length ? process.argv.slice(2) : ['fbsb.impact', 'lbsb.impact', 'demo-validator.impact', 'scripture-resolver.impact'];
 
 function b64url(buf) {
   return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

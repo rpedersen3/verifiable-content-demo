@@ -27,17 +27,17 @@ workers_dev = true
 [env.production.vars]
 SCHEME_ID = "bible-verse"
 # spec 266 — delegated content signing. PREREQUISITE before flipping this on: each issuer
-# (bsb.impact, lbsb.impact) must authorize its Cloud-KMS key via the demo-corpus "Authorize content
+# (fbsb.impact, lbsb.impact) must authorize its Cloud-KMS key via the demo-corpus "Authorize content
 # signing" ceremony (stores the issuer→delegate ERC-7710 leaf in the DB). Until then, resolveTrust
 # throws "no content-signer delegation stored" and every content endpoint 500s. Keys + secrets are
 # provisioned (CONTENT_SIGNER_KEYS / GCP_SERVICE_ACCOUNT_JSON); set TRUST_MODE="delegated" AFTER the
-# ceremony, then redeploy. CEREMONY DONE 2026-06-15: bsb.impact + lbsb.impact delegations stored in D1.
+# ceremony, then redeploy. CEREMONY DONE 2026-06-15: fbsb.impact + lbsb.impact delegations stored in D1.
 # buildDelegated is resilient — unconfigured issuers (e.g. demo-licensed.impact) degrade per-edition, no crash.
 TRUST_MODE = "delegated"
 ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 RELAY_URL = "https://demo-a2a-production.richardpedersen3.workers.dev"
 RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
-# A2A bus (spec 269) — Base Sepolia contracts. INERT until A2A_AGENT_SA (claimed bsb.impact) +
+# A2A bus (spec 269) — Base Sepolia contracts. INERT until A2A_AGENT_SA (claimed fbsb.impact) +
 # A2A_RPC_URL (a Base Sepolia RPC, set as a secret) are configured: on-chain checks fail closed.
 SELF_URL = "https://demo-bible-mcp-production.richardpedersen3.workers.dev"
 A2A_CHAIN_ID = "84532"
@@ -49,10 +49,10 @@ A2A_UNIVERSAL_VALIDATOR = "0xe8F3e531429F44D77dC3A331C18032bfa1550D84"
 A2A_ENF_TARGETS = "0xe3909FdEfD8b74B7D006E045DCd678e97D469Bfd"
 A2A_ENF_METHODS = "0xf77cf06aCd8b9e2f3204fe4bE16449B3594c9633"
 A2A_ENF_TIMESTAMP = "0x7c452434314A5bf2048f9263aeCd0cC20Fa07965"
-# A2A_AGENT_SA = "0x..."   # set to the claimed bsb.impact Smart Agent to activate
-# Bind corpus ownership to the bsb.impact NAME: only this canonical agent id may claim the corpus
-# (the home only issues a bsb.impact id_token to its controller). Resolve it from agent-naming
-# (resolveName('bsb.impact')) and pin it here. Unset ⇒ first-claim-wins (demo fallback).
+# A2A_AGENT_SA = "0x..."   # set to the claimed fbsb.impact Smart Agent to activate
+# Bind corpus ownership to the fbsb.impact NAME: only this canonical agent id may claim the corpus
+# (the home only issues a fbsb.impact id_token to its controller). Resolve it from agent-naming
+# (resolveName('fbsb.impact')) and pin it here. Unset ⇒ first-claim-wins (demo fallback).
 # BSB_OWNER_AGENT_ID = "eip155:84532:0x..."
 # Mock USDC token — for the KEYLESS usdc_balance read (treasury balance in the Explorer admin lane).
 # No faucet, no FAUCET_PK: funding a treasury is a client-side custodian mint (the reader's own wallet).

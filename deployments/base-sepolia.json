@@ -15,8 +15,8 @@
   },
   "agents": {
     "issuer": {
-      "sa": "0xf66cd1621D401cF6b2D93Ea53faC7EcB639cdd32",
-      "name": "bsb.impact",
+      "sa": "0xA2afBA4961F58a0b03A46398E7BC37526506b867",
+      "name": "fbsb.impact",
       "tld": "impact"
     },
     "validator": {

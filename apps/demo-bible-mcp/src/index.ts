@@ -41,7 +41,7 @@ import { baseSepolia } from 'viem/chains';
 import type { Hex, Address } from 'viem';
 
 // Is `addr` a custodian of the AgentAccount `agentSa`? (on-chain isCustodian). Lets the controller of
-// bsb.impact claim while signing in as their OWN identity — no hardcoding, all read live on-chain.
+// fbsb.impact claim while signing in as their OWN identity — no hardcoding, all read live on-chain.
 async function isBsbCustodian(env: { A2A_RPC_URL?: string }, agentSa: Address, addr: string): Promise<boolean> {
   if (!env.A2A_RPC_URL || !agentSa || !addr.startsWith('0x')) return false;
   try {
@@ -54,9 +54,9 @@ async function isBsbCustodian(env: { A2A_RPC_URL?: string }, agentSa: Address, a
   } catch { return false; }
 }
 
-// Who CONTROLS the bsb.impact name node on-chain (AgentNameRegistry.owner(namehash)). The corpus
+// Who CONTROLS the fbsb.impact name node on-chain (AgentNameRegistry.owner(namehash)). The corpus
 // owner must be this address (or the resolved agent). Returns null on no-RPC / timeout.
-async function resolveBsbController(env: { A2A_RPC_URL?: string; A2A_NAME_REGISTRY?: string }, agentName = 'bsb.impact'): Promise<string | null> {
+async function resolveBsbController(env: { A2A_RPC_URL?: string; A2A_NAME_REGISTRY?: string }, agentName = 'fbsb.impact'): Promise<string | null> {
   if (!env.A2A_RPC_URL) return null;
   try {
     const client = createPublicClient({ chain: baseSepolia, transport: http(env.A2A_RPC_URL) });
@@ -69,9 +69,9 @@ async function resolveBsbController(env: { A2A_RPC_URL?: string; A2A_NAME_REGIST
   } catch { return null; }
 }
 
-// Resolve the agent that controls `bsb.impact` on-chain (agent-naming). The corpus owner MUST be
+// Resolve the agent that controls `fbsb.impact` on-chain (agent-naming). The corpus owner MUST be
 // this agent — its canonical CAIP-10 id. Returns null if no RPC or the name is unregistered.
-async function resolveBsbOwnerId(env: { A2A_RPC_URL?: string; A2A_CHAIN_ID?: string; A2A_NAME_REGISTRY?: string; A2A_NAME_RESOLVER?: string }, agentName = 'bsb.impact'): Promise<{ id: string | null; sa: string | null }> {
+async function resolveBsbOwnerId(env: { A2A_RPC_URL?: string; A2A_CHAIN_ID?: string; A2A_NAME_REGISTRY?: string; A2A_NAME_RESOLVER?: string }, agentName = 'fbsb.impact'): Promise<{ id: string | null; sa: string | null }> {
   if (!env.A2A_RPC_URL) return { id: null, sa: null };
   const chainId = Number(env.A2A_CHAIN_ID ?? '84532');
   const client = new AgentNamingClient({
@@ -241,7 +241,7 @@ app.post('/tools/resolve', async (c) => {
     const r = await findD1Verse(c.env.DB, 'bsb', parsed.reference.id, d1, trust.signerForEdition(EDITIONS.find((e) => e.edition === 'bsb')!)).catch(() => null);
     if (r) {
       descriptors.push(r.descriptor);
-      rowByDescId.set(r.descriptor.id, { corpusRef: d1.corpusRef, corpusRoot: d1.corpusRoot, leafIndex: r.leafIndex, inclusion: () => d1InclusionProof(d1, r.leafIndex), issuerName: 'bsb.impact' });
+      rowByDescId.set(r.descriptor.id, { corpusRef: d1.corpusRef, corpusRoot: d1.corpusRoot, leafIndex: r.leafIndex, inclusion: () => d1InclusionProof(d1, r.leafIndex), issuerName: 'fbsb.impact' });
     }
   }
   for (const corpus of (await getCorpora(trust.signerForEdition, trust.cacheKey)).values()) {
@@ -896,10 +896,10 @@ app.post('/tools/get_service_identity', async (c) => {
   return c.json({ ok: true, identity: row ?? null });
 });
 
-// get_owner_id — resolve who controls bsb.impact on-chain (the required corpus owner). For the UI + tests.
+// get_owner_id — resolve who controls fbsb.impact on-chain (the required corpus owner). For the UI + tests.
 app.post('/tools/get_owner_id', async (c) => {
   const b = await c.req.json<{ addr?: string; name?: string }>().catch(() => ({}) as { addr?: string; name?: string });
-  const name = String(b.name ?? 'bsb.impact');
+  const name = String(b.name ?? 'fbsb.impact');
   const r = await resolveBsbOwnerId(c.env as never, name);
   const controller = await resolveBsbController(c.env as never, name);
   // Optionally check whether `addr` (e.g. a connecting user's SA) is a custodian of the agent's account.
@@ -908,7 +908,7 @@ app.post('/tools/get_owner_id', async (c) => {
   return c.json({ ok: true, name, resolvedAgentSa: r.sa, resolvedAgentId: r.id, nameController: controller, queriedAddr: addr, isCustodian, source: r.id || controller ? 'agent-naming (on-chain)' : 'unresolved' });
 });
 
-// claim_service — ownership bound to bsb.impact (live agent-naming): only its controller may claim
+// claim_service — ownership bound to fbsb.impact (live agent-naming): only its controller may claim
 // (records owner_sub from their verified id_token). Re-claim only by the same owner. The operational
 // KMS delegate + on-chain delegation (Flow A / P0) fill delegate_address + delegation later.
 app.post('/tools/claim_service', async (c) => {
@@ -916,7 +916,7 @@ app.post('/tools/claim_service', async (c) => {
   if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
   if (!b.ownerSub) return c.json({ ok: false, error: 'ownerSub required' }, 400);
   const service = String(b.service ?? 'bsb-archive');
-  const agentName = String(b.agentName ?? b.issuerAgentId ?? 'bsb.impact');
+  const agentName = String(b.agentName ?? b.issuerAgentId ?? 'fbsb.impact');
   const existing = await c.env.DB.prepare('SELECT owner_sub FROM service_identity WHERE service=?').bind(service).first<{ owner_sub: string }>();
   // Ownership bound to the service agent via LIVE ANS (no hardcoded address): the claimant must be the
   // agent the name resolves to, OR a custodian of that account (read on-chain from agent-naming + agent-account).
@@ -929,7 +929,7 @@ app.post('/tools/claim_service', async (c) => {
       return c.json({ ok: true, claimed: false, isOwner: true, ownerSub: existing.owner_sub });
     }
     // TAKEOVER hardening: the ANS-authorized controller reclaims from a NON-canonical owner (a stale or
-    // wrong claim self-corrects the moment the real bsb.impact controller connects — no DB surgery).
+    // wrong claim self-corrects the moment the real fbsb.impact controller connects — no DB surgery).
     const existingIsCanonical = !!resolved.id && existing.owner_sub.toLowerCase() === resolved.id.toLowerCase();
     if (ansAuthorized && !existingIsCanonical) {
       await c.env.DB.prepare('UPDATE service_identity SET owner_sub=?, created_at=? WHERE service=?').bind(b.ownerSub, now, service).run();
@@ -1155,7 +1155,7 @@ app.get('/mcp/class_tree', async (c) => {
 });
 
 // ── BSB Corpus-Manager A2A agent surface (spec 269 async, delegation-authorized bus) ──
-// Inert until A2A_RPC_URL + A2A_AGENT_SA (the claimed bsb.impact) are configured: the on-chain
+// Inert until A2A_RPC_URL + A2A_AGENT_SA (the claimed fbsb.impact) are configured: the on-chain
 // checks fail closed, so every inbound task is denied. Set those to activate the bus.
 app.get('/.well-known/agent-card.json', (c) => c.json(buildBsbAgent(c.env).agentCard()));
 app.post('/api/a2a', async (c) => {

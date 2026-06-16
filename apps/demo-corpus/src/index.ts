@@ -52,7 +52,7 @@ async function verifyIdToken(env: Env, idToken: string): Promise<{ sub: string; 
 // Corpora this manager administers — each a licensed edition owned by its service agent (custodied by
 // a possibly-distinct user). Pick one, connect as that agent, then claim/manage it.
 const CORPORA = {
-  bsb: { service: 'bsb-archive', agent: 'bsb.impact', edition: 'demo-licensed' },
+  bsb: { service: 'bsb-archive', agent: 'fbsb.impact', edition: 'demo-licensed' },
   lbsb: { service: 'lbsb', agent: 'lbsb.impact', edition: 'lbsb' },
   // Not a corpus — the independent validator's signing identity. Listed so its OWN custodian can authorize
   // its KMS key (per-custodian, spec 266). No edition: the requests/treasury panels are simply empty for it.
@@ -241,7 +241,7 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 </div>
 <div id="page-sign" style="display:none">
 <div class="card"><h3 style="margin-top:0">Signing identities · authorize the keys</h3>
-<p class="muted" style="font-size:13px">Every signing identity on the platform — content issuers (<span class="mono">bsb.impact</span>, <span class="mono">lbsb.impact</span>), the independent validator (<span class="mono">demo-validator.impact</span>), and the resolver agent (<span class="mono">scripture-resolver.impact</span>) — signs with a key held in an <b>HSM-backed Cloud KMS</b>; the key never leaves the HSM. Authorize once: <b>one ceremony</b> signs, with your own credential, a delegation binding each SA you custody → its HSM signing key. Each service then signs its credentials <i>as the right identity</i>, with no held private key.</p>
+<p class="muted" style="font-size:13px">Every signing identity on the platform — content issuers (<span class="mono">fbsb.impact</span>, <span class="mono">lbsb.impact</span>), the independent validator (<span class="mono">demo-validator.impact</span>), and the resolver agent (<span class="mono">scripture-resolver.impact</span>) — signs with a key held in an <b>HSM-backed Cloud KMS</b>; the key never leaves the HSM. Authorize once: <b>one ceremony</b> signs, with your own credential, a delegation binding each SA you custody → its HSM signing key. Each service then signs its credentials <i>as the right identity</i>, with no held private key.</p>
 <div id="signroster" style="margin:10px 0"><p class="muted" style="font-size:13px">Loading signing-identity status…</p></div>
 <div id="csstat" class="ownb" style="background:#eefbf3;border:1px solid #cfeede;color:#1d6b45">—</div>
 <div style="margin:8px 0"><button class="ap" id="csBtn" onclick="authorizeContentSigning()">Authorize content signing</button></div></div>
@@ -267,7 +267,7 @@ const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
 function editionOf(){return corpusKey==='lbsb'?'lbsb':(corpusKey==='bsb'?'demo-licensed':'lbsb');}
 // Corpora this manager administers. Pick one FIRST, then connect AS that corpus's service agent (the
 // manager signs in at <short>.impact-agent.me as <agent>); the claim verifies custody via agent-naming.
-const CORPORA=[{key:'bsb',label:'BSB',short:'bsb',agent:'bsb.impact'},{key:'lbsb',label:'Licensed BSB',short:'lbsb',agent:'lbsb.impact'},{key:'validator',label:'Validator',short:'validator',agent:'demo-validator.impact'},{key:'resolver',label:'Resolver agent',short:'scripture-resolver',agent:'scripture-resolver.impact'}];
+const CORPORA=[{key:'bsb',label:'BSB',short:'bsb',agent:'fbsb.impact'},{key:'lbsb',label:'Licensed BSB',short:'lbsb',agent:'lbsb.impact'},{key:'validator',label:'Validator',short:'validator',agent:'demo-validator.impact'},{key:'resolver',label:'Resolver agent',short:'scripture-resolver',agent:'scripture-resolver.impact'}];
 let corpusKey=localStorage.getItem('corp.corpus')||'';
 function curCorpus(){return CORPORA.filter(x=>x.key===corpusKey)[0]||null;}
 let session=null;
