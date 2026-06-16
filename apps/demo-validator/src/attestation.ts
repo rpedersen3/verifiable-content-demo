@@ -9,7 +9,7 @@
 import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT, type UnsignedCredential } from '@agenticprimitives/verifiable-credentials';
 import { keccak256, toBytes, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { makeKmsSigner } from './kms-signer.js';
+import { makeKmsSigner, parseLooseJson } from './kms-signer.js';
 
 const SA = process.env.VALIDATOR_SA as Address | undefined;
 export const VALIDATOR_CHAIN_ID = Number(process.env.VALIDATOR_CHAIN_ID ?? 84532);
@@ -31,7 +31,7 @@ if (kmsMode) {
   // FAIL-SAFE: a malformed VALIDATOR_DELEGATION_LEAF / GCP_SERVICE_ACCOUNT_JSON must NOT crash the whole
   // validator at module load — disable KMS and fall back to the dev signer, logging why (surfaced in health).
   try {
-    const leaf = JSON.parse(KMS_LEAF_JSON!) as { delegate: string };
+    const leaf = parseLooseJson<{ delegate: string }>(KMS_LEAF_JSON!);
     if (!leaf?.delegate) throw new Error('VALIDATOR_DELEGATION_LEAF has no `delegate`');
     const kms = makeKmsSigner({ keyName: KMS_KEY!, serviceAccountJson: GCP_SA!, expectedAddress: leaf.delegate as Address });
     kmsSignDigest = (hash: Hex) => kms.signDigest(hash);
@@ -46,7 +46,7 @@ if (kmsMode) {
 /** Whether the validator is signing attestations via the delegated HSM-KMS key (vs the dev held key). */
 export const KMS_SIGNING = kmsMode;
 /** Diagnostics for /health — which KMS env vars are present + why KMS is off (no secret values). */
-export const KMS_DEBUG = { sa: !!SA, kmsKey: !!KMS_KEY, leaf: !!KMS_LEAF_JSON, gcpSa: !!GCP_SA, reason: kmsReason };
+export const KMS_DEBUG = { guard: 'loose-v2', sa: !!SA, kmsKey: !!KMS_KEY, leaf: !!KMS_LEAF_JSON, gcpSa: !!GCP_SA, reason: kmsReason };
 
 // DEV-ONLY held-key fallback (when KMS isn't configured). NOT used in delegated mode.
 const OWNER_PK = (process.env.VALIDATOR_OWNER_PK ?? process.env.VALIDATOR_SIGNER_PK ?? '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6') as Hex;
