@@ -145,12 +145,15 @@ app.post('/admin/signing-identities', async (c) => {
     const keys = await mcp(c.env, '/tools/content_signer_keys', {});
     const stored = await mcp(c.env, '/tools/list_content_signers', {});
     const signers = (keys.signers as Array<{ issuerName: string; issuerSa: string; delegateKey: string }>) ?? [];
-    const rows = (stored.signers as Array<{ issuer_name: string; delegate_key: string; updated_at: string }>) ?? [];
+    const rows = (stored.signers as Array<{ issuer_name: string; issuer_sa: string; delegate_key: string; updated_at: string }>) ?? [];
     const byName = new Map(rows.map((r) => [r.issuer_name.toLowerCase(), r]));
     const roster = signers.map((s) => {
       const row = byName.get(s.issuerName.toLowerCase());
-      // authorized ONLY when a leaf is stored AND it binds the CURRENT KMS delegate key (rotation-safe).
-      const authorized = !!row && row.delegate_key.toLowerCase() === s.delegateKey.toLowerCase();
+      // authorized ONLY when a stored leaf binds BOTH the current SA (name re-points/SA changes invalidate it)
+      // AND the current KMS delegate key (key rotation invalidates it). Either drift ⇒ re-authorize.
+      const authorized = !!row
+        && row.issuer_sa.toLowerCase() === s.issuerSa.toLowerCase()
+        && row.delegate_key.toLowerCase() === s.delegateKey.toLowerCase();
       return { issuerName: s.issuerName, issuerSa: s.issuerSa, delegateKey: s.delegateKey, authorized, updatedAt: row?.updated_at ?? null };
     });
     return c.json({ ok: true, roster });

@@ -1,20 +1,21 @@
 {
   "network": "base-sepolia",
   "chainId": 84532,
-  "note": "Contract addresses leveraged from the agenticprimitives Base Sepolia deployment + the demo Smart Agents registered under the .impact TLD.",
+  "note": "Agentic-primitives contract addresses MUST track the home (impact-agent.me) Base Sepolia deployment — packages/contracts/deployments-base-sepolia.json in agenticprimitives — so names resolve to the SAME Smart Agents users create in the home. (Aligned 2026-06-16: was pinned to an older deployment, which is why scripture-resolver.impact mis-resolved to a stale anvil EOA.) contentCorpusRegistry + validationAttestationRegistry are demo-deployed.",
   "contracts": {
-    "agentAccountFactory": "0x51849aF1842AF43f84a2f0D647AE2481D333FA80",
-    "entryPoint": "0xf84dd2Ba056898fB58419c567D858dFea9629050",
-    "agentNameRegistry": "0x572ae1D05f5eaf2C4f445Ae5FE9aFA07F348b864",
-    "agentNameResolver": "0xd3C6cBc1A661D676C1388cA366bB3Cc313Bc1737",
-    "agentNameUniversalResolver": "0x4ECCFC029E0bbaDeaf6af15811d757084671385E",
-    "permissionlessSubregistry": "0x0991324184C2108CD95405C6Cbc29327cD0aCc2B",
+    "agentAccountFactory": "0x3E68B72B45e7C9d35B210E4Ab06e5Cece85cEbE4",
+    "entryPoint": "0x9B33De9d9597de82Eb56b5B26C478Dc0a6955388",
+    "agentNameRegistry": "0x15F7ed064A230C011b0244A14fD9653f011d609B",
+    "agentNameResolver": "0xcC9855A23C7a4D4592E68Fe47E195C2f9D832473",
+    "agentNameUniversalResolver": "0x7d777d2d0bbc1806B9Cc779121C27fbaAaFDb60b",
+    "permissionlessSubregistry": "0x1B8ED8693738e1A9DD653FEE5430d49e00202Bb7",
+    "delegationManager": "0x3a8E2cE74564f699b135db6f266ccDb563979C05",
     "contentCorpusRegistry": "0xBc04BCB29E748CB0be07170B66AE542D3D89967E",
     "validationAttestationRegistry": "0xEee609Af590bA133f00cd86b0D56725E1Fee76A7"
   },
   "agents": {
     "issuer": {
-      "sa": "0x72D8679435cF288689e157b1AA1F8648A7746851",
+      "sa": "0xf66cd1621D401cF6b2D93Ea53faC7EcB639cdd32",
       "name": "bsb.impact",
       "tld": "impact"
     },
