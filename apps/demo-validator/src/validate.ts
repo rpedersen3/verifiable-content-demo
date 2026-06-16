@@ -1,7 +1,7 @@
 // The independent validator: it does NOT trust the responding agent. It re-derives
 // and checks every claim in the evidence bundle and returns validated/gated/rejected.
 
-import { recoverAddress, keccak256, toBytes, type Hex } from 'viem';
+import { recoverAddress, keccak256, toBytes, type Hex, type Address } from 'viem';
 import {
   computeCanonicalId,
   verifyContentDescriptor,
@@ -110,8 +110,15 @@ export async function validateBundle(bundle: EvidenceBundle, opts: ValidateOpts)
   }
   set('policy', policyOk, gated ? 'gated: licensed content not served (no entitlement)' : undefined);
 
-  // 8. responding-agent signature over the citation.
-  const citation = bundle.citation as { credentialSubject?: Record<string, unknown> };
+  // 8. responding-agent signature over the citation — DELEGATED (spec 266): the agent signs AS its Smart
+  //    Agent via the SA's Cloud-KMS delegate key, authorized by an owner-signed ERC-7710 leaf carried as
+  //    `proof.delegatingSigner`. Valid iff the recovered signer IS the leaf's delegate, the leaf delegator
+  //    is the agent SA (agentId), and the SA authorized the leaf on-chain (ERC-1271, via the SAME
+  //    verifyDelegatedAuthority used for the content descriptor). No held-key / EOA fallback.
+  const citation = bundle.citation as {
+    credentialSubject?: Record<string, unknown>;
+    proof?: { delegatingSigner?: { delegatorIssuer?: string; delegateKey?: string; delegationLeaf?: unknown } };
+  };
   const cr = verifyCredentialStructural(bundle.citation as never);
   let citationSigner = '';
   if (cr.structural && cr.expectedDigest && cr.proofValue) {
@@ -122,8 +129,26 @@ export async function validateBundle(bundle: EvidenceBundle, opts: ValidateOpts)
     }
   }
   const agentAddr = addrOf(bundle.agent.agentId).toLowerCase();
-  const citationSigOk = !!citationSigner && citationSigner.toLowerCase() === agentAddr;
-  set('citationSignature', citationSigOk, citationSigOk ? undefined : 'citation not signed by the responding agent');
+  const cds = citation.proof?.delegatingSigner;
+  let citationSigOk = false;
+  let citationSigDetail: string | undefined;
+  if (!cds?.delegateKey || !cds?.delegatorIssuer) {
+    citationSigDetail = 'citation missing delegatingSigner (agent must sign via its SA’s delegated key)';
+  } else if (!citationSigner || citationSigner.toLowerCase() !== cds.delegateKey.toLowerCase()) {
+    citationSigDetail = 'citation not signed by the delegate key named in delegatingSigner';
+  } else if (cds.delegatorIssuer.toLowerCase() !== agentAddr) {
+    citationSigDetail = 'delegatingSigner.delegatorIssuer ≠ the responding agent SA';
+  } else if (!opts.verifyDelegatedAuthority) {
+    citationSigDetail = 'no on-chain authority verifier configured';
+  } else {
+    citationSigOk = await opts.verifyDelegatedAuthority({
+      delegatorIssuer: cds.delegatorIssuer as Address,
+      delegateKey: cds.delegateKey as Address,
+      delegationLeaf: cds.delegationLeaf,
+    });
+    if (!citationSigOk) citationSigDetail = 'agent SA did not authorize the citation delegate key (ERC-1271)';
+  }
+  set('citationSignature', citationSigOk, citationSigOk ? undefined : citationSigDetail);
 
   // 9. citation BINDS to the response (descriptor, commitment, canonicalId, run/output).
   const cs = citation.credentialSubject ?? {};

@@ -302,6 +302,47 @@ export async function resolveContentSignerKeys(env: McpEnv): Promise<{ signers: 
   return { signers, skipped };
 }
 
+/**
+ * Build a DELEGATED credential signer for ANY issuer name that has a stored, owner-signed delegation
+ * (content_signers) — so a caller can sign a credential AS that identity with NO held key, the same way
+ * buildDelegated signs per-edition content. Resolves: name → SA, the issuer's Cloud-KMS delegate
+ * (CONTENT_SIGNER_KEYS), and the stored leaf; returns a CredentialSigner (KMS signDigest) + the
+ * delegatingSigner to carry on the credential. Used by /tools/sign_content_credential so the resolver
+ * agent (scripture-resolver.impact) signs its citations via the SA's HSM delegate. Returns { error } if
+ * not fully configured / the identity isn't authorized yet / the stored leaf drifted from the live SA+key.
+ */
+export async function contentSignerForIssuer(
+  env: McpEnv,
+  issuerName: string,
+): Promise<{ signer: CredentialSigner; delegatingSigner: DelegatingSigner; issuerSa: Address; chainId: number } | { error: string }> {
+  if (!env.RPC_URL || !env.GCP_SERVICE_ACCOUNT_JSON || !env.CONTENT_SIGNER_KEYS || !env.REGISTRY || !env.UNIVERSAL_RESOLVER) {
+    return { error: 'content-signer KMS config missing (RPC_URL / GCP_SERVICE_ACCOUNT_JSON / CONTENT_SIGNER_KEYS / REGISTRY / UNIVERSAL_RESOLVER)' };
+  }
+  if (!env.DB) return { error: 'no DB' };
+  const chainId = Number(env.CHAIN_ID ?? DEV_CHAIN_ID);
+  const keys = JSON.parse(env.CONTENT_SIGNER_KEYS) as Record<string, string>;
+  const keyName = keys[issuerName];
+  if (!keyName) return { error: `no KMS key for ${issuerName} in CONTENT_SIGNER_KEYS` };
+  const naming = new AgentNamingClient({ rpcUrl: env.RPC_URL, chainId, registry: env.REGISTRY as Address, universalResolver: env.UNIVERSAL_RESOLVER as Address });
+  const issuerSa = (await naming.resolveName(issuerName)) as Address | null;
+  if (!issuerSa) return { error: `${issuerName} does not resolve to an SA` };
+  const kms = new GcpKmsSigner({ cryptoKeyVersionName: keyName, serviceAccountJson: env.GCP_SERVICE_ACCOUNT_JSON });
+  const delegateKey = await kms.getSignerAddress();
+  const row = await env.DB.prepare('SELECT delegation_leaf, delegate_key, issuer_sa FROM content_signers WHERE issuer_name=?')
+    .bind(issuerName)
+    .first<{ delegation_leaf: string; delegate_key: string; issuer_sa: string }>();
+  if (!row) return { error: `no stored delegation for ${issuerName} (run the demo-corpus "Authorize content signing" ceremony)` };
+  if (row.issuer_sa.toLowerCase() !== issuerSa.toLowerCase()) return { error: `stored SA ${row.issuer_sa} ≠ resolved SA ${issuerSa} (re-authorize)` };
+  if (row.delegate_key.toLowerCase() !== delegateKey.toLowerCase()) return { error: `stored delegate ${row.delegate_key} ≠ KMS key ${delegateKey} (re-authorize)` };
+  const signDigest = async (hash: Hex): Promise<Hex> => bytesToHex((await kms.signA2AAction({ digest: toBytes(hash) })).signature);
+  return {
+    signer: { issuerAddress: issuerSa, chainId, verifyingContract: issuerSa, signDigest },
+    delegatingSigner: { delegatorIssuer: issuerSa, delegateKey, delegationLeaf: JSON.parse(row.delegation_leaf) },
+    issuerSa,
+    chainId,
+  };
+}
+
 /** Verify an owner-signed signer-delegation leaf BEFORE storing it. The name must resolve to the claimed SA
  *  (anti-spoof), the leaf must bind that SA → the delegate key, and the issuer SA must have SIGNED
  *  hashDelegation(leaf) (ERC-1271). This is the cryptographic authorization — only an identity's true

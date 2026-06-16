@@ -7,9 +7,32 @@
 import { keccak256, toHex, type Address, type Hex } from 'viem';
 import { A2aWireAdapter, hashA2aMessage, buildA2aGrantCaveats, skillSelector, type A2aTransport, type A2aMessage } from '@agenticprimitives/a2a';
 import type { Delegation } from '@agenticprimitives/delegation';
-import { agentSigner, AGENT_ADDRESS } from '../lib/trust.js';
+import { agentIdentity } from '../lib/trust.js';
 
-export type BsbTargetEnv = { BSB_AGENT_URL?: string; BSB_AGENT_SA?: string; MCP?: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> } };
+export type BsbTargetEnv = {
+  BSB_AGENT_URL?: string;
+  BSB_AGENT_SA?: string;
+  A2A_AGENT_SA?: string;
+  A2A_CHAIN_ID?: string;
+  AGENT_NAME?: string;
+  MCP_URL?: string;
+  MCP?: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> };
+};
+
+/** Sign a raw digest AS this agent's Smart Agent via its Cloud-KMS delegate, in the MCP (no held key). */
+async function mcpSignDigest(env: BsbTargetEnv, digest: Hex): Promise<Hex> {
+  const init = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ issuerName: env.AGENT_NAME ?? 'scripture-resolver.impact', digest }),
+  };
+  const r = env.MCP
+    ? await env.MCP.fetch('https://mcp/tools/sign_agent_digest', init)
+    : await fetch(`${(env.MCP_URL ?? 'http://127.0.0.1:8790').replace(/\/$/, '')}/tools/sign_agent_digest`, init);
+  const j = (await r.json()) as { ok?: boolean; signature?: string; error?: string };
+  if (!j.ok || !j.signature) throw new Error(`a2a message signing failed: ${j.error ?? 'unknown'}`);
+  return j.signature as Hex;
+}
 export type GrantEnv = BsbTargetEnv & { A2A_ENF_TARGETS?: string; A2A_ENF_METHODS?: string; A2A_ENF_TIMESTAMP?: string };
 
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
@@ -29,7 +52,7 @@ export function buildGrantSpec(env: GrantEnv, skill: string, nowSec: number): {
     enforcers: { allowedTargets: addr(env.A2A_ENF_TARGETS), allowedMethods: addr(env.A2A_ENF_METHODS), timestamp: addr(env.A2A_ENF_TIMESTAMP) },
     window: { validAfter: nowSec - 60, validUntil: nowSec + 3600 },
   });
-  return { delegate: AGENT_ADDRESS as Address, recipientAgent, skill, methodSelector: skillSelector(skill), caveats };
+  return { delegate: agentIdentity(env).agentSa, recipientAgent, skill, methodSelector: skillSelector(skill), caveats };
 }
 
 // Transport: POST JSON-RPC to the BSB agent's /api/a2a. Prefer the MCP SERVICE BINDING (worker-to-worker,
@@ -54,7 +77,7 @@ export async function resolveOnBehalf(
   args: { reference: string; edition: string; entitlement?: unknown; delegation: Delegation; createdAt: number },
 ): Promise<{ taskId: Hex; state: string }> {
   const bsbSA = (env.BSB_AGENT_SA ?? ZERO) as Address;
-  const requester = AGENT_ADDRESS as Address;
+  const requester = agentIdentity(env).agentSa;
   const input = { reference: args.reference, edition: args.edition, entitlement: args.entitlement };
   const bodyHash = keccak256(toHex(JSON.stringify(input)));
   const base: A2aMessage = {
@@ -66,7 +89,7 @@ export async function resolveOnBehalf(
     signature: '0x' as Hex,
     createdAt: args.createdAt,
   };
-  const message: A2aMessage = { ...base, signature: await agentSigner.signDigest(hashA2aMessage(base)) };
+  const message: A2aMessage = { ...base, signature: await mcpSignDigest(env, hashA2aMessage(base)) };
   const adapter = new A2aWireAdapter(makeTransport(env));
   const res = await adapter.submitTask(bsbSA, { message, delegation: args.delegation, requester, input });
   return { taskId: res.taskId, state: res.state };
@@ -76,5 +99,5 @@ export async function resolveOnBehalf(
  *  then read the verse artifact + verify the Scripture Agent's CitationAssertion). */
 export async function pollTask(env: BsbTargetEnv, taskId: Hex): Promise<unknown> {
   const adapter = new A2aWireAdapter(makeTransport(env));
-  return adapter.getTask((env.BSB_AGENT_SA ?? ZERO) as Address, taskId, AGENT_ADDRESS as Address);
+  return adapter.getTask((env.BSB_AGENT_SA ?? ZERO) as Address, taskId, agentIdentity(env).agentSa);
 }

@@ -6,9 +6,9 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { buildCitationAssertion, verifyCommitment, type Entitlement } from '@agenticprimitives/content-primitives';
-import { signCredential, verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT } from '@agenticprimitives/verifiable-credentials';
+import { verifyCredentialStructural, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT } from '@agenticprimitives/verifiable-credentials';
 import { recoverAddress, keccak256, toBytes } from 'viem';
-import { agentSigner, AGENT_DID, AGENT_ADDRESS } from './lib/trust.js';
+import { agentIdentity } from './lib/trust.js';
 import { resolveOnBehalf, pollTask, buildGrantSpec } from './a2a/client.js';
 import { buildLbsbPaymentRequired, verifyLbsbPayment, verifyConfigured, type VerifyEnv } from './a2a/payment.js';
 import type { Delegation } from '@agenticprimitives/delegation';
@@ -18,6 +18,10 @@ interface Env {
   MCP_URL?: string;
   VALIDATOR_URL?: string;
   AGENT_NAME?: string;
+  /** The resolver agent's Smart Agent (its on-chain identity). Citations are signed by this SA's KMS
+   *  delegate via the MCP — NOT a held EOA. */
+  A2A_AGENT_SA?: string;
+  A2A_CHAIN_ID?: string;
   ANTHROPIC_API_KEY?: string;
   ANALYZE_MODEL?: string;
   MCP?: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> };
@@ -587,8 +591,9 @@ async function doResolve(env: Env, body: ResolveBody): Promise<{ status: number;
     commitmentVerified = pick.commitment ? verifyCommitment(text, pick.commitment) : false;
   }
 
+  const { agentDid, agentName } = agentIdentity(env);
   const unsignedCitation = buildCitationAssertion({
-    issuer: AGENT_DID,
+    issuer: agentDid,
     subjectId: 'urn:scripture:reader',
     canonicalId: canonicalReference.id,
     descriptorId: pick.descriptorId,
@@ -602,9 +607,17 @@ async function doResolve(env: Env, body: ResolveBody): Promise<{ status: number;
     outputId: body.outputId,
     normalizationSpec: pick.commitment?.normalization,
   });
-  // signCredential appends the EIP-712 context; pre-set both so the signed
-  // citation's proof.credentialHash matches its body (verifiable downstream).
-  const citation = await signCredential({ ...unsignedCitation, '@context': [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT] }, agentSigner);
+  // The agent signs its citation AS its Smart Agent (agentDid) via that SA's Cloud-KMS delegate, in the MCP
+  // (which holds the KMS access + the owner-signed leaf) — NO held key in this worker. The signed citation
+  // carries `delegatingSigner` so a verifier roots trust in the SA (ERC-1271) while the signer is the HSM key.
+  const signRes = await mcpPost(env, '/tools/sign_content_credential', {
+    issuerName: agentName,
+    credential: { ...unsignedCitation, '@context': [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT] },
+  });
+  if (!signRes.body?.ok || !signRes.body?.credential) {
+    throw new Error(`citation signing failed: ${signRes.body?.error ?? 'unknown'}`);
+  }
+  const citation = signRes.body.credential;
 
   return {
     status: 200,
@@ -693,14 +706,21 @@ app.post('/verify', async (c) => {
   const body = await c.req.json<{ citation?: any; reference?: string; edition?: string }>().catch(() => ({}) as any);
   if (!body.citation || !body.reference || !body.edition) return c.json({ ok: false, error: 'citation + reference + edition required' }, 400);
 
-  // (a) agent signature over the citation (structural + EIP-712 recovery).
+  // (a) agent signature over the citation — DELEGATED: the citation is signed by the agent SA's KMS delegate
+  //     and carries `delegatingSigner`. Valid when the recovered signer IS the leaf's delegate AND the leaf
+  //     delegator is the agent's Smart Agent. (The authoritative on-chain ERC-1271 check is the validator's.)
+  const { agentSa } = agentIdentity(c.env);
   const vr = verifyCredentialStructural(body.citation);
+  const ds = body.citation?.proof?.delegatingSigner as { delegatorIssuer?: string; delegateKey?: string } | undefined;
   let agentSignatureValid = false;
   let signer: string | null = null;
   if (vr.structural && vr.expectedDigest && vr.proofValue) {
     try {
       signer = await recoverAddress({ hash: vr.expectedDigest, signature: vr.proofValue });
-      agentSignatureValid = signer.toLowerCase() === AGENT_ADDRESS.toLowerCase();
+      agentSignatureValid =
+        !!ds &&
+        signer.toLowerCase() === String(ds.delegateKey ?? '').toLowerCase() &&
+        String(ds.delegatorIssuer ?? '').toLowerCase() === agentSa.toLowerCase();
     } catch {
       agentSignatureValid = false;
     }
@@ -715,7 +735,7 @@ app.post('/verify', async (c) => {
     ok: agentSignatureValid && commitmentMatchesSource,
     agentSignatureValid,
     signer,
-    expectedAgent: AGENT_ADDRESS,
+    expectedAgent: agentSa,
     commitmentMatchesSource,
     structuralIssues: vr.issues,
   });
@@ -751,7 +771,7 @@ app.post('/trust/validate', async (c) => {
   const responseHash = keccak256(toBytes(text ?? ''));
   const bundle = {
     intent: { intentType: 'quote', requestedReference: pl.display?.reference ?? body.reference, requestedEdition: cand.edition, agentRunId: runId, outputId },
-    agent: { agentId: AGENT_DID, agentName: c.env.AGENT_NAME ?? 'scripture-resolver.impact' },
+    agent: { agentId: agentIdentity(c.env).agentDid, agentName: c.env.AGENT_NAME ?? 'scripture-resolver.impact' },
     content: {
       canonicalId: pl.canonicalReference.id,
       canonicalEnvelope: pl.canonicalReference.envelope,

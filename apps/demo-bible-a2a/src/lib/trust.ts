@@ -1,25 +1,36 @@
-// The resolving agent's signing identity. It signs CitationAssertions so a
-// citation is a real, verifiable credential — the "AI-safe citation provenance"
-// (who cited what, under which entitlement, with a matching commitment).
-//
-// Dev EOA stands in for the agent's Smart Agent (ERC-1271 in production).
+// The resolving agent's signing identity = its custodian-controlled Smart Agent (A2A_AGENT_SA), NOT a held
+// EOA. (Was a dev anvil key on chain 31337 — removed.) Citations are signed by the SA's Cloud-KMS delegate
+// key VIA the MCP, which holds the KMS access + the owner-signed SA→key ERC-7710 delegation leaf (stored by
+// the demo-corpus "Authorize content signing" ceremony). No private key lives in this worker. The signed
+// citation carries `delegatingSigner` so a verifier roots trust in the SA (ERC-1271) while the day-to-day
+// signer is the rotatable HSM key — the same delegated-trust model as the issuers + the validator.
 
-import { privateKeyToAccount } from 'viem/accounts';
-import type { Hex } from 'viem';
-import type { CredentialSigner } from '@agenticprimitives/verifiable-credentials';
+import type { Address } from 'viem';
 
-export const DEMO_CHAIN_ID = 31337;
+/** Base Sepolia. The agent's on-chain identity lives here (was dev-chain 31337 with an anvil EOA). */
+export const DEFAULT_CHAIN_ID = 84532;
 
-// DEV-ONLY agent key (anvil account #2). Clearly not a secret.
-const AGENT_PK = '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a' as const;
-const agentAccount = privateKeyToAccount(AGENT_PK);
+export interface AgentEnv {
+  /** The resolver agent's Smart Agent (AgentAccount) address — its on-chain identity. NOT an EOA. */
+  A2A_AGENT_SA?: string;
+  A2A_CHAIN_ID?: string;
+  /** The agent's .impact name; the MCP resolves it → the same SA to sign citations under. */
+  AGENT_NAME?: string;
+}
 
-export const AGENT_ADDRESS = agentAccount.address;
-export const AGENT_DID = `eip155:${DEMO_CHAIN_ID}:${agentAccount.address}`;
+export interface AgentIdentity {
+  agentSa: Address;
+  agentName: string;
+  /** CAIP-10 `eip155:<chain>:<SA>` — the bundle's agentId and the citation issuer. */
+  agentDid: string;
+  chainId: number;
+}
 
-export const agentSigner: CredentialSigner = {
-  issuerAddress: agentAccount.address,
-  chainId: DEMO_CHAIN_ID,
-  verifyingContract: agentAccount.address,
-  signDigest: (digest: Hex) => agentAccount.sign({ hash: digest }),
-};
+/** Resolve the agent identity from worker env (Cloudflare env is per-request, so this is a function, not
+ *  module constants). Fail-closed: callers must check `agentSa` is set before signing. */
+export function agentIdentity(env: AgentEnv): AgentIdentity {
+  const agentSa = (env.A2A_AGENT_SA ?? '') as Address;
+  const chainId = Number(env.A2A_CHAIN_ID ?? DEFAULT_CHAIN_ID);
+  const agentName = env.AGENT_NAME ?? 'scripture-resolver.impact';
+  return { agentSa, agentName, agentDid: `eip155:${chainId}:${agentSa}`, chainId };
+}

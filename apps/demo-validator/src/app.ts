@@ -14,7 +14,9 @@ import type { EvidenceBundle } from './bundle.js';
 const MCP_URL = (process.env.MCP_URL ?? 'http://localhost:8790').replace(/\/$/, '');
 // On-chain SA issuers (Base Sepolia) by default; override with VALIDATOR_TRUSTED_ISSUERS.
 // Per-edition issuers (spec 266): bsb.impact (0x72D8…) + lbsb.impact (0x91B4…).
-const TRUSTED_ISSUERS = (process.env.VALIDATOR_TRUSTED_ISSUERS ?? '0x72D8679435cF288689e157b1AA1F8648A7746851,0x91b43817d8f9ff449a4c68cb187821b13b5feabe')
+// Home-deployment issuer SAs (the demo resolves names in the home registry): bsb.impact → 0xf66c…,
+// lbsb.impact → 0x91B4… (was bsb 0x72D8 on the old registry). Override with VALIDATOR_TRUSTED_ISSUERS.
+const TRUSTED_ISSUERS = (process.env.VALIDATOR_TRUSTED_ISSUERS ?? '0xf66cd1621D401cF6b2D93Ea53faC7EcB639cdd32,0x91b43817d8f9ff449a4c68cb187821b13b5feabe')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);

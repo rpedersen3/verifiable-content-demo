@@ -30,7 +30,7 @@ const VC_CONTEXTS = [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT];
 import { getCorpora, inclusionProof, EDITIONS, type BuiltCorpus } from './editions/registry.js';
 import { loadD1Corpus, findD1Verse, findD1RangeByLeaf, leafIndexFor, chapterBounds, d1InclusionProof, type D1Like } from './editions/d1.js';
 import { verifySignedEntitlement } from './lib/trust.js';
-import { resolveTrust, resolveContentSignerKeys, verifyContentSignerLeaf, type McpEnv, type TrustContext } from './lib/trust-context.js';
+import { resolveTrust, resolveContentSignerKeys, verifyContentSignerLeaf, contentSignerForIssuer, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
@@ -838,6 +838,38 @@ app.post('/tools/list_content_signers', async (c) => {
   if (!c.env.DB) return c.json({ ok: true, signers: [] });
   const rows = (await c.env.DB.prepare('SELECT issuer_name, issuer_sa, delegate_key, updated_at FROM content_signers ORDER BY issuer_name').all()).results;
   return c.json({ ok: true, signers: rows });
+});
+
+// sign_content_credential — sign an unsigned VC AS a named delegated identity (resolve name → SA, sign with
+// the SA's Cloud-KMS delegate via the stored owner-signed leaf — NO held key) and return the signed
+// credential carrying delegatingSigner. Lets the resolver agent (demo-bible-a2a) sign its CitationAssertions
+// as scripture-resolver.impact's SA, the same delegated-trust model the issuers + validator use. Anti-spoof:
+// the credential's own `issuer` must be the resolved SA's CAIP-10 DID.
+app.post('/tools/sign_content_credential', async (c) => {
+  const b = await c.req.json<{ issuerName?: string; credential?: Record<string, unknown> }>().catch(() => ({}) as Record<string, never>);
+  if (!b.issuerName || !b.credential || typeof b.credential !== 'object') return c.json({ ok: false, error: 'issuerName + credential required' }, 400);
+  const s = await contentSignerForIssuer(c.env as unknown as McpEnv, b.issuerName);
+  if ('error' in s) return c.json({ ok: false, error: s.error }, 503);
+  const issuerDid = `eip155:${s.chainId}:${s.issuerSa}`;
+  if (typeof b.credential.issuer === 'string' && b.credential.issuer.toLowerCase() !== issuerDid.toLowerCase()) {
+    return c.json({ ok: false, error: `credential issuer ${b.credential.issuer} ≠ ${b.issuerName}'s SA DID ${issuerDid}` }, 400);
+  }
+  const unsigned = { ...b.credential, issuer: issuerDid, '@context': VC_CONTEXTS } as unknown as UnsignedCredential;
+  const credential = await signCredential(unsigned, s.signer, { delegatingSigner: s.delegatingSigner });
+  return c.json({ ok: true, credential, issuerSa: s.issuerSa, issuerDid });
+});
+
+// sign_agent_digest — sign a raw 32-byte digest AS a named delegated identity, via its SA's Cloud-KMS
+// delegate (NO held key). For the A2A message bus (spec 269): agent-to-agent messages signed by the agent
+// SA's HSM delegate. Returns the recoverable signature + the delegate address (the leaf carries the SA→key
+// authorization a verifier checks via ERC-1271).
+app.post('/tools/sign_agent_digest', async (c) => {
+  const b = await c.req.json<{ issuerName?: string; digest?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!b.issuerName || !b.digest || !/^0x[0-9a-fA-F]{64}$/.test(b.digest)) return c.json({ ok: false, error: 'issuerName + 32-byte hex digest required' }, 400);
+  const s = await contentSignerForIssuer(c.env as unknown as McpEnv, b.issuerName);
+  if ('error' in s) return c.json({ ok: false, error: s.error }, 503);
+  const signature = await s.signer.signDigest(b.digest as Hex);
+  return c.json({ ok: true, signature, delegateKey: s.delegatingSigner.delegateKey, issuerSa: s.issuerSa });
 });
 
 // subject_treasury — resolve the person-treasury SA a reader has paid FROM for an edition (so the Access
