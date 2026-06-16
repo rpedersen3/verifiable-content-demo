@@ -196,7 +196,7 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 .acctmenu-item.danger:hover{background:#fdecea;color:#c0392b}
 </style></head><body>
 <div class="hdr"><h1>🗂️ Corpus Manager</h1><span class="sub" id="hsub">entitlement approvals</span><span id="who"></span></div>
-<nav class="topnav" id="topnav"><a id="nav-ent" class="navlink active" onclick="showPage('ent')">Entitlements</a><a id="nav-fb" class="navlink" onclick="showPage('fb')">Feedback</a><a id="nav-tre" class="navlink" onclick="showPage('tre')">Treasury</a><span id="corpchip" style="margin-left:auto;align-self:center;font-size:13px"></span></nav>
+<nav class="topnav" id="topnav"><a id="nav-ent" class="navlink active" onclick="showPage('ent')">Entitlements</a><a id="nav-fb" class="navlink" onclick="showPage('fb')">Feedback</a><a id="nav-sign" class="navlink" onclick="showPage('sign')">Signing identities</a><a id="nav-tre" class="navlink" onclick="showPage('tre')">Treasury</a><span id="corpchip" style="margin-left:auto;align-self:center;font-size:13px"></span></nav>
 <main>
 <div id="corpuspick" style="display:none"></div>
 <div id="owner"></div>
@@ -217,11 +217,13 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 <button onclick="loadFeedback()">Refresh</button></div>
 <div id="fblist"><p class="muted">Connect as the corpus owner to review feedback.</p></div></div>
 </div>
-<div id="page-tre" style="display:none">
+<div id="page-sign" style="display:none">
 <div class="card"><h3 style="margin-top:0">Signing identities · authorize the keys</h3>
-<p class="muted" style="font-size:13px">Every signing identity on the platform — content issuers (<span class="mono">bsb.impact</span>, <span class="mono">lbsb.impact</span>), the independent validator (<span class="mono">demo-validator.impact</span>), and the resolver agent — signs with a key held in an <b>HSM-backed Cloud KMS</b>; the key never leaves the HSM. Authorize once: <b>one ceremony</b> signs, with your own credential, a delegation binding each SA you custody → its HSM signing key. Each service then signs its credentials <i>as the right identity</i>, with no held private key.</p>
+<p class="muted" style="font-size:13px">Every signing identity on the platform — content issuers (<span class="mono">bsb.impact</span>, <span class="mono">lbsb.impact</span>), the independent validator (<span class="mono">demo-validator.impact</span>), and the resolver agent (<span class="mono">scripture-resolver.impact</span>) — signs with a key held in an <b>HSM-backed Cloud KMS</b>; the key never leaves the HSM. Authorize once: <b>one ceremony</b> signs, with your own credential, a delegation binding each SA you custody → its HSM signing key. Each service then signs its credentials <i>as the right identity</i>, with no held private key.</p>
 <div id="csstat" class="ownb" style="background:#eefbf3;border:1px solid #cfeede;color:#1d6b45">—</div>
 <div style="margin:8px 0"><button class="ap" id="csBtn" onclick="authorizeContentSigning()">Authorize content signing</button></div></div>
+</div>
+<div id="page-tre" style="display:none">
 <div class="card"><h3 style="margin-top:0">Subscriptions · collect what's due</h3>
 <p class="muted" style="font-size:13px">Each subscriber authorized a standing <b>charge mandate</b> (their treasury → your <span class="mono">lbsb-treasury.impact</span>) at subscribe time. When a period ends, you collect: <b>one ceremony</b> signs the redemption of every due mandate with your own credential — no held key, no per-subscriber prompt.</p>
 <div id="substat" class="ownb" style="background:#f3f0ff;border:1px solid #d9d2f5;color:#4b2e83">—</div>
@@ -376,14 +378,14 @@ function fbRow(f){return '<div class="fbitem"><span class="fb-st fb-'+esc(f.stan
   '<div style="font-size:13px;margin-top:3px;white-space:pre-wrap">'+esc(f.comment||'')+'</div>'+
   '<div class="muted" style="font-size:11px;margin-top:4px">by <b>'+esc(f.author||'anonymous')+'</b>'+(f.author_sub?' <span class="mono">'+esc(String(f.author_sub).slice(0,18))+'…</span>':'')+' · '+esc((f.created_at||'').slice(0,10))+(f.sig_kind?' · signal '+esc(f.sig_kind):'')+'</div></div>';}
 // Client-side pages: Entitlements (default) and Feedback (#feedback) — toggle + hash-route.
-const PAGES={ent:['page-ent','nav-ent','#entitlements'],fb:['page-fb','nav-fb','#feedback'],tre:['page-tre','nav-tre','#treasury']};
+const PAGES={ent:['page-ent','nav-ent','#entitlements'],fb:['page-fb','nav-fb','#feedback'],sign:['page-sign','nav-sign','#signing'],tre:['page-tre','nav-tre','#treasury']};
 function showPage(name){
   if(!PAGES[name])name='ent';
   Object.keys(PAGES).forEach(function(k){const p=document.getElementById(PAGES[k][0]);if(p)p.style.display=(k===name)?'':'none';const n=document.getElementById(PAGES[k][1]);if(n)n.className='navlink'+(k===name?' active':'');});
   const want=PAGES[name][2];if(location.hash!==want)history.replaceState(null,'',location.pathname+want);
   if(name==='fb'&&window.isOwnerNow)loadFeedback();
   if(name==='tre'&&window.isOwnerNow){loadTreasury();loadSubscriptions();}}
-function route(){const h=location.hash;showPage(h==='#feedback'?'fb':h==='#treasury'?'tre':'ent');}
+function route(){const h=location.hash;showPage(h==='#feedback'?'fb':h==='#signing'?'sign':h==='#treasury'?'tre':'ent');}
 async function loadTreasury(){
   const el=document.getElementById('trelist'),st=document.getElementById('trestat');if(!el)return;
   if(!window.isOwnerNow){el.innerHTML='<p class="muted">Only the corpus owner can view the treasury.</p>';if(st)st.innerHTML='—';return;}
@@ -443,7 +445,7 @@ async function authorizeContentSigning(){
 function collectCallback(){
   const p=new URLSearchParams(location.search);if(p.get('collect')!=='1')return false;
   const collected=p.get('collected')||'0',attempted=p.get('attempted')||'0',kind=p.get('collect_kind')||'';
-  history.replaceState(null,'',location.pathname+'#treasury');
+  history.replaceState(null,'',location.pathname+(kind==='content-signer'?'#signing':'#treasury'));
   if(kind==='content-signer'){
     setTimeout(function(){alert('✓ Authorized '+collected+' of '+attempted+' signing key'+(attempted==='1'?'':'s')+' for this identity. It now signs via its HSM-backed KMS key — no held key.');},300);
   }else{
