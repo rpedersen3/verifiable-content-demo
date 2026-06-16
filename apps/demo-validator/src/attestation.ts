@@ -18,7 +18,9 @@ export const VALIDATOR_NAME = process.env.VALIDATOR_NAME ?? 'demo-validator.agen
 // spec 266 — KMS-DELEGATED signing, NO held key: the validator's SA (demo-validator.impact) authorized a
 // Cloud-KMS key via a stored ERC-7710 delegation. The KMS key signs the attestation; the proof carries the
 // leaf so verifiers root trust in the SA via ERC-1271 while the day-to-day signer is the (rotatable) HSM key.
-const KMS_KEY = process.env.VALIDATOR_KMS_KEY;
+// .trim() the key path: a stray leading/trailing space (paste artifact) goes straight into the KMS REST
+// URL and yields a generic 404. JSON.parse tolerates surrounding whitespace, but a raw URL segment does not.
+const KMS_KEY = process.env.VALIDATOR_KMS_KEY?.trim();
 const KMS_LEAF_JSON = process.env.VALIDATOR_DELEGATION_LEAF;
 const GCP_SA = process.env.GCP_SERVICE_ACCOUNT_JSON;
 let kmsMode = !!(SA && KMS_KEY && KMS_LEAF_JSON && GCP_SA);
@@ -46,7 +48,7 @@ if (kmsMode) {
 /** Whether the validator is signing attestations via the delegated HSM-KMS key (vs the dev held key). */
 export const KMS_SIGNING = kmsMode;
 /** Diagnostics for /health — which KMS env vars are present + why KMS is off (no secret values). */
-export const KMS_DEBUG = { guard: 'loose-v2', sa: !!SA, kmsKey: !!KMS_KEY, leaf: !!KMS_LEAF_JSON, gcpSa: !!GCP_SA, reason: kmsReason };
+export const KMS_DEBUG = { guard: 'trim-v4', sa: !!SA, kmsKey: !!KMS_KEY, leaf: !!KMS_LEAF_JSON, gcpSa: !!GCP_SA, reason: kmsReason };
 
 // DEV-ONLY held-key fallback (when KMS isn't configured). NOT used in delegated mode.
 const OWNER_PK = (process.env.VALIDATOR_OWNER_PK ?? process.env.VALIDATOR_SIGNER_PK ?? '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6') as Hex;

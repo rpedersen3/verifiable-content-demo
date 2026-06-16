@@ -65,6 +65,9 @@ async function main() {
 
   const ok = await jpost(`${VALIDATOR}/validate`, bundle);
   show('Honest bundle', ok);
+  const ds = (ok.attestation as any)?.proof?.delegatingSigner;
+  console.log('\nattestation proof.type:', (ok.attestation as any)?.proof?.type);
+  console.log('delegatingSigner:', ds ? JSON.stringify({ delegatorIssuer: ds.delegatorIssuer, delegateKey: ds.delegateKey, leafDelegate: ds.delegationLeaf?.delegate, leafDelegator: ds.delegationLeaf?.delegator }) : '(none — held-key signer)');
   if (process.env.DEBUG_ANCHOR) console.log('DEBUG anchor:', JSON.stringify(ok.anchor));
 
   // The validator is an attesting agent: verify its SIGNED ValidationAttestation
