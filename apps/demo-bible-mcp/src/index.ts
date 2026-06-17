@@ -32,8 +32,10 @@ import { loadD1Corpus, findD1Verse, findD1RangeByLeaf, leafIndexFor, chapterBoun
 import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, resolveContentSignerKeys, verifyContentSignerLeaf, contentSignerForIssuer, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import { createD1Vault } from './lib/vault.js';
-import { isSensitiveClassification, projectFields, type VaultClassification } from '@agenticprimitives/vault';
-import { buildEntitlementCredential, storeEntitlement, gateVaultRead, keyReleaseForRead, toEntitlementClass } from './lib/vault-access.js';
+import { isSensitiveClassification, type VaultClassification } from '@agenticprimitives/vault';
+import { buildEntitlementCredential, storeEntitlement, gatedVaultRead } from './lib/vault-access.js';
+import { mintVaultToken, ingressFromBearer } from './lib/vault-oauth.js';
+import { createProtectedResourceMetadata, serveProtectedResourceMetadata, parseBearer } from '@agenticprimitives/mcp-oauth';
 import type { EntitlementAction, EntitlementClassification } from '@agenticprimitives/entitlements';
 
 // Identity of the MCP vault surface — the audience/serverId/resourceUri the entitlements + decrypt-grants
@@ -41,6 +43,9 @@ import type { EntitlementAction, EntitlementClassification } from '@agenticprimi
 const VAULT_AUDIENCE = 'urn:mcp:demo-bible:vault';
 const VAULT_SERVER_ID = 'demo-bible-mcp';
 const VAULT_RESOURCE_URI = 'https://demo-bible-mcp-production.richardpedersen3.workers.dev/vault';
+const VAULT_OAUTH_ISSUER = 'https://demo-bible-mcp-production.richardpedersen3.workers.dev';
+const VAULT_OAUTH_SCOPES = ['mcp:invoke', 'vault:read', 'vault:pii:read'];
+const vaultOauthSecret = (env: { VAULT_OAUTH_SECRET?: string }) => env.VAULT_OAUTH_SECRET ?? 'demo-vault-oauth-secret';
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
@@ -100,7 +105,7 @@ async function resolveBsbOwnerId(env: { A2A_RPC_URL?: string; A2A_CHAIN_ID?: str
 }
 
 type Relay = { fetch: (url: string, init?: RequestInit) => Promise<Response> };
-type Env = McpEnv & { DB?: D1Like; ONT?: Relay; ONT_URL?: string; A2A_RELAY?: Relay; RELAY_URL?: string; RELAY_ORIGIN?: string; BSB_TASK_DO?: DurableObjectNamespace } & A2aEnv;
+type Env = McpEnv & { DB?: D1Like; ONT?: Relay; ONT_URL?: string; A2A_RELAY?: Relay; RELAY_URL?: string; RELAY_ORIGIN?: string; BSB_TASK_DO?: DurableObjectNamespace; VAULT_OAUTH_SECRET?: string } & A2aEnv;
 
 // Deliver a granted entitlement VC into the READER's personal demo-mcp vault, RIGHT AWAY at grant
 // time, by presenting the reader's captured connect-delegation to the relayer's set_vault_record
@@ -152,6 +157,7 @@ declareTool({ name: 'vault_get' }, VAULT_RW_CLS);
 declareTool({ name: 'vault_set' }, VAULT_RW_CLS);
 declareTool({ name: 'vault_list' }, VAULT_RW_CLS);
 declareTool({ name: 'vault_grant' }, VAULT_RW_CLS);
+declareTool({ name: 'vault_oauth_mint' }, VAULT_RW_CLS);
 
 // Phase-1 trust profile derived from the resolved trust context (the trusted
 // issuer is the dev EOA or the on-chain issuer SA). A descriptor is a POLICY
@@ -892,28 +898,17 @@ app.post('/tools/vault_get', async (c) => {
   if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
   const b = await c.req.json<{ owner?: string; resource?: string; fields?: string[]; actor?: string; purpose?: string }>().catch(() => ({}) as Record<string, never>);
   if (!b.owner || !b.resource) return c.json({ ok: false, error: 'owner and resource required' }, 400);
-  const obj = await createD1Vault(c.env.DB).read({ owner: b.owner, resource: b.resource });
-  if (!obj) return c.json({ ok: true, object: null });
-  // P2 — fail-closed entitlement gate. `actor` is the requester (defaults to the owner for self-reads, which
-  // still requires a matching self-grant). The data's classification is checked against the credential ceiling.
+  // Two gates (shared with the OAuth lane): (1) entitlement authz, (2) one-time DecryptGrant the KAS
+  // re-verifies (spec 277 §10 + §14). `actor` defaults to the owner for self-reads (still needs a self-grant).
   const actor = b.actor ?? b.owner;
-  const cls = toEntitlementClass(obj.classification);
-  // Gate 1 (durable authz): does the actor hold an entitlement for this resource/fields/purpose/classification?
-  const decision = await gateVaultRead(c.env.DB, { principal: b.owner, actor, audience: VAULT_AUDIENCE, resource: b.resource, fields: b.fields, purpose: b.purpose, classification: cls });
-  if (decision.decision !== 'allow') {
-    audit('vault.get', 'denied', b.resource, { owner: b.owner, actor, stage: 'entitlement', reason: decision.reason });
-    return c.json({ ok: false, error: 'entitlement denied', stage: 'entitlement', reason: decision.reason }, 403);
+  const r = await gatedVaultRead(c.env.DB, { owner: b.owner, actor, resource: b.resource, fields: b.fields, purpose: b.purpose, audience: VAULT_AUDIENCE, serverId: VAULT_SERVER_ID, resourceUri: VAULT_RESOURCE_URI });
+  if (r.kind === 'not_found') return c.json({ ok: true, object: null });
+  if (r.kind === 'denied') {
+    audit('vault.get', 'denied', b.resource, { owner: b.owner, actor, stage: r.stage, reason: r.reason });
+    return c.json({ ok: false, error: r.stage === 'entitlement' ? 'entitlement denied' : 'key release denied', stage: r.stage, reason: r.reason }, 403);
   }
-  // Gate 2 (per-request key release): mint a one-time DecryptGrant bound to this request + the entitlement
-  // decision, and have the KAS independently re-verify it before any field is released (spec 277 §14).
-  const release = await keyReleaseForRead({ serverId: VAULT_SERVER_ID, resourceUri: VAULT_RESOURCE_URI, audience: VAULT_AUDIENCE, principal: b.owner, actor, resource: b.resource, allowedFields: decision.allowedFields, purpose: b.purpose, classification: cls, matchedCredentials: decision.matchedCredentials });
-  if (release.decision !== 'allow') {
-    audit('vault.get', 'denied', b.resource, { owner: b.owner, actor, stage: 'key-release', reason: release.reason });
-    return c.json({ ok: false, error: 'key release denied', stage: 'key-release', reason: release.reason }, 403);
-  }
-  const data = projectFields(obj.data, release.releasedFields);
-  audit('vault.get', 'success', b.resource, { owner: b.owner, actor, sensitive: isSensitiveClassification(obj.classification), released: release.releasedFields?.join(',') ?? '*' });
-  return c.json({ ok: true, object: { ...obj, data }, releasedFields: release.releasedFields ?? null, constraints: decision.constraints ?? null });
+  audit('vault.get', 'success', b.resource, { owner: b.owner, actor, sensitive: isSensitiveClassification(r.object.classification), released: r.released?.join(',') ?? '*' });
+  return c.json({ ok: true, object: r.object, releasedFields: r.released, constraints: r.constraints });
 });
 
 app.post('/tools/vault_list', async (c) => {
@@ -923,6 +918,56 @@ app.post('/tools/vault_list', async (c) => {
   const b = await c.req.json<{ owner?: string }>().catch(() => ({}) as { owner?: string });
   if (!b.owner) return c.json({ ok: false, error: 'owner required' }, 400);
   return c.json({ ok: true, refs: await createD1Vault(c.env.DB).list(b.owner) });
+});
+
+// ── spec 277 §6–§8 — OAuth 2.1 ingress for the vault ──
+// RFC 9728 protected-resource metadata: standard MCP clients discover the AS + scopes here.
+app.get('/.well-known/oauth-protected-resource', (c) =>
+  serveProtectedResourceMetadata(createProtectedResourceMetadata({
+    resource: VAULT_RESOURCE_URI,
+    authorizationServers: [VAULT_OAUTH_ISSUER],
+    scopesSupported: VAULT_OAUTH_SCOPES,
+    resourceDocumentation: 'https://github.com/rpedersen3/verifiable-content-demo/blob/master/docs/kms-agent-configuration-flow.md',
+  })),
+);
+
+// vault_oauth_mint — DEMO authorization-server step: build + store an McpGrantBundleV1 (principal→delegate,
+// resource/fields) and mint a bearer token bound to it (refs only). Production = a real OAuth AS + JWKS.
+app.post('/tools/vault_oauth_mint', async (c) => {
+  const gate = policyGate('vault_oauth_mint', VAULT_RW_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  const b = await c.req.json<{ principal?: string; delegate?: string; resource?: string; fields?: string[]; purpose?: string; classificationCeiling?: string; scopes?: string[] }>().catch(() => ({}) as Record<string, never>);
+  if (!b.principal || !b.delegate || !b.resource) return c.json({ ok: false, error: 'principal, delegate and resource required' }, 400);
+  const { token, bundleId } = await mintVaultToken(c.env.DB, vaultOauthSecret(c.env), {
+    issuer: VAULT_OAUTH_ISSUER, clientId: 'demo-mcp-client', audience: VAULT_AUDIENCE, resourceUri: VAULT_RESOURCE_URI, serverId: VAULT_SERVER_ID,
+    principal: b.principal, delegate: b.delegate, resource: b.resource, fields: b.fields, purpose: b.purpose, classificationCeiling: b.classificationCeiling, scopes: b.scopes ?? VAULT_OAUTH_SCOPES,
+  });
+  audit('vault.oauth.mint', 'success', b.resource, { principal: b.principal, delegate: b.delegate, bundleId });
+  return c.json({ ok: true, token, bundleId });
+});
+
+// /mcp/vault/read — OAuth-protected vault read. Validate the bearer (fail-closed) → resolve its grant bundle
+// (anti-swap hash) → run the SAME delegated vault path (entitlement + DecryptGrant/KAS) off the bundle's
+// principal/delegate. The inbound OAuth token is never reused downstream.
+app.post('/mcp/vault/read', async (c) => {
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  const ingress = await ingressFromBearer(c.env.DB, parseBearer(c.req.header('authorization')), vaultOauthSecret(c.env), { audience: VAULT_AUDIENCE, requiredScopes: ['vault:read'] });
+  if (!ingress.ok || !ingress.bundle) {
+    return c.json({ ok: false, error: 'unauthorized', reason: ingress.reason }, (ingress.status ?? 401) as 401 | 403);
+  }
+  const b = await c.req.json<{ resource?: string; fields?: string[]; purpose?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!b.resource) return c.json({ ok: false, error: 'resource required' }, 400);
+  const owner = ingress.bundle.principal.id;
+  const actor = ingress.bundle.delegate?.id ?? owner;
+  const r = await gatedVaultRead(c.env.DB, { owner, actor, resource: b.resource, fields: b.fields, purpose: b.purpose, audience: VAULT_AUDIENCE, serverId: VAULT_SERVER_ID, resourceUri: VAULT_RESOURCE_URI });
+  if (r.kind === 'not_found') return c.json({ ok: true, object: null });
+  if (r.kind === 'denied') {
+    audit('vault.oauth.read', 'denied', b.resource, { owner, actor, stage: r.stage, reason: r.reason });
+    return c.json({ ok: false, error: r.stage === 'entitlement' ? 'entitlement denied' : 'key release denied', stage: r.stage, reason: r.reason }, 403);
+  }
+  audit('vault.oauth.read', 'success', b.resource, { owner, actor, bundle: ingress.bundle.id, released: r.released?.join(',') ?? '*' });
+  return c.json({ ok: true, object: r.object, releasedFields: r.released, viaGrantBundle: ingress.bundle.id });
 });
 
 // store_content_signer — persist the owner-signed delegation (issuer SA → its KMS key) so the MCP can sign

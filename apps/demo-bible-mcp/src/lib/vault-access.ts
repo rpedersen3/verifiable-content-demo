@@ -4,7 +4,8 @@
 // ceiling). VC proof/status verification is a later upstream wave — credentials here are stored + trusted.
 import { resolveEntitlements, type AgenticEntitlementCredentialV1, type EntitlementAction, type EntitlementClassification, type EntitlementDecision } from '@agenticprimitives/entitlements';
 import { createDecryptGrant, verifyDecryptGrant, createInMemoryReplayStore, canonicalize, sha256Hex, type KeyReleaseDecision } from '@agenticprimitives/key-authorization';
-import type { VaultClassification } from '@agenticprimitives/vault';
+import { projectFields, type VaultClassification } from '@agenticprimitives/vault';
+import { createD1Vault } from './vault.js';
 import type { D1Like } from '../editions/d1.js';
 
 // Vault has more classes than the entitlement ceiling ladder; map the vault-only "*.private" classes to a
@@ -126,4 +127,25 @@ export async function keyReleaseForRead(args: {
     { audience: args.audience, principal: args.principal, delegate: args.actor, toolName: 'vault_get', argsHash, resource: args.resource, requestedFields: args.allowedFields, purpose: args.purpose, classification: args.classification, entitlementHashes: [entHash] },
     { now, replayStore },
   );
+}
+
+// ── Shared two-gate vault read (entitlement → one-time DecryptGrant/KAS), used by both the service-hmac
+//    tool (vault_get) and the OAuth-protected HTTP lane (/mcp/vault/read). ──
+export type GatedReadResult =
+  | { kind: 'not_found' }
+  | { kind: 'denied'; stage: 'entitlement' | 'key-release'; reason: string }
+  | { kind: 'ok'; object: { owner: string; resource: string; classification: VaultClassification; data: unknown; updatedAt: string }; released: string[] | null; constraints: unknown };
+
+export async function gatedVaultRead(
+  db: D1Like,
+  args: { owner: string; actor: string; resource: string; fields?: string[]; purpose?: string; audience: string; serverId: string; resourceUri: string },
+): Promise<GatedReadResult> {
+  const obj = await createD1Vault(db).read({ owner: args.owner, resource: args.resource });
+  if (!obj) return { kind: 'not_found' };
+  const cls = toEntitlementClass(obj.classification);
+  const decision = await gateVaultRead(db, { principal: args.owner, actor: args.actor, audience: args.audience, resource: args.resource, fields: args.fields, purpose: args.purpose, classification: cls });
+  if (decision.decision !== 'allow') return { kind: 'denied', stage: 'entitlement', reason: decision.reason };
+  const release = await keyReleaseForRead({ serverId: args.serverId, resourceUri: args.resourceUri, audience: args.audience, principal: args.owner, actor: args.actor, resource: args.resource, allowedFields: decision.allowedFields, purpose: args.purpose, classification: cls, matchedCredentials: decision.matchedCredentials });
+  if (release.decision !== 'allow') return { kind: 'denied', stage: 'key-release', reason: release.reason };
+  return { kind: 'ok', object: { ...obj, data: projectFields(obj.data, release.releasedFields) }, released: release.releasedFields ?? null, constraints: decision.constraints ?? null };
 }

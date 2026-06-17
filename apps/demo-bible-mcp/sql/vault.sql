@@ -23,3 +23,11 @@ CREATE TABLE IF NOT EXISTS vault_entitlements (
   created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_vault_ent_principal_actor ON vault_entitlements(principal, actor);
+
+-- spec 277 §7 — OAuth grant bundles. A validated bearer token references a bundle by id+hash; the bundle
+-- carries the principal/delegate + delegation/entitlement/policy hashes the delegated vault path runs off.
+CREATE TABLE IF NOT EXISTS grant_bundles (
+  id         TEXT PRIMARY KEY,   -- urn:ap:mcp-grant:<uuid>
+  bundle     TEXT NOT NULL,      -- full JSON McpGrantBundleV1 (carries its own hash)
+  created_at TEXT NOT NULL
+);
