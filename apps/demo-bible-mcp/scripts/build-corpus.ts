@@ -15,7 +15,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
 const EDITION = 'bsb';
 const VERSION = '2024';
-// The issuer SA (bsb.impact) the corpus is anchored under (Base Sepolia).
+// The issuer SA (fbsb.impact) the corpus is anchored under (Base Sepolia).
 const ISSUER = (process.env.ISSUER_SA ?? '0x72D8679435cF288689e157b1AA1F8648A7746851') as `0x${string}`;
 
 function sqlEsc(s: string): string {

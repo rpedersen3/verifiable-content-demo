@@ -1,6 +1,6 @@
-// BSB Corpus-Manager (bsb.impact) A2A agent wiring — assembles createA2aAgent from the platform
+// BSB Corpus-Manager (fbsb.impact) A2A agent wiring — assembles createA2aAgent from the platform
 // (@agenticprimitives/a2a) with the Base Sepolia contracts, our SkillHandlers, and the mcp/vault
-// seams. DEPLOYABLE-BUT-INERT: until A2A_RPC_URL + A2A_AGENT_SA (the claimed bsb.impact) are set,
+// seams. DEPLOYABLE-BUT-INERT: until A2A_RPC_URL + A2A_AGENT_SA (the claimed fbsb.impact) are set,
 // the on-chain checks fail closed (every task denied). Set the secrets/vars to "flip the switch".
 //
 // NOTE: the task store here is in-memory (per-isolate). Production uses the Durable Object store
