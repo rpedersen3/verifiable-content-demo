@@ -11,3 +11,15 @@ CREATE TABLE IF NOT EXISTS vault_objects (
   PRIMARY KEY (owner, resource)
 );
 CREATE INDEX IF NOT EXISTS idx_vault_owner ON vault_objects(owner);
+
+-- spec 277 §10 — owner-issued entitlement credentials (AgenticEntitlementCredentialV1) that authorize an
+-- actor to read an owner's vault resource/fields. Loaded + matched (fail-closed) at vault_get time.
+CREATE TABLE IF NOT EXISTS vault_entitlements (
+  id          TEXT PRIMARY KEY,   -- urn:ap:entitlement:<uuid>
+  principal   TEXT NOT NULL,      -- the data owner (credentialSubject.principal)
+  actor       TEXT NOT NULL,      -- the holder/delegate (credentialSubject.id)
+  resource    TEXT NOT NULL,
+  credential  TEXT NOT NULL,      -- full JSON credential
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vault_ent_principal_actor ON vault_entitlements(principal, actor);

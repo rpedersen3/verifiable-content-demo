@@ -32,7 +32,12 @@ import { loadD1Corpus, findD1Verse, findD1RangeByLeaf, leafIndexFor, chapterBoun
 import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, resolveContentSignerKeys, verifyContentSignerLeaf, contentSignerForIssuer, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import { createD1Vault } from './lib/vault.js';
-import { isSensitiveClassification, type VaultClassification } from '@agenticprimitives/vault';
+import { isSensitiveClassification, projectFields, type VaultClassification } from '@agenticprimitives/vault';
+import { buildEntitlementCredential, storeEntitlement, gateVaultRead, toEntitlementClass } from './lib/vault-access.js';
+import type { EntitlementAction, EntitlementClassification } from '@agenticprimitives/entitlements';
+
+// Audience the vault entitlements are bound to (the MCP vault surface). Constant for the demo.
+const VAULT_AUDIENCE = 'urn:mcp:demo-bible:vault';
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
@@ -143,6 +148,7 @@ const VAULT_RW_CLS: ToolClassification = { '@sa-tool': 'service-only', '@sa-auth
 declareTool({ name: 'vault_get' }, VAULT_RW_CLS);
 declareTool({ name: 'vault_set' }, VAULT_RW_CLS);
 declareTool({ name: 'vault_list' }, VAULT_RW_CLS);
+declareTool({ name: 'vault_grant' }, VAULT_RW_CLS);
 
 // Phase-1 trust profile derived from the resolved trust context (the trusted
 // issuer is the dev EOA or the on-chain issuer SA). A descriptor is a POLICY
@@ -863,16 +869,39 @@ app.post('/tools/vault_set', async (c) => {
   return c.json({ ok: true });
 });
 
+// vault_grant — the owner (principal) issues an entitlement authorizing `actor` to read `resource` (optional
+// field/purpose/classification-ceiling scoping). Stored + matched at vault_get time (fail-closed).
+app.post('/tools/vault_grant', async (c) => {
+  const gate = policyGate('vault_grant', VAULT_RW_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  const b = await c.req.json<{ principal?: string; actor?: string; resource?: string; actions?: EntitlementAction[]; fields?: string[]; purpose?: string; classificationCeiling?: EntitlementClassification; validUntil?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!b.principal || !b.actor || !b.resource) return c.json({ ok: false, error: 'principal, actor and resource required' }, 400);
+  const cred = buildEntitlementCredential({ principal: b.principal, actor: b.actor, audience: VAULT_AUDIENCE, resource: b.resource, actions: b.actions, fields: b.fields, purpose: b.purpose, classificationCeiling: b.classificationCeiling, validUntil: b.validUntil });
+  await storeEntitlement(c.env.DB, cred);
+  audit('vault.grant', 'success', b.resource, { principal: b.principal, actor: b.actor });
+  return c.json({ ok: true, credentialId: cred.id });
+});
+
 app.post('/tools/vault_get', async (c) => {
   const gate = policyGate('vault_get', VAULT_RW_CLS);
   if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
   if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
-  const b = await c.req.json<{ owner?: string; resource?: string; fields?: string[] }>().catch(() => ({}) as Record<string, never>);
+  const b = await c.req.json<{ owner?: string; resource?: string; fields?: string[]; actor?: string; purpose?: string }>().catch(() => ({}) as Record<string, never>);
   if (!b.owner || !b.resource) return c.json({ ok: false, error: 'owner and resource required' }, 400);
-  const obj = await createD1Vault(c.env.DB).read({ owner: b.owner, resource: b.resource, fields: b.fields });
+  const obj = await createD1Vault(c.env.DB).read({ owner: b.owner, resource: b.resource });
   if (!obj) return c.json({ ok: true, object: null });
-  audit('vault.get', 'success', b.resource, { owner: b.owner, sensitive: isSensitiveClassification(obj.classification), fields: b.fields?.join(',') ?? '*' });
-  return c.json({ ok: true, object: obj });
+  // P2 — fail-closed entitlement gate. `actor` is the requester (defaults to the owner for self-reads, which
+  // still requires a matching self-grant). The data's classification is checked against the credential ceiling.
+  const actor = b.actor ?? b.owner;
+  const decision = await gateVaultRead(c.env.DB, { principal: b.owner, actor, audience: VAULT_AUDIENCE, resource: b.resource, fields: b.fields, purpose: b.purpose, classification: toEntitlementClass(obj.classification) });
+  if (decision.decision !== 'allow') {
+    audit('vault.get', 'denied', b.resource, { owner: b.owner, actor, reason: decision.reason });
+    return c.json({ ok: false, error: 'entitlement denied', reason: decision.reason }, 403);
+  }
+  const data = projectFields(obj.data, decision.allowedFields);
+  audit('vault.get', 'success', b.resource, { owner: b.owner, actor, sensitive: isSensitiveClassification(obj.classification), allowed: decision.allowedFields?.join(',') ?? '*' });
+  return c.json({ ok: true, object: { ...obj, data }, allowedFields: decision.allowedFields ?? null, constraints: decision.constraints ?? null });
 });
 
 app.post('/tools/vault_list', async (c) => {
