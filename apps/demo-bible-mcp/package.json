@@ -24,6 +24,10 @@
     "@agenticprimitives/delegated-signer": "^0.0.0-alpha.1",
     "@agenticprimitives/key-custody": "^1.0.0-alpha.6",
     "@agenticprimitives/connect-auth": "^1.0.0-alpha.7",
+    "@agenticprimitives/vault": "^0.0.0-alpha.2",
+    "@agenticprimitives/entitlements": "^0.0.0-alpha.1",
+    "@agenticprimitives/key-authorization": "^0.0.0-alpha.2",
+    "@agenticprimitives/mcp-oauth": "^0.0.0-alpha.1",
     "hono": "^4.12.23",
     "viem": "^2.52.2"
   },

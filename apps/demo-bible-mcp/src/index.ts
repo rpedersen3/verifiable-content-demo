@@ -31,6 +31,8 @@ import { getCorpora, inclusionProof, EDITIONS, type BuiltCorpus } from './editio
 import { loadD1Corpus, findD1Verse, findD1RangeByLeaf, leafIndexFor, chapterBounds, d1InclusionProof, type D1Like } from './editions/d1.js';
 import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, resolveContentSignerKeys, verifyContentSignerLeaf, contentSignerForIssuer, type McpEnv, type TrustContext } from './lib/trust-context.js';
+import { createD1Vault } from './lib/vault.js';
+import { isSensitiveClassification, type VaultClassification } from '@agenticprimitives/vault';
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
@@ -135,6 +137,12 @@ declareTool({ name: 'get_trust_signals' }, VAULT_CLS);
 declareTool({ name: 'submit_feedback' }, VAULT_CLS);
 declareTool({ name: 'graph_query' }, VAULT_CLS);
 declareTool({ name: 'get_passage' }, VAULT_CLS);
+// spec 277 delegated data vault (Phase 1: plaintext seam). Sensitive reads/writes; the spec-277 access
+// gating (entitlements + decrypt-grant + OAuth ingress) layers on in P2–P4 — these are the raw seam tools.
+const VAULT_RW_CLS: ToolClassification = { '@sa-tool': 'service-only', '@sa-auth': 'service-hmac', '@sa-risk-tier': 'high', '@sa-validation': 'json-schema' };
+declareTool({ name: 'vault_get' }, VAULT_RW_CLS);
+declareTool({ name: 'vault_set' }, VAULT_RW_CLS);
+declareTool({ name: 'vault_list' }, VAULT_RW_CLS);
 
 // Phase-1 trust profile derived from the resolved trust context (the trusted
 // issuer is the dev EOA or the on-chain issuer SA). A descriptor is a POLICY
@@ -838,6 +846,42 @@ app.post('/tools/content_signer_keys', async (c) => {
     const { signers, skipped } = await resolveContentSignerKeys(c.env as unknown as McpEnv);
     return c.json({ ok: true, signers, skipped });
   } catch (e) { return c.json({ ok: false, error: (e as Error).message }, 503); }
+});
+
+// ── spec 277 delegated data vault (Phase 1: plaintext) ──
+// Raw read/write/list over the @agenticprimitives/vault seam, backed by D1. The owner is the data subject
+// (reader/agent SA). NOTE: P2–P4 wrap vault_get behind entitlement resolution + a one-time DecryptGrant +
+// OAuth ingress; P5 encrypts the envelopes (key-custody DekWrapper). For now these are service-hmac gated.
+app.post('/tools/vault_set', async (c) => {
+  const gate = policyGate('vault_set', VAULT_RW_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  const b = await c.req.json<{ owner?: string; resource?: string; data?: unknown; classification?: string }>().catch(() => ({}) as Record<string, never>);
+  if (!b.owner || !b.resource) return c.json({ ok: false, error: 'owner and resource required' }, 400);
+  await createD1Vault(c.env.DB).write({ owner: b.owner, resource: b.resource, data: b.data ?? null, classification: b.classification as VaultClassification | undefined });
+  audit('vault.set', 'success', b.resource, { owner: b.owner, deleted: b.data == null });
+  return c.json({ ok: true });
+});
+
+app.post('/tools/vault_get', async (c) => {
+  const gate = policyGate('vault_get', VAULT_RW_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  const b = await c.req.json<{ owner?: string; resource?: string; fields?: string[] }>().catch(() => ({}) as Record<string, never>);
+  if (!b.owner || !b.resource) return c.json({ ok: false, error: 'owner and resource required' }, 400);
+  const obj = await createD1Vault(c.env.DB).read({ owner: b.owner, resource: b.resource, fields: b.fields });
+  if (!obj) return c.json({ ok: true, object: null });
+  audit('vault.get', 'success', b.resource, { owner: b.owner, sensitive: isSensitiveClassification(obj.classification), fields: b.fields?.join(',') ?? '*' });
+  return c.json({ ok: true, object: obj });
+});
+
+app.post('/tools/vault_list', async (c) => {
+  const gate = policyGate('vault_list', VAULT_RW_CLS);
+  if (gate.decision !== 'allow') return c.json({ ok: false, error: 'policy denied', detail: gate }, 403);
+  if (!c.env.DB) return c.json({ ok: false, error: 'no store' }, 503);
+  const b = await c.req.json<{ owner?: string }>().catch(() => ({}) as { owner?: string });
+  if (!b.owner) return c.json({ ok: false, error: 'owner required' }, 400);
+  return c.json({ ok: true, refs: await createD1Vault(c.env.DB).list(b.owner) });
 });
 
 // store_content_signer — persist the owner-signed delegation (issuer SA → its KMS key) so the MCP can sign

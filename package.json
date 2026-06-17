@@ -50,6 +50,10 @@
       "@agenticprimitives/tool-policy": "1.0.0-alpha.11",
       "@agenticprimitives/types": "1.0.0-alpha.11",
       "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.8",
+      "@agenticprimitives/vault": "0.0.0-alpha.2",
+      "@agenticprimitives/entitlements": "0.0.0-alpha.1",
+      "@agenticprimitives/key-authorization": "0.0.0-alpha.2",
+      "@agenticprimitives/mcp-oauth": "0.0.0-alpha.1",
       "@agenticprimitives/payments": "0.0.0-alpha.5"
     }
   },

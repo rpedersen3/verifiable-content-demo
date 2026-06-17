@@ -22,6 +22,10 @@ overrides:
   '@agenticprimitives/tool-policy': 1.0.0-alpha.11
   '@agenticprimitives/types': 1.0.0-alpha.11
   '@agenticprimitives/verifiable-credentials': 0.0.0-alpha.8
+  '@agenticprimitives/vault': 0.0.0-alpha.2
+  '@agenticprimitives/entitlements': 0.0.0-alpha.1
+  '@agenticprimitives/key-authorization': 0.0.0-alpha.2
+  '@agenticprimitives/mcp-oauth': 0.0.0-alpha.1
   '@agenticprimitives/payments': 0.0.0-alpha.5
 
 importers:
@@ -131,9 +135,18 @@ importers:
       '@agenticprimitives/delegation':
         specifier: 1.0.0-alpha.11
         version: 1.0.0-alpha.11(@agenticprimitives/agent-account@1.0.0-alpha.11(@agenticprimitives/connect-auth@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/audit@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11))(@agenticprimitives/connect-auth@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/key-custody@1.0.0-alpha.11(@agenticprimitives/audit@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11))(@agenticprimitives/connect-auth@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3))
+      '@agenticprimitives/entitlements':
+        specifier: 0.0.0-alpha.1
+        version: 0.0.0-alpha.1
+      '@agenticprimitives/key-authorization':
+        specifier: 0.0.0-alpha.2
+        version: 0.0.0-alpha.2
       '@agenticprimitives/key-custody':
         specifier: 1.0.0-alpha.11
         version: 1.0.0-alpha.11(@agenticprimitives/audit@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11))(@agenticprimitives/connect-auth@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3))
+      '@agenticprimitives/mcp-oauth':
+        specifier: 0.0.0-alpha.1
+        version: 0.0.0-alpha.1
       '@agenticprimitives/scripture-content-extension':
         specifier: ^1.0.0-alpha.6
         version: 1.0.0-alpha.6(@agenticprimitives/content-primitives@1.0.0-alpha.12(@agenticprimitives/types@1.0.0-alpha.11)(@agenticprimitives/verifiable-credentials@0.0.0-alpha.8(@agenticprimitives/ontology@1.0.0-alpha.11)(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(viem@2.52.2(typescript@5.9.3)))
@@ -143,6 +156,9 @@ importers:
       '@agenticprimitives/types':
         specifier: 1.0.0-alpha.11
         version: 1.0.0-alpha.11
+      '@agenticprimitives/vault':
+        specifier: 0.0.0-alpha.2
+        version: 0.0.0-alpha.2
       '@agenticprimitives/verifiable-credentials':
         specifier: 0.0.0-alpha.8
         version: 0.0.0-alpha.8(@agenticprimitives/ontology@1.0.0-alpha.11)(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3))
@@ -378,10 +394,16 @@ packages:
       '@agenticprimitives/types': 1.0.0-alpha.11
       viem: ^2.52.2
 
+  '@agenticprimitives/entitlements@0.0.0-alpha.1':
+    resolution: {integrity: sha512-SkUyfDxZK14ezr9NZbgjToMDmtKn26oD+8EW7Ewosmc5JS9RbhGPkBH8CgPY7Y4mMnqCHu40upEq2w7lhlYXzw==}
+
   '@agenticprimitives/fulfillment@0.0.0-alpha.6':
     resolution: {integrity: sha512-+nyGMdaBv+J3mDcqAOKHombgZ9MesUZAsAijMITEJCjomj2sUvNaz/5nPlDfxpNY2EvfwYzUV+K16RXIYs0cSg==}
     peerDependencies:
       viem: ^2.52.2
+
+  '@agenticprimitives/key-authorization@0.0.0-alpha.2':
+    resolution: {integrity: sha512-y6W/bJ1Iyx6b42hPPKHMIu1e1lqqsdDZTijatvlERiKW0uduAnhul676WtA50umspkDjEzZbg8KMzuizlSeAQQ==}
 
   '@agenticprimitives/key-custody@1.0.0-alpha.11':
     resolution: {integrity: sha512-TVRjim/fxu5HwHYcePcwTJ8WOi036Y256hjCPX4AuxQlvI9nC8b9uL610Jx6936d+xqNFFAg8LJEZkSa1nS08A==}
@@ -398,6 +420,9 @@ packages:
         optional: true
       viem:
         optional: true
+
+  '@agenticprimitives/mcp-oauth@0.0.0-alpha.1':
+    resolution: {integrity: sha512-pf8k8Y4Bywe5hA+iZmu2/nWfLZh0Oh/eJOyAQ0MpPBdW9etj7C9zP09mKQ4cDRuxuAy58gu5IGUuJabrSCBo0w==}
 
   '@agenticprimitives/ontology@1.0.0-alpha.11':
     resolution: {integrity: sha512-qaRSkQCmqgfqV9rB6VJEtIYtUh526TohTvPZMONp3DSdY/Ex8ukrpEgpi5fexhBIkLsSm2j5TyZPvNc02OUEcw==}
@@ -419,6 +444,9 @@ packages:
 
   '@agenticprimitives/types@1.0.0-alpha.11':
     resolution: {integrity: sha512-6usT89Tz6l30SyDiQkwtQ2irJMyh6+a5lzA2MJVe/ytiVYzdCiLFXq7IBbYT1sluA20XzQTbyky9pNC8KlqcCQ==}
+
+  '@agenticprimitives/vault@0.0.0-alpha.2':
+    resolution: {integrity: sha512-2TANzt7Tsfrje3fAXFNCGataatWWp168TGBn/EKP9Nwv2W4a97+fU1COwzjePQ8aXwkZPrUR/bLo5XQM0fr0UQ==}
 
   '@agenticprimitives/verifiable-credentials@0.0.0-alpha.8':
     resolution: {integrity: sha512-wYASuNs4MxUDTYyEfz4oZkzsfBYpgW3PcZ54ekPmN6nisxfZ0UKAlBoAUJhlXv2BOHTNnvBBba4MQd7qHmT9Sw==}
@@ -1815,6 +1843,8 @@ snapshots:
       '@noble/hashes': 2.2.0
       viem: 2.52.2(typescript@5.9.3)
 
+  '@agenticprimitives/entitlements@0.0.0-alpha.1': {}
+
   '@agenticprimitives/fulfillment@0.0.0-alpha.6(@agenticprimitives/agent-account@1.0.0-alpha.11(@agenticprimitives/connect-auth@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/audit@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11))(@agenticprimitives/connect-auth@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/key-custody@1.0.0-alpha.11(@agenticprimitives/audit@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11))(@agenticprimitives/connect-auth@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/ontology@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3))':
     dependencies:
       '@agenticprimitives/agreements': 0.0.0-alpha.6(@agenticprimitives/ontology@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3))
@@ -1831,6 +1861,8 @@ snapshots:
       - '@agenticprimitives/key-custody'
       - '@agenticprimitives/ontology'
 
+  '@agenticprimitives/key-authorization@0.0.0-alpha.2': {}
+
   '@agenticprimitives/key-custody@1.0.0-alpha.11(@agenticprimitives/audit@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11))(@agenticprimitives/connect-auth@1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3)))(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3))':
     dependencies:
       '@agenticprimitives/types': 1.0.0-alpha.11
@@ -1840,6 +1872,8 @@ snapshots:
       '@agenticprimitives/audit': 1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)
       '@agenticprimitives/connect-auth': 1.0.0-alpha.11(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3))
       viem: 2.52.2(typescript@5.9.3)
+
+  '@agenticprimitives/mcp-oauth@0.0.0-alpha.1': {}
 
   '@agenticprimitives/ontology@1.0.0-alpha.11': {}
 
@@ -1869,6 +1903,8 @@ snapshots:
       '@noble/hashes': 2.2.0
 
   '@agenticprimitives/types@1.0.0-alpha.11': {}
+
+  '@agenticprimitives/vault@0.0.0-alpha.2': {}
 
   '@agenticprimitives/verifiable-credentials@0.0.0-alpha.8(@agenticprimitives/ontology@1.0.0-alpha.11)(@agenticprimitives/types@1.0.0-alpha.11)(viem@2.52.2(typescript@5.9.3))':
     dependencies:
