@@ -16,7 +16,8 @@
     "validator": "pnpm --filter @verifiable-content-demo/validator start",
     "validate:e2e": "tsx scripts/validator-e2e.ts",
     "check:no-licensed-content": "tsx scripts/check-no-licensed-content.ts",
-    "kms:apply": "tsx scripts/kms-apply.ts"
+    "kms:apply": "tsx scripts/kms-apply.ts",
+    "vault:e2e": "tsx scripts/vault-e2e.ts"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
