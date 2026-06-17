@@ -79,9 +79,15 @@ Legend: 🔴 bug (breaks consumers) · 🟠 gap (blocks the managed-KMS goal) ·
   - **Cloudflare:** pipe into `wrangler secret put` (or CF API with `CLOUDFLARE_API_TOKEN`).
   - **Vercel:** **REST API** (`/v10/projects/{id}/env`, `type:"encrypted"`). ⚠ `vercel env add` from stdin
     **stores an empty value** (observed) — do not use it; use the API. Resolve project id + team via the API.
+  - ⚠ **Vercel auth token must be refreshable, NOT the raw `~/.local/share/com.vercel.cli/auth.json` token.**
+    That stored token **expires** (observed `403 {"error":{"code":"forbidden","invalidToken":true}}` mid-session,
+    while the `vercel` CLI itself still worked because it refreshes via its `refreshToken`). The reference impl
+    reads the raw token, so the Vercel writer silently breaks once it lapses. The real writer should either
+    shell out to the authenticated `vercel` CLI, accept an explicit `VERCEL_TOKEN`, or perform the
+    `refreshToken` exchange — never depend on the raw cached access token.
   - Placement: a sibling tool (e.g. `@agenticprimitives/deploy-secrets` or a `tools/` CLI), **not**
     `key-custody` (key-custody must stay a dependency-light custody leaf, ADR-0021).
-  - Reference impl: `scripts/kms/targets.ts` in this repo.
+  - Reference impl: `scripts/kms/targets.ts` in this repo (note: it has the raw-token flaw above).
 
 ### B7. 🟠 Implement `GcpKmsProvider` envelope encrypt/decrypt (v0.2 stub today)
 - **What:** `key-custody`'s `GcpKmsProvider` envelope methods (`generateSessionDataKey` /
