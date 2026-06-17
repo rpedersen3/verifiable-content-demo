@@ -89,7 +89,11 @@ Legend: 🔴 bug (breaks consumers) · 🟠 gap (blocks the managed-KMS goal) ·
     `key-custody` (key-custody must stay a dependency-light custody leaf, ADR-0021).
   - Reference impl: `scripts/kms/targets.ts` in this repo (note: it has the raw-token flaw above).
 
-### B7. 🟠 Implement `GcpKmsProvider` envelope encrypt/decrypt (v0.2 stub today)
+### B7. ✅ DONE (shipped in key-custody@1.0.0-alpha.11) — `GcpKmsProvider` envelope encrypt/decrypt
+> RESOLVED: the published `GcpKmsProvider.generateSessionDataKey`/`decryptSessionDataKey` are now real Cloud-KMS
+> `:encrypt`/`:decrypt` with AAD binding (verified 2026-06-17). The downstream vault (spec 277, P5) uses it as
+> its `DekWrapper` and encrypts sensitive objects at rest. The note below is the original (stale) gap report.
+
 - **What:** `key-custody`'s `GcpKmsProvider` envelope methods (`generateSessionDataKey` /
   `decryptSessionDataKey` — the symmetric DEK-wrap path of `A2AKeyProvider`) are still a **v0.2 stub**
   (documented in the package CLAUDE.md / AUDIT.md / spec 203). Only the asymmetric `GcpKmsSigner` is real.
