@@ -938,9 +938,14 @@ app.post('/tools/claim_service', async (c) => {
     }
     return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: existing.owner_sub, reason: existingIsCanonical ? `corpus owned by the canonical ${agentName} agent` : 'not the corpus owner' });
   }
-  // Unclaimed: only the ANS-authorized controller may claim; if ANS is unresolvable (no RPC / timeout) fall back to first-claim-wins.
-  if (resolved.sa && !ansAuthorized) {
-    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: resolved.id, reason: `only ${agentName} (per ANS), or a custodian of its account, may claim this corpus` });
+  // Unclaimed: only the ANS-authorized controller may claim. Fail closed — if ANS is unresolvable
+  // (no RPC / timeout / unregistered name) we DENY rather than fall back to first-claim-wins, so an
+  // arbitrary connector can never seize the corpus while on-chain ownership can't be verified.
+  if (!ansAuthorized) {
+    const reason = resolved.sa
+      ? `only ${agentName} (per ANS), or a custodian of its account, may claim this corpus`
+      : `cannot verify ${agentName} ownership on-chain (ANS unresolvable); claim denied`;
+    return c.json({ ok: true, claimed: false, isOwner: false, ownerSub: resolved.id, reason });
   }
   await c.env.DB.prepare('INSERT INTO service_identity(service, issuer_agent_id, owner_sub, delegate_address, delegation, created_at) VALUES(?,?,?,?,?,?)')
     .bind(service, b.issuerAgentId ?? agentName, b.ownerSub, '', '', now).run();
