@@ -1,87 +1,102 @@
-# Spec: Automated KMS provisioning + keyless deploy wiring
+# Spec: Managed KMS configuration (provision → bind → wire), Cloudflare + Vercel
 
-Status: **proposed** (deferred — captured 2026-06-16, to implement later)
-Related: spec 266 (delegated content trust), spec 276 (KMS consumer surface), `scripts/provision-content-signer-keys.mjs`, [[validator-kms-signing-live]]
+Status: **proposed / design** (grounded inventory done 2026-06-16)
+Related: spec 266 (delegated content trust), spec 276 (KMS consumer surface), [[validator-kms-signing-live]], [[spec-276-kms-consumer-surface-migration]]
 
-## Motivation
+## Goal
 
-Manual `GCP_SERVICE_ACCOUNT_JSON` pasting into terminals is exactly the operator footgun
-spec 276 set out to remove. Today provisioning + deploy wiring is several manual steps with
-raw service-account JSON moving by copy/paste. Automate the whole chain, and move toward a
-posture where the runtime needs **no long-lived JSON key at all**.
+Once the smart agents are configured, the system manages **every** step to get Cloud-KMS signing
+working for an app — provision the HSM key, grant IAM, derive the address, bind the key to the agent
+SA, and write the minimal runtime secrets to the right deploy target. Adding a new KMS-backed app =
+one manifest entry + one command. No raw service-account JSON pasted into terminals. Fail closed.
 
-## Target posture
+## Current state (inventory)
 
-- **No raw service-account JSON pasted into terminals.**
-- Prefer **GCP Workload Identity Federation (WIF)** or SA **impersonation** over long-lived JSON keys.
-- Provision KMS keys + IAM via `ap-provision-gcp`.
-- Generate/validate the key map automatically.
-- Write only the **minimal** runtime secrets/config to the deploy target.
-- **Fail closed** if required bindings are missing.
-- Never print private JSON to stdout/logs.
+KMS consumers and their config conventions differ per app:
 
-## Desired flow
+| App | Target | Provision | Runtime KMS config | SA↔key binding |
+|-----|--------|-----------|--------------------|----------------|
+| demo-bible-mcp | Cloudflare | `scripts/provision-content-signer-keys.mjs` (REST, gcloud-free) | `CONTENT_SIGNER_KEYS` (name→keyVersion map) + `GCP_SERVICE_ACCOUNT_JSON` | D1 `content_signers` leaf (ceremony) |
+| demo-validator | Vercel | same script | `VALIDATOR_KMS_KEY` + `VALIDATOR_DELEGATION_LEAF` + `VALIDATOR_SA` + `GCP_SERVICE_ACCOUNT_JSON` | env leaf |
+| demo-a2a (monorepo) | Cloudflare | manual | `GCP_KMS_KEY_NAME` + `GCP_KMS_ENCRYPT_KEY_NAME` + `GCP_SERVICE_ACCOUNT_JSON` | per-subject HKDF (spec 235) |
 
+Package surface (`@agenticprimitives/key-custody`): `/kms-core` (peer-free signing), `/provision-gcp`
+(`planGcpProvision`/`executeGcpProvision` + `ap-provision-gcp` CLI), `GcpKmsSigner`. Gaps:
+- `ap-provision-gcp` **requires gcloud on PATH**; only accepts sanitized identity labels (dotted
+  `fbsb.impact` rejected as a GCP key id); grants per-key `roles/cloudkms.signer`; **writes no secrets**.
+- **No secret-writer** for Cloudflare or Vercel anywhere in either repo.
+- **No WIF / keyless** transport — every runtime needs a raw `GCP_SERVICE_ACCOUNT_JSON`.
+
+## Target architecture
+
+### 1. Declarative manifest (single source of truth)
+A repo-level `kms.manifest.json` describing the keyring + each signing identity and where its runtime
+config is written:
+
+```jsonc
+{
+  "project": "churchcore2", "location": "us-central1", "keyRing": "content-signers",
+  "runtimeServiceAccount": "agenticprimitives-signer@churchcore2.iam.gserviceaccount.com",
+  "identities": [
+    { "name": "fbsb.impact",            "targets": [{ "platform": "cloudflare", "worker": "demo-bible-mcp", "env": "production", "keyMapSecret": "CONTENT_SIGNER_KEYS" }] },
+    { "name": "lbsb.impact",            "targets": [{ "platform": "cloudflare", "worker": "demo-bible-mcp", "env": "production", "keyMapSecret": "CONTENT_SIGNER_KEYS" }] },
+    { "name": "scripture-resolver.impact", "targets": [{ "platform": "cloudflare", "worker": "demo-bible-mcp", "env": "production", "keyMapSecret": "CONTENT_SIGNER_KEYS" }] },
+    { "name": "demo-validator.impact",  "targets": [{ "platform": "vercel", "project": "scripture-validator", "env": "production", "keySecret": "VALIDATOR_KMS_KEY", "leafSecret": "VALIDATOR_DELEGATION_LEAF", "saSecret": "VALIDATOR_SA" }] }
+  ]
+}
 ```
-ap-provision-gcp \
-  --project <project> --location us-central1 --keyring content-signers \
-  --identity fbsb.impact --identity lbsb.impact \
-  --identity demo-validator.impact --identity scripture-resolver.impact \
-  --runtime-service-account <runtime-sa>
 
-# then a deploy adapter writes the runtime secrets/config:
-ap-provision-gcp ... --write-cloudflare --env production
-```
+### 2. Orchestrator: `ap-kms apply` (new CLI in key-custody, or `ap-provision-gcp` v2)
+Given the manifest + a securely-sourced admin SA (file / secret manager, never echoed), it runs the
+whole pipeline and is idempotent:
+1. **Provision**: keyring + per-identity HSM secp256k1 keys, per-key `roles/cloudkms.signerVerifier`
+   (signer + viewPublicKey). Accept dotted identity names; sanitize to GCP key ids internally and keep
+   the `name ↔ keyVersion` map.
+2. **Derive + validate** each key's EVM address (`addressFromSpkiPem`); fail closed on surprises.
+3. **Resolve** each `name` → SA via agent-naming ("once smart agents are configured").
+4. **Bind**: detect whether the owner-signed delegation leaf (SA → KMS key) exists; if missing, emit the
+   exact ceremony link / payload (the home content-signer ceremony) — do not fabricate authorization.
+5. **Wire**: write the minimal runtime secrets to each identity's target(s) with **no echo**:
+   - `GCP_SERVICE_ACCOUNT_JSON` (base64) — Cloudflare via wrangler/API, Vercel via REST API.
+   - the key map (`CONTENT_SIGNER_KEYS`) or single key path (`VALIDATOR_KMS_KEY`) per the target shape.
+   - the delegation leaf where the runtime expects it in env (validator).
+6. **Report**: per identity — provisioned ✓, address, SA resolved ✓, bound ✓/pending-ceremony, wired ✓.
 
-What must be automated:
-1. Create/verify HSM KMS keys.
-2. Grant **per-key** `roles/cloudkms.signerVerifier`.
-3. Derive each HSM Ethereum address.
-4. Emit `CONTENT_SIGNER_KEYS`.
-5. Validate every configured key address (against the stored `content_signers` leaf delegate).
-6. Optionally set Cloudflare (Wrangler/API) **and** Vercel secrets — reading the SA from a secure
-   file / secret manager, never echoing.
+### 3. Deploy-target writers (new, in key-custody or a sibling tool)
+- **Cloudflare**: `wrangler secret put` (piped, no echo) or the CF API (`CLOUDFLARE_API_TOKEN`).
+- **Vercel**: REST API (`/v10/projects/{id}/env`, base64 value, `type:"encrypted"`) — `vercel env add`
+  from stdin is unreliable (observed storing empty). Resolve project id + team via the API.
 
-## Gap analysis (as of `@agenticprimitives/key-custody@1.0.0-alpha.10`, `delegated-signer@0.0.0-alpha.1`)
+### 4. (Phase 2) Keyless via Workload Identity Federation
+Add a federated-token transport to `/kms-core` (`createGcpKmsTransport` variant accepting an async token
+fetcher) so a Worker/Vercel function authenticates via WIF/OIDC and holds **no** `GCP_SERVICE_ACCOUNT_JSON`.
+Requires a GCP workload-identity pool trusting the platform's OIDC token. This is the end-state; the
+JSON-key path above is the demo-phase bridge.
 
-The published `ap-provision-gcp@alpha.1` does **not** yet support the desired flow:
-- Flags are `--project --location --keyring --service-account --identities a,b,c [--protection] [--dry-run]`
-  — no repeated `--identity`, no `--runtime-service-account`, **no `--write-cloudflare`, no `--env`**.
-- It **shells out to `gcloud`** (must be installed + authenticated) — not gcloud-free.
-- It grants `roles/cloudkms.signer` **per-key** (includes `viewPublicKey`, so sufficient) — not `signerVerifier`.
-- It **rejects dotted identity labels** (`fbsb.impact` is an invalid GCP key id; must pass `fbsb-impact`
-  and re-map back to the issuer name for `CONTENT_SIGNER_KEYS`).
+## Package / tool changes (`@agenticprimitives/key-custody`, Ring 0)
+1. **Built-in gcloud-free REST `StepExecutor`** for `executeGcpProvision` (port this repo's REST
+   provisioning) so provisioning needs no `gcloud`. Keep the gcloud executor as an option.
+2. **Dotted-label support** in `planGcpProvision`: accept `fbsb.impact`, sanitize internally, return the
+   `name → keyVersion` map keyed by the original name.
+3. **`signerVerifier`** option for the IAM grant (the runtime needs `viewPublicKey`).
+4. **Secret-writers** module (`./deploy` subpath): Cloudflare + Vercel, value-from-provider, no echo.
+5. **`ap-kms` orchestrator CLI** (manifest-driven) wrapping 1–4 + agent-naming resolution + ceremony
+   detection.
+6. **(Phase 2)** WIF/brokered-token transport in `/kms-core`.
 
-WIF / keyless runtime is **blocked upstream**: key-custody's only KMS transport
-(`createGcpKmsTransport`) takes a `ServiceAccount {client_email, private_key}` and mints an SA-JWT.
-There is no federated-token / impersonation transport in `kms-core`, so the Worker cannot drop
-`GCP_SERVICE_ACCOUNT_JSON` until that exists. (A CF Worker doing GCP WIF also needs an OIDC
-workload-identity-pool configured to trust the Worker's token.)
-
-## Proposed work
-
-### A. This repo (achievable now) — a deploy adapter
-Extend `scripts/provision-content-signer-keys.mjs` (or a new `scripts/provision-and-wire.mjs`) into a
-gcloud-free adapter that runs the full chain with no raw JSON in the terminal:
-1. provision/verify HSM keys; grant **per-key `roles/cloudkms.signerVerifier`** (tighter than the
-   current keyring-level grant);
-2. derive every key's EVM address and **validate** it against the stored `content_signers` leaf —
-   **fail closed** on mismatch;
-3. emit + validate `CONTENT_SIGNER_KEYS`;
-4. read the SA from a **secure file / secret manager** (never stdout) and set Cloudflare secrets via
-   piped `wrangler secret put` (`--write-cloudflare --env production`);
-5. optionally set Vercel env (`vercel env`) for the validator.
-
-Open decision: keep it **gcloud-free REST** (recommended — preserves "drop the key and run", no gcloud
-dependency) vs. wrap the `ap-provision-gcp` CLI (adds a gcloud requirement).
-
-### B. Upstream (`@agenticprimitives/key-custody`, Ring 0)
-1. `ap-provision-gcp`: secret-manager / `--write-cloudflare` (and `--write-vercel`) integration; accept
-   dotted identity labels with internal sanitize+re-map; option for `signerVerifier`.
-2. A **WIF / brokered-token KMS transport** in `kms-core` so the runtime needs no JSON key — the
-   "best version" where the Worker authenticates via federation/impersonation.
+## This repo
+- Add `kms.manifest.json`; replace `scripts/provision-content-signer-keys.mjs` with `ap-kms apply`.
+- Runtime consumers (validator `/kms-core`, MCP `GcpKmsSigner`) are unchanged.
 
 ## Acceptance
-- One command provisions keys, validates all addresses, and writes only the minimal runtime config to
-  the deploy target(s), with **no raw SA JSON echoed** and **fail-closed** on any missing binding.
-- Stretch (upstream): runtime holds **no** `GCP_SERVICE_ACCOUNT_JSON`; signing authenticates via WIF.
+- `ap-kms apply` provisions, validates addresses, resolves SAs, and writes only the minimal runtime
+  config to each target — **no raw SA JSON echoed**, idempotent, fail-closed, reporting bound vs pending.
+- Adding a KMS app = one manifest entry + `ap-kms apply`.
+- Stretch (Phase 2): runtimes hold no `GCP_SERVICE_ACCOUNT_JSON` (WIF).
+```
+
+## Phasing
+1. **P1 — package foundation**: REST executor, dotted labels, signerVerifier, secret-writers (CF+Vercel). Ship in key-custody.
+2. **P2 — orchestrator**: `ap-kms` manifest CLI tying it together + agent-naming resolve + ceremony detection.
+3. **P3 — adopt here**: manifest + retire the bespoke script; re-wire MCP + validator via `ap-kms`.
+4. **P4 — keyless**: WIF transport; drop `GCP_SERVICE_ACCOUNT_JSON` from runtimes.

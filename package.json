@@ -15,13 +15,16 @@
     "zk:setup": "pnpm --filter @verifiable-content-demo/zk-membership setup",
     "validator": "pnpm --filter @verifiable-content-demo/validator start",
     "validate:e2e": "tsx scripts/validator-e2e.ts",
-    "check:no-licensed-content": "tsx scripts/check-no-licensed-content.ts"
+    "check:no-licensed-content": "tsx scripts/check-no-licensed-content.ts",
+    "kms:apply": "tsx scripts/kms-apply.ts"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
     "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.7",
     "@agenticprimitives/key-custody": "1.0.0-alpha.10",
     "@agenticprimitives/delegation": "1.0.0-alpha.10",
+    "@agenticprimitives/agent-naming": "1.0.0-alpha.10",
+    "@agenticprimitives/types": "1.0.0-alpha.10",
     "@verifiable-content-demo/zk-membership": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0",

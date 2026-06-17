@@ -1,0 +1,23 @@
+{
+  "project": "churchcore2",
+  "location": "us-central1",
+  "keyRing": "content-signers",
+  "runtimeServiceAccountFile": "~/content-signer-admin-sa.json",
+  "saSecretName": "GCP_SERVICE_ACCOUNT_JSON",
+  "naming": {
+    "rpcUrlEnv": "KMS_NAMING_RPC_URL",
+    "chainId": 84532,
+    "registry": "0x15F7ed064A230C011b0244A14fD9653f011d609B",
+    "universalResolver": "0x7d777d2d0bbc1806B9Cc779121C27fbaAaFDb60b"
+  },
+  "deployments": {
+    "mcp": { "platform": "cloudflare", "worker": "demo-bible-mcp", "dir": "apps/demo-bible-mcp", "env": "production" },
+    "validator": { "platform": "vercel", "project": "scripture-validator", "env": "production" }
+  },
+  "identities": [
+    { "name": "fbsb.impact", "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } },
+    { "name": "lbsb.impact", "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } },
+    { "name": "scripture-resolver.impact", "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } },
+    { "name": "demo-validator.impact", "deployment": "validator", "wire": { "keySecret": "VALIDATOR_KMS_KEY", "saSecret": "VALIDATOR_SA", "leafSecret": "VALIDATOR_DELEGATION_LEAF" } }
+  ]
+}
