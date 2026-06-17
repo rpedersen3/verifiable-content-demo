@@ -145,7 +145,10 @@ export async function buildValidationAttestation(input: AttestationInput) {
   const unsigned: UnsignedCredential<AttestationSubject> = {
     '@context': [VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT],
     type: ['VerifiableCredential', 'ValidationAttestation'],
-    issuer: `agent:${VALIDATOR_NAME}`,
+    // The issuer is the validator's Smart Agent as an eip155 CAIP-10 id (NOT an `agent:<name>` DID), so the
+    // attestation is verifiable by the standard verifyCredentialStructural path — consistent with citations
+    // and descriptors. The human-readable name stays in credentialSubject.validatorName.
+    issuer: VALIDATOR_AGENT_ID,
     validFrom: input.issuedAt,
     credentialSubject: {
       validatorAgentId: VALIDATOR_AGENT_ID,

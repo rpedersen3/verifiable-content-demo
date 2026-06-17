@@ -87,15 +87,28 @@ async function main() {
     if (vr.structural && vr.expectedDigest && vr.proofValue) {
       const rpc = process.env.BASE_SEPOLIA_RPC ?? 'https://sepolia.base.org';
       const pub = createPublicClient({ transport: http(rpc) });
-      const code = await pub.getCode({ address: expected }).catch(() => undefined);
-      if (code && code.length > 2) {
-        // Validator Smart Agent → verify the attestation via ERC-1271.
-        const abi = [{ type: 'function', name: 'isValidSignature', stateMutability: 'view', inputs: [{ name: 'h', type: 'bytes32' }, { name: 's', type: 'bytes' }], outputs: [{ type: 'bytes4' }] }] as const;
-        const r = (await pub.readContract({ address: expected, abi, functionName: 'isValidSignature', args: [vr.expectedDigest, vr.proofValue] }).catch(() => '0x')) as string;
-        attOk = r === '0x1626ba7e';
+      const erc1271 = [{ type: 'function', name: 'isValidSignature', stateMutability: 'view', inputs: [{ name: 'h', type: 'bytes32' }, { name: 's', type: 'bytes' }], outputs: [{ type: 'bytes4' }] }] as const;
+      if (ds?.delegateKey && ds?.delegationLeaf) {
+        // KMS-DELEGATED attestation (no held key): the SA didn't sign the digest — its authorized delegate
+        // did. Verify the signature recovers to that delegate key, and the attached delegation leaf binds
+        // the delegate to the validator SA (delegator = the validator SA, delegate = the signing key). The
+        // leaf's ERC-1271 authorization is the validator's own owner-signed delegation, carried in the proof.
+        const signer = await recoverAddress({ hash: vr.expectedDigest, signature: vr.proofValue }).catch(() => null);
+        const leaf = ds.delegationLeaf as { delegator?: string; delegate?: string };
+        attOk =
+          !!signer && signer.toLowerCase() === String(ds.delegateKey).toLowerCase() &&
+          String(leaf.delegator ?? '').toLowerCase() === expected.toLowerCase() &&
+          String(leaf.delegate ?? '').toLowerCase() === String(ds.delegateKey).toLowerCase();
       } else {
-        const signer = await recoverAddress({ hash: vr.expectedDigest, signature: vr.proofValue });
-        attOk = signer.toLowerCase() === expected.toLowerCase();
+        const code = await pub.getCode({ address: expected }).catch(() => undefined);
+        if (code && code.length > 2) {
+          // Validator Smart Agent (custodian-signed) → verify the attestation via ERC-1271.
+          const r = (await pub.readContract({ address: expected, abi: erc1271, functionName: 'isValidSignature', args: [vr.expectedDigest, vr.proofValue] }).catch(() => '0x')) as string;
+          attOk = r === '0x1626ba7e';
+        } else {
+          const signer = await recoverAddress({ hash: vr.expectedDigest, signature: vr.proofValue });
+          attOk = signer.toLowerCase() === expected.toLowerCase();
+        }
       }
     }
     const isSA = (await createPublicClient({ transport: http(process.env.BASE_SEPOLIA_RPC ?? 'https://sepolia.base.org') }).getCode({ address: expected }).catch(() => undefined))?.length ?? 0;
