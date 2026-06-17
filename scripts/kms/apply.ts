@@ -1,24 +1,35 @@
 // ap-kms (prototype) — manifest-driven KMS orchestration. Once the smart agents are configured, this runs
-// every step to get Cloud-KMS signing working for each app: provision the HSM key + per-key IAM, derive +
-// verify the EVM address, resolve the agent SA (agent-naming), and (with --write) push the minimal runtime
-// secrets to each deploy target (Cloudflare + Vercel) with no echo. Idempotent, fail-closed.
+// every step to get Cloud-KMS signing working for each app: provision the HSM key + per-key IAM (via the
+// upstream @agenticprimitives/key-custody/provision-gcp gcloud-free REST executor), derive + verify the EVM
+// address, resolve the agent SA (agent-naming), and (with --write) push the minimal runtime secrets to each
+// deploy target (Cloudflare + Vercel) with no echo. Idempotent, fail-closed.
 //
 // The owner-signed delegation leaf (SA → KMS key) is the ONE human step — produced by the home content-signer
 // ceremony. This tool reports per-identity whether it's bound; it never fabricates authorization.
+import { executeGcpProvision, createGcpRestStepExecutor, keyVersionName, type ProvisionPlan } from '@agenticprimitives/key-custody/provision-gcp';
 import { AgentNamingClient } from '@agenticprimitives/agent-naming';
 import type { Address } from '@agenticprimitives/types';
 import { loadManifest, keyIdFor, type KmsManifest, type Identity } from './manifest.js';
-import { GcpProvisioner, loadServiceAccount, deriveKeyAddress, type LoadedSA } from './gcp.js';
+import { loadServiceAccount, deriveKeyAddress, type LoadedSA } from './gcp.js';
 import { writeCloudflareSecret, writeVercelSecret } from './targets.js';
 
 interface Resolved {
   name: string;
   targets: Identity['targets'];
-  keyId: string;
   keyVersionName: string;
   address: `0x${string}`;
   sa: Address | null;
 }
+
+/** The upstream provisioning plan derived from the manifest + admin SA (dotted identity names ok — B2;
+ *  defaults: HSM, asymmetric-signing, per-key roles/cloudkms.signerVerifier — B3). */
+const buildPlan = (m: KmsManifest, sa: LoadedSA): ProvisionPlan => ({
+  project: sa.project_id,
+  location: m.location,
+  keyRing: m.keyRing,
+  identities: m.identities.map((i) => i.name),
+  runtimeServiceAccount: sa.client_email,
+});
 
 async function resolveSA(m: KmsManifest, names: string[]): Promise<Map<string, Address | null>> {
   const out = new Map<string, Address | null>();
@@ -42,8 +53,7 @@ export async function verify(opts: { manifestPath?: string }): Promise<number> {
   const m = loadManifest(opts.manifestPath);
   console.log(`KMS verify — ${m.identities.length} identities\n`);
   const sa = loadServiceAccount(m.runtimeServiceAccountFile);
-  const prov = new GcpProvisioner(sa, m.location, m.keyRing);
-  await prov.init();
+  const plan = buildPlan(m, sa);
 
   const stored = new Map<string, { issuer_sa: string; delegate_key: string }>();
   if (m.bindingsUrl) {
@@ -57,8 +67,8 @@ export async function verify(opts: { manifestPath?: string }): Promise<number> {
 
   let problems = 0;
   for (const id of m.identities) {
-    const kv = await prov.keyVersionIfExists(keyIdFor(id.name));
-    const live = kv ? await deriveKeyAddress(sa.raw, kv) : null;
+    // Read-only: the key version is deterministic; deriveKeyAddress returns null if the key is absent.
+    const live = await deriveKeyAddress(sa.raw, keyVersionName(plan, keyIdFor(id.name)));
     const resolvedSA = saByName.get(id.name) ?? null;
     const b = stored.get(id.name);
     const issues: string[] = [];
@@ -85,20 +95,20 @@ export async function apply(opts: { manifestPath?: string; write?: boolean; dryR
   }
 
   const sa: LoadedSA = loadServiceAccount(m.runtimeServiceAccountFile);
-  const prov = new GcpProvisioner(sa, m.location, m.keyRing);
-  await prov.init();
-  if (await prov.ensureKeyRing()) console.log(`  keyRing created: ${m.keyRing}`);
 
-  // 1–3. Provision + IAM + derive address, per identity.
-  const resolved: Resolved[] = [];
-  for (const id of m.identities) {
-    const keyId = keyIdFor(id.name);
-    const { keyVersionName, created } = await prov.ensureSigningKey(keyId);
-    const grantedNow = await prov.ensureKeyIam(keyId, sa.client_email);
-    const address = await deriveKeyAddress(sa.raw, keyVersionName);
-    console.log(`  ✓ ${id.name}: key ${created ? 'created' : 'exists'}${grantedNow ? ' (+IAM)' : ''} → ${address}`);
-    resolved.push({ name: id.name, targets: id.targets, keyId, keyVersionName, address, sa: null });
-  }
+  // 1–3. Provision keyring + per-identity HSM keys + per-key IAM, and derive each EVM address — all via the
+  // upstream gcloud-free REST executor (idempotent). keyMap/addresses are keyed by the ORIGINAL dotted name.
+  const plan = buildPlan(m, sa);
+  const result = await executeGcpProvision(plan, createGcpRestStepExecutor({ serviceAccountJson: sa.raw }));
+  const resolved: Resolved[] = m.identities.map((id) => ({
+    name: id.name,
+    targets: id.targets,
+    keyVersionName: result.keyMap[id.name]!,
+    address: result.addresses[id.name]!,
+    sa: null,
+  }));
+  for (const r of resolved) console.log(`  ✓ ${r.name.padEnd(26)} → ${r.address}`);
+  console.log(`  (provisioned ${m.identities.length} keys; ${result.alreadyExisted.length} step(s) already existed, ${result.granted.length} IAM grant(s))`);
 
   // 4. Resolve agent SAs.
   const saByName = await resolveSA(m, resolved.map((r) => r.name));
