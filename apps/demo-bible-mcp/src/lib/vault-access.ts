@@ -4,7 +4,7 @@
 // ceiling). VC proof/status verification is a later upstream wave — credentials here are stored + trusted.
 import { resolveEntitlements, type AgenticEntitlementCredentialV1, type EntitlementAction, type EntitlementClassification, type EntitlementDecision } from '@agenticprimitives/entitlements';
 import { createDecryptGrant, verifyDecryptGrant, createInMemoryReplayStore, canonicalize, sha256Hex, type KeyReleaseDecision } from '@agenticprimitives/key-authorization';
-import { projectFields, type VaultClassification } from '@agenticprimitives/vault';
+import { projectFields, type VaultClassification, type DekWrapper } from '@agenticprimitives/vault';
 import { createD1Vault } from './vault.js';
 import type { D1Like } from '../editions/d1.js';
 
@@ -138,9 +138,9 @@ export type GatedReadResult =
 
 export async function gatedVaultRead(
   db: D1Like,
-  args: { owner: string; actor: string; resource: string; fields?: string[]; purpose?: string; audience: string; serverId: string; resourceUri: string },
+  args: { owner: string; actor: string; resource: string; fields?: string[]; purpose?: string; audience: string; serverId: string; resourceUri: string; wrapper?: DekWrapper },
 ): Promise<GatedReadResult> {
-  const obj = await createD1Vault(db).read({ owner: args.owner, resource: args.resource });
+  const obj = await createD1Vault(db, args.wrapper).read({ owner: args.owner, resource: args.resource });
   if (!obj) return { kind: 'not_found' };
   const cls = toEntitlementClass(obj.classification);
   const decision = await gateVaultRead(db, { principal: args.owner, actor: args.actor, audience: args.audience, resource: args.resource, fields: args.fields, purpose: args.purpose, classification: cls });
