@@ -23,10 +23,16 @@ const TRUSTED_ISSUERS = (process.env.VALIDATOR_TRUSTED_ISSUERS ?? '0xA2afBA4961F
 const verifySignature = makeOnchainVerifier();
 const verifyDelegatedAuthority = makeDelegatedAuthorityVerifier();
 
-async function fetchCorpus(edition: string): Promise<string[]> {
-  const res = await fetch(`${MCP_URL}/corpus/${edition}`);
+// Fetch the 16-leaf zk window (the block containing `leafIndex`) from the MCP's paginated commitments
+// endpoint — the SAME ordered commitments the prover built its membership tree from. The zk circuit is
+// depth-4 (16 leaves), so membership is proven within the verse's 16-commitment block of the published
+// corpus (leaf hidden); the full-corpus binding is the keccak Merkle inclusion proof checked separately.
+const ZK_BLOCK = 16;
+async function fetchCorpus(edition: string, leafIndex: number): Promise<string[]> {
+  const offset = Math.floor(leafIndex / ZK_BLOCK) * ZK_BLOCK;
+  const res = await fetch(`${MCP_URL}/corpus/${edition}/commitments?offset=${offset}&limit=${ZK_BLOCK}`);
   const body = (await res.json()) as { ok: boolean; commitments?: string[] };
-  if (!body.ok || !body.commitments) throw new Error(`corpus fetch failed for ${edition}`);
+  if (!body.ok || !body.commitments) throw new Error(`corpus window fetch failed for ${edition}@${offset}`);
   return body.commitments;
 }
 

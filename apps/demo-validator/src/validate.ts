@@ -16,8 +16,9 @@ import type { EvidenceBundle, ValidationResult, CheckResult } from './bundle.js'
 export interface ValidateOpts {
   /** Issuer addresses this validator's trust profile admits. */
   trustedIssuers: string[];
-  /** Fetch the issuer's ordered corpus commitments (for the zk Poseidon root). */
-  fetchCorpus?: (edition: string) => Promise<string[]>;
+  /** Fetch the corpus's 16-leaf zk window (the block containing `leafIndex`) for the Poseidon root —
+   *  the SAME ordered commitments the prover built its membership tree from (spec 266 Phase 4). */
+  fetchCorpus?: (edition: string, leafIndex: number) => Promise<string[]>;
   /** Signature verifier for descriptor/entitlement (EOA recovery by default;
    *  inject ERC-1271 for on-chain issuers). */
   verifySignature?: SignatureVerifier;
@@ -176,7 +177,7 @@ export async function validateBundle(bundle: EvidenceBundle, opts: ValidateOpts)
       set('zkMembership', false, 'no corpus fetcher configured');
     } else {
       try {
-        const commitments = await opts.fetchCorpus(content.edition);
+        const commitments = await opts.fetchCorpus(content.edition, Number(proof.leafIndex));
         const root = await poseidonRoot(commitments.map((c) => toField(c)));
         const signalHash = toField(response.responseHash);
         const ok = await verifyMembership(proof.zkMembership, { root, signalHash });

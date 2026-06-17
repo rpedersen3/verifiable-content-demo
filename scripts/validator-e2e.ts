@@ -25,14 +25,20 @@ async function buildBundle() {
   const text: string | null = resolve.text;
   const responseHash = keccak256(toBytes(text ?? ''));
 
-  // Groth16 zk membership proof (leaf hidden), bound to the response hash.
-  const corpus = (await (await fetch(`${MCP}/corpus/bsb`)).json()) as { commitments: string[] };
-  const tree = await buildPoseidonTree(corpus.commitments.map((c) => toField(c)));
-  const zk = await proveMembership(tree, cand.leafIndex, toField(responseHash));
+  // Groth16 zk membership (leaf hidden), bound to the response hash. The circuit is depth-4 (16 leaves),
+  // so membership is proven within the verse's 16-commitment BLOCK of the published corpus — the same
+  // window the validator independently re-derives from the paginated commitments endpoint.
+  const ZK_BLOCK = 16;
+  const block = Math.floor(cand.leafIndex / ZK_BLOCK) * ZK_BLOCK;
+  const win = (await (await fetch(`${MCP}/corpus/${cand.edition}/commitments?offset=${block}&limit=${ZK_BLOCK}`)).json()) as { commitments: string[] };
+  const tree = await buildPoseidonTree(win.commitments.map((c) => toField(c)));
+  const zk = await proveMembership(tree, cand.leafIndex - block, toField(responseHash));
 
   return {
     intent: { intentType: 'quote', requestedReference: resolve.display?.reference ?? 'John 3:16', requestedEdition: 'bsb', agentRunId: 'run_v_1', outputId: 'answer_1' },
-    agent: { agentId: 'eip155:84532:0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC', agentName: 'scripture-resolver.agent' },
+    // The RESPONDING agent is whoever signed the citation — resolve it from the citation's issuer SA
+    // (scripture-resolver.impact), not a hardcoded dev EOA, so citationSignature binds to the real agent.
+    agent: { agentId: resolve.citation.issuer, agentName: 'scripture-resolver.impact' },
     content: {
       canonicalId: resolve.canonicalReference.id,
       canonicalEnvelope: resolve.canonicalReference.envelope,

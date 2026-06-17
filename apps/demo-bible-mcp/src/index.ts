@@ -210,6 +210,31 @@ app.get('/corpus/:edition', async (c) => {
   });
 });
 
+// corpus commitments — PUBLIC per-leaf commitments, ordered by leaf index, PAGINATED (spec 266 Phase 4).
+// Serves the D1-backed full corpus (bsb) in windows so a client (or the validator) can rebuild a zk
+// membership tree without a ~2 MB inline payload. leaf_index is contiguous 0..leafCount-1, so
+// `leaf_index >= offset LIMIT n` returns exactly the window [offset, offset+n). Commitments are public.
+app.get('/corpus/:edition/commitments', async (c) => {
+  const edition = c.req.param('edition');
+  if (!c.env.DB) return c.json({ ok: false, error: 'no corpus store' }, 503);
+  const meta = await c.env.DB.prepare('SELECT leaf_count, corpus_root FROM corpus WHERE edition=?').bind(edition).first<{ leaf_count: number; corpus_root: string }>();
+  if (!meta) return c.json({ ok: false, error: 'unknown edition' }, 404);
+  const limit = Math.min(2000, Math.max(1, Math.floor(Number(c.req.query('limit') ?? 1000))));
+  const offset = Math.max(0, Math.floor(Number(c.req.query('offset') ?? 0)));
+  const rows = (await c.env.DB.prepare('SELECT leaf_index, commitment FROM verses WHERE edition=? AND leaf_index >= ? ORDER BY leaf_index LIMIT ?').bind(edition, offset, limit).all<{ leaf_index: number; commitment: string }>()).results;
+  return c.json({
+    ok: true,
+    edition,
+    offset,
+    limit,
+    leafCount: meta.leaf_count,
+    corpusRoot: meta.corpus_root,
+    startLeaf: rows.length ? rows[0]!.leaf_index : offset,
+    count: rows.length,
+    commitments: rows.map((r) => r.commitment),
+  });
+});
+
 // resolve — CANDIDATE resolution across editions/issuers (spec 266 §3 / §candidate).
 app.post('/tools/resolve', async (c) => {
   const gate = policyGate('resolve', RESOLVE_CLS);
