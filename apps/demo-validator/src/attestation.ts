@@ -13,6 +13,26 @@ import { keccak256, toBytes, type Address, type Hex } from 'viem';
 // JWT → token → publicKey/asymmetricSign; signDigestWithKms derives the recovery byte from the SPKI public key.
 import { signDigestWithKms, addressFromSpkiPem, parseServiceAccountJson, createGcpKmsTransport } from '@agenticprimitives/key-custody/kms-core';
 
+/** Parse JSON that may contain LITERAL control chars (newline/CR/tab) inside string values — a recurring
+ *  env-var paste artifact for VALIDATOR_DELEGATION_LEAF (see the validator-kms memory). Escapes control
+ *  chars ONLY inside string literals so a multi-line paste still parses. The SA JSON goes through
+ *  parseServiceAccountJson (which also accepts base64), but the delegation leaf has no base64 form, so it
+ *  needs this repair — strict JSON.parse here was a spec-276 regression that disabled KMS signing. */
+function parseLooseJson<T>(raw: string): T {
+  try { return JSON.parse(raw) as T; } catch { /* fall through to repair */ }
+  let out = '', inStr = false, esc = false;
+  for (const ch of raw) {
+    if (esc) { out += ch; esc = false; continue; }
+    if (ch === '\\') { out += ch; esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; out += ch; continue; }
+    if (inStr && ch === '\n') { out += '\\n'; continue; }
+    if (inStr && ch === '\r') { out += '\\r'; continue; }
+    if (inStr && ch === '\t') { out += '\\t'; continue; }
+    out += ch;
+  }
+  return JSON.parse(out) as T;
+}
+
 const SA = process.env.VALIDATOR_SA as Address | undefined;
 export const VALIDATOR_CHAIN_ID = Number(process.env.VALIDATOR_CHAIN_ID ?? 84532);
 export const VALIDATOR_NAME = process.env.VALIDATOR_NAME ?? 'demo-validator.agent';
@@ -37,7 +57,7 @@ if (kmsMode) {
   // in /health. GCP_SERVICE_ACCOUNT_JSON must be stored as single-line JSON or base64 (parseServiceAccountJson
   // accepts both); a raw multi-line paste with literal newlines in `private_key` is rejected → KMS off.
   try {
-    const leaf = JSON.parse(KMS_LEAF_JSON!) as { delegate?: string };
+    const leaf = parseLooseJson<{ delegate?: string }>(KMS_LEAF_JSON!);
     if (!leaf?.delegate) throw new Error('VALIDATOR_DELEGATION_LEAF has no `delegate`');
     const delegate = leaf.delegate as Address;
     const transport = createGcpKmsTransport(parseServiceAccountJson(GCP_SA!));
