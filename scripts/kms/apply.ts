@@ -11,7 +11,9 @@ import { loadManifest, keyIdFor, type KmsManifest, type Identity } from './manif
 import { GcpProvisioner, loadServiceAccount, deriveKeyAddress, type LoadedSA } from './gcp.js';
 import { writeCloudflareSecret, writeVercelSecret } from './targets.js';
 
-interface Resolved extends Identity {
+interface Resolved {
+  name: string;
+  targets: Identity['targets'];
   keyId: string;
   keyVersionName: string;
   address: `0x${string}`;
@@ -38,7 +40,7 @@ export async function apply(opts: { manifestPath?: string; write?: boolean; dryR
   console.log(`KMS apply — project=${m.project} location=${m.location} keyRing=${m.keyRing} | ${m.identities.length} identities | write=${!!opts.write} dryRun=${!!opts.dryRun}\n`);
 
   if (opts.dryRun) {
-    for (const id of m.identities) console.log(`  plan: ${id.name} → key "${keyIdFor(id.name)}" → ${id.deployment} (${m.deployments[id.deployment]!.platform})`);
+    for (const id of m.identities) console.log(`  plan: ${id.name} → key "${keyIdFor(id.name)}" → ${id.targets.map((t) => `${t.deployment} (${m.deployments[t.deployment]!.platform})`).join(', ')}`);
     return;
   }
 
@@ -55,7 +57,7 @@ export async function apply(opts: { manifestPath?: string; write?: boolean; dryR
     const grantedNow = await prov.ensureKeyIam(keyId, sa.client_email);
     const address = await deriveKeyAddress(sa.raw, keyVersionName);
     console.log(`  ✓ ${id.name}: key ${created ? 'created' : 'exists'}${grantedNow ? ' (+IAM)' : ''} → ${address}`);
-    resolved.push({ ...id, keyId, keyVersionName, address, sa: null });
+    resolved.push({ name: id.name, targets: id.targets, keyId, keyVersionName, address, sa: null });
   }
 
   // 4. Resolve agent SAs.
@@ -65,21 +67,22 @@ export async function apply(opts: { manifestPath?: string; write?: boolean; dryR
   // 5. Wire secrets per deployment (only with --write).
   const saValue = JSON.stringify(JSON.parse(sa.raw)); // canonical single-line JSON (both parsers accept it)
   for (const [depName, dep] of Object.entries(m.deployments)) {
-    const ids = resolved.filter((r) => r.deployment === depName);
-    if (ids.length === 0) continue;
+    // Every (identity, wire) pair whose target is THIS deployment.
+    const here = resolved.flatMap((r) => r.targets.filter((t) => t.deployment === depName).map((t) => ({ r, wire: t.wire })));
+    if (here.length === 0) continue;
     const writes: Array<{ name: string; value: string; note?: string }> = [{ name: m.saSecretName, value: saValue, note: 'SA JSON' }];
 
-    // Cloudflare: aggregate all identities sharing a keyMapSecret into one name→keyVersion map.
-    const keyMapSecret = ids.find((r) => r.wire.keyMapSecret)?.wire.keyMapSecret;
+    // Cloudflare: aggregate every identity sharing a keyMapSecret into one name→keyVersion map.
+    const keyMapSecret = here.find((h) => h.wire.keyMapSecret)?.wire.keyMapSecret;
     if (keyMapSecret) {
-      const map = Object.fromEntries(ids.filter((r) => r.wire.keyMapSecret === keyMapSecret).map((r) => [r.name, r.keyVersionName]));
+      const map = Object.fromEntries(here.filter((h) => h.wire.keyMapSecret === keyMapSecret).map((h) => [h.r.name, h.r.keyVersionName]));
       writes.push({ name: keyMapSecret, value: JSON.stringify(map), note: `${Object.keys(map).length} keys` });
     }
     // Single-key targets (validator): per identity key path + resolved SA.
-    for (const r of ids) {
-      if (r.wire.keySecret) writes.push({ name: r.wire.keySecret, value: r.keyVersionName });
-      if (r.wire.saSecret && r.sa) writes.push({ name: r.wire.saSecret, value: r.sa });
-      if (r.wire.leafSecret && !r.sa) console.warn(`  ! ${r.name}: SA unresolved → cannot wire ${r.wire.saSecret}`);
+    for (const h of here) {
+      if (h.wire.keySecret) writes.push({ name: h.wire.keySecret, value: h.r.keyVersionName });
+      if (h.wire.saSecret && h.r.sa) writes.push({ name: h.wire.saSecret, value: h.r.sa });
+      if (h.wire.saSecret && !h.r.sa) console.warn(`  ! ${h.r.name}: SA unresolved → cannot wire ${h.wire.saSecret}`);
     }
 
     console.log(`\n  ${depName} (${dep.platform}): ${writes.map((w) => w.name + (w.note ? ` [${w.note}]` : '')).join(', ')}`);
@@ -92,10 +95,10 @@ export async function apply(opts: { manifestPath?: string; write?: boolean; dryR
   }
 
   // 6. Report the ceremony gap (the one human step).
-  const pendingLeaf = resolved.filter((r) => r.wire.leafSecret);
+  const pendingLeaf = resolved.flatMap((r) => r.targets.filter((t) => t.wire.leafSecret).map((t) => ({ r, leafSecret: t.wire.leafSecret! })));
   if (pendingLeaf.length) {
     console.log(`\n  ⚠ delegation leaf (owner-signed SA→key) is the ceremony step — NOT written by this tool:`);
-    for (const r of pendingLeaf) console.log(`    - ${r.name}: authorize ${r.address} for SA ${r.sa ?? '(unresolved)'} via the content-signer ceremony, then set ${r.wire.leafSecret}`);
+    for (const { r, leafSecret } of pendingLeaf) console.log(`    - ${r.name}: authorize ${r.address} for SA ${r.sa ?? '(unresolved)'} via the content-signer ceremony, then set ${leafSecret}`);
   }
   console.log('\nDone.');
 }

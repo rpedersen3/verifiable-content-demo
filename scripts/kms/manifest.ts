@@ -28,10 +28,16 @@ export interface Deployment {
   env: string;
 }
 
-export interface Identity {
-  name: string;
+export interface IdentityTarget {
   deployment: string;
   wire: WireSpec;
+}
+
+export interface Identity {
+  name: string;
+  /** One signing key, wired into one or more deploy targets (e.g. the validator key ALSO appears in the
+   *  MCP's CONTENT_SIGNER_KEYS map for the ceremony / address lookup). */
+  targets: IdentityTarget[];
 }
 
 export interface NamingConfig {
@@ -60,9 +66,11 @@ const expandHome = (p: string): string => (p.startsWith('~') ? join(homedir(), p
 export function loadManifest(path = 'kms.manifest.json'): KmsManifest {
   const abs = isAbsolute(path) ? path : join(process.cwd(), path);
   const m = JSON.parse(readFileSync(abs, 'utf8')) as KmsManifest;
-  // Fail-closed validation: every identity must point at a declared deployment.
+  // Fail-closed validation: every identity target must point at a declared deployment.
   for (const id of m.identities) {
-    if (!m.deployments[id.deployment]) throw new Error(`identity "${id.name}" → unknown deployment "${id.deployment}"`);
+    for (const t of id.targets) {
+      if (!m.deployments[t.deployment]) throw new Error(`identity "${id.name}" → unknown deployment "${t.deployment}"`);
+    }
   }
   m.runtimeServiceAccountFile = expandHome(m.runtimeServiceAccountFile);
   return m;

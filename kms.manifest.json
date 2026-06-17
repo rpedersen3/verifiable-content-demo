@@ -15,9 +15,12 @@
     "validator": { "platform": "vercel", "project": "scripture-validator", "env": "production" }
   },
   "identities": [
-    { "name": "fbsb.impact", "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } },
-    { "name": "lbsb.impact", "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } },
-    { "name": "scripture-resolver.impact", "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } },
-    { "name": "demo-validator.impact", "deployment": "validator", "wire": { "keySecret": "VALIDATOR_KMS_KEY", "saSecret": "VALIDATOR_SA", "leafSecret": "VALIDATOR_DELEGATION_LEAF" } }
+    { "name": "fbsb.impact", "targets": [{ "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } }] },
+    { "name": "lbsb.impact", "targets": [{ "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } }] },
+    { "name": "scripture-resolver.impact", "targets": [{ "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } }] },
+    { "name": "demo-validator.impact", "targets": [
+      { "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } },
+      { "deployment": "validator", "wire": { "keySecret": "VALIDATOR_KMS_KEY", "saSecret": "VALIDATOR_SA", "leafSecret": "VALIDATOR_DELEGATION_LEAF" } }
+    ] }
   ]
 }
