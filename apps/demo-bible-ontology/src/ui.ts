@@ -834,7 +834,7 @@ function admin(){
   V.innerHTML='<div class="acct-layout"><nav class="acct-side">'+side+'</nav><div class="acct-main" id="acctpanel"></div></div>';
   sec.render();
 }
-const VAULT_HINT='Read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the delegation your Global.Church home minted at sign-in (your app signs nothing). Demo PII is <b>mock fixtures</b>.';
+const VAULT_HINT='Read live from <b>your own demo-mcp vault</b> through the demo-a2a relayer — authorized by the delegation your Global.Church home minted at sign-in (your app signs nothing). This is the same encrypted <span class="mono">vault:impact-profile</span> record you manage at your home.';
 function secProfile(){
   document.getElementById('acctpanel').innerHTML=acctCard('Profile · personal vault',VAULT_HINT,'<div id="acctview">'+acctVload()+'</div>');
   loadAccount();
@@ -1082,11 +1082,15 @@ async function loadAccount(){
   try{
     const cj=await fetch(DEMO_A2A_BASE+'/auth/csrf',{credentials:'include'}).then(r=>r.json());
     const tok=cj.token||cj.csrfToken||cj.csrf||'';
-    const r=await fetch(DEMO_A2A_BASE+'/mcp/person/pii',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({delegation:session.delegation,requester:session.delegation.delegate})}).then(x=>x.json());
+    // Read the REAL profile the home wrote — the encrypted vault:impact-profile record (recordType
+    // 'impact-profile') via the relayer's generic vault-record API. (NOT /mcp/person/pii, which is a
+    // separate, seed-only demo fixture.) Same record + KMS encryption the home's "Your profile" shows.
+    const r=await fetch(DEMO_A2A_BASE+'/mcp/vault/get',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({delegation:session.delegation,requester:session.delegation.delegate,recordType:'impact-profile'})}).then(x=>x.json());
     if(!r||!r.ok)throw new Error((r&&(r.detail||r.error))||'vault read failed');
-    const rec=r.record||{};const ks=Object.keys(rec);
-    el.innerHTML=(ks.length?'<table class="acct">'+ks.map(k=>'<tr><td class="muted">'+esc(k.split('_').join(' '))+'</td><td>'+esc(rec[k]==null?'—':String(rec[k]))+'</td></tr>').join('')+'</table>':'<div class="muted">No PII record.</div>')+
-      '<div class="hint" style="margin-top:6px">subject <b>'+esc(r.subject_name||'')+'</b> <span class="mono">'+esc((r.subject||'').slice(0,16))+'…</span> · served by <span class="mono">'+esc(r.served_by||'demo-mcp')+'</span> · via delegation '+esc((session.delegation.delegator||'').slice(0,10))+'…→'+esc((session.delegation.delegate||'').slice(0,10))+'…</div>';
+    const prof=(r.data||r.record)||{};const ct=prof.contact||prof;
+    const rows=[['First name',ct.firstName],['Last name',ct.lastName],['Email',ct.email],['Phone',ct.phone],['City',ct.city],['Country',ct.country],['Organization',ct.organizationName],['Org country',ct.organizationCountry]].filter(x=>x[1]);
+    el.innerHTML=(rows.length?'<table class="acct">'+rows.map(x=>'<tr><td class="muted">'+esc(x[0])+'</td><td>'+esc(String(x[1]))+'</td></tr>').join('')+'</table>':'<div class="muted" style="font-size:13px">Your profile is empty — set it at your Global.Church home, then <button class="ap" onclick="loadAccount()">Re-read</button>.</div>')+
+      '<div class="hint" style="margin-top:6px">record <span class="mono">vault:impact-profile</span> · 🔐 encrypted under your own KMS key · via delegation '+esc((session.delegation.delegator||'').slice(0,10))+'…→'+esc((session.delegation.delegate||'').slice(0,10))+'…</div>';
   }catch(e){
     const msg=e&&e.message?e.message:String(e);
     if(msg.indexOf('vault_key_unauthorized')>=0){
