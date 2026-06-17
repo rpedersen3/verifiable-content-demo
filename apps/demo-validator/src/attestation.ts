@@ -8,7 +8,10 @@
 
 import { signCredential, VC_CONTEXT_V2, EIP712_SIG_2026_CONTEXT, type UnsignedCredential } from '@agenticprimitives/verifiable-credentials';
 import { keccak256, toBytes, type Address, type Hex } from 'viem';
-import { makeKmsSigner, parseLooseJson } from './kms-signer.js';
+// spec 276 §7 — the inline kms-signer.ts is gone; sign via the consumer-safe @agenticprimitives/key-custody/kms-core
+// surface (peer-free: only @noble/* transitively, no viem/audit forced). createGcpKmsTransport handles the SA
+// JWT → token → publicKey/asymmetricSign; signDigestWithKms derives the recovery byte from the SPKI public key.
+import { signDigestWithKms, addressFromSpkiPem, parseServiceAccountJson, createGcpKmsTransport } from '@agenticprimitives/key-custody/kms-core';
 
 const SA = process.env.VALIDATOR_SA as Address | undefined;
 export const VALIDATOR_CHAIN_ID = Number(process.env.VALIDATOR_CHAIN_ID ?? 84532);
@@ -30,18 +33,37 @@ let delegatingSigner: { delegatorIssuer: Address; delegateKey: Address; delegati
 let kmsSignDigest: ((hash: Hex) => Promise<Hex>) | undefined;
 if (kmsMode) {
   // FAIL-SAFE: a malformed VALIDATOR_DELEGATION_LEAF / GCP_SERVICE_ACCOUNT_JSON must NOT crash the whole
-  // validator at module load — disable KMS and fall back to the dev signer, logging why (surfaced in health).
+  // validator at module load — disable KMS (signing then fails closed, no held-key fallback) and surface why
+  // in /health. GCP_SERVICE_ACCOUNT_JSON must be stored as single-line JSON or base64 (parseServiceAccountJson
+  // accepts both); a raw multi-line paste with literal newlines in `private_key` is rejected → KMS off.
   try {
-    const leaf = parseLooseJson<{ delegate: string }>(KMS_LEAF_JSON!);
+    const leaf = JSON.parse(KMS_LEAF_JSON!) as { delegate?: string };
     if (!leaf?.delegate) throw new Error('VALIDATOR_DELEGATION_LEAF has no `delegate`');
-    const kms = makeKmsSigner({ keyName: KMS_KEY!, serviceAccountJson: GCP_SA!, expectedAddress: leaf.delegate as Address });
-    kmsSignDigest = (hash: Hex) => kms.signDigest(hash);
-    delegatingSigner = { delegatorIssuer: SA!, delegateKey: leaf.delegate as Address, delegationLeaf: leaf };
+    const delegate = leaf.delegate as Address;
+    const transport = createGcpKmsTransport(parseServiceAccountJson(GCP_SA!));
+    // Fetch + cache the KMS key's SPKI public key ONCE, then sign each digest via kms-core (it derives the
+    // recovery byte from the public key). On first use, assert the key's derived address IS the delegated key
+    // (§7 step-5 verification at runtime) — on drift we throw, so signing fails closed rather than producing a
+    // signature that won't ERC-1271-validate under the issuer SA.
+    let pem: string | undefined;
+    const ensureKey = async (): Promise<string> => {
+      if (pem) return pem;
+      const fetched = await transport.getPublicKeyPem(KMS_KEY!);
+      const derived = addressFromSpkiPem(fetched);
+      if (derived.toLowerCase() !== delegate.toLowerCase()) {
+        throw new Error(`KMS key address ${derived} ≠ delegated key ${delegate} (wrong VALIDATOR_KMS_KEY or stale VALIDATOR_DELEGATION_LEAF)`);
+      }
+      pem = fetched;
+      return fetched;
+    };
+    kmsSignDigest = async (hash: Hex): Promise<Hex> =>
+      signDigestWithKms({ digest: toBytes(hash), publicKeyPem: await ensureKey(), asymmetricSign: (d: Uint8Array) => transport.asymmetricSign(KMS_KEY!, d) });
+    delegatingSigner = { delegatorIssuer: SA!, delegateKey: delegate, delegationLeaf: leaf };
   } catch (e) {
     kmsMode = false;
     kmsReason = (e as Error).message;
     // eslint-disable-next-line no-console
-    console.error('[validator] KMS signing DISABLED (invalid config — falling back to dev signer):', kmsReason);
+    console.error('[validator] KMS signing DISABLED (invalid config — fails closed, no held-key fallback):', kmsReason);
   }
 }
 /** Whether the validator is signing attestations via the delegated HSM-KMS key (vs the dev held key). */

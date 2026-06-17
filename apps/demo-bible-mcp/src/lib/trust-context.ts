@@ -13,14 +13,15 @@
 
 import { privateKeyToAccount } from 'viem/accounts';
 import { recoverAddress, createPublicClient, http, type Hex } from 'viem';
-import { bytesToHex, toBytes } from 'viem';
+import { toBytes } from 'viem';
 import type { Address } from '@agenticprimitives/types';
 import type { SignatureVerifier, DelegatedAuthorityVerifier, DelegatingSigner } from '@agenticprimitives/content-primitives';
-import type { CredentialSigner } from '@agenticprimitives/verifiable-credentials';
+import { kmsCredentialSigner, type CredentialSigner } from '@agenticprimitives/verifiable-credentials';
 import { AgentAccountClient } from '@agenticprimitives/agent-account';
 import { AgentNamingClient } from '@agenticprimitives/agent-naming';
 import { GcpKmsSigner } from '@agenticprimitives/key-custody';
-import { hashDelegation } from '@agenticprimitives/delegation';
+import { resolveDelegatedSigner } from '@agenticprimitives/delegated-signer';
+import { hashDelegation, type Delegation } from '@agenticprimitives/delegation';
 import { issuerAccount, DEV_ISSUER, EDITIONS, type EditionEntry, type CorpusSigner } from '../editions/registry.js';
 
 export interface McpEnv {
@@ -192,23 +193,42 @@ async function buildDelegated(env: McpEnv): Promise<TrustContext> {
   // never provisioned) would otherwise take down every content endpoint on the flip to delegated mode.
   // Editions whose issuer is skipped fail per-request only; configured issuers (bsb.impact, lbsb.impact) work.
   const issuerNames = Array.from(new Set(EDITIONS.map((e) => e.issuerName)));
-  type Resolved = { issuerSa: Address; delegateKey: Address; signDigest: (h: Hex) => Promise<Hex>; leaf: unknown };
+  type Resolved = { issuerSa: Address; delegateKey: Address; kms: GcpKmsSigner; signDigest: (h: Hex) => Promise<Hex>; leaf: unknown };
   const byIssuer = new Map<string, Resolved>();
   const skippedIssuers: Array<{ issuerName: string; reason: string }> = [];
   for (const issuerName of issuerNames) {
     const keyName = keys[issuerName];
     if (!keyName) { skippedIssuers.push({ issuerName, reason: 'no key in CONTENT_SIGNER_KEYS' }); continue; }
-    const issuerSa = (await naming.resolveName(issuerName)) as Address | null;
-    if (!issuerSa) { skippedIssuers.push({ issuerName, reason: 'agent-naming did not resolve this issuer name' }); continue; }
-    const kms = new GcpKmsSigner({ cryptoKeyVersionName: keyName, serviceAccountJson: saJson });
-    const delegateKey = await kms.getSignerAddress();
-    const signDigest = async (hash: Hex): Promise<Hex> => bytesToHex((await kms.signA2AAction({ digest: toBytes(hash) })).signature);
     const row = env.DB
-      ? await env.DB.prepare('SELECT delegation_leaf, delegate_key FROM content_signers WHERE issuer_name=?').bind(issuerName).first<{ delegation_leaf: string; delegate_key: string }>()
+      ? await env.DB.prepare('SELECT delegation_leaf FROM content_signers WHERE issuer_name=?').bind(issuerName).first<{ delegation_leaf: string }>()
       : null;
     if (!row) { skippedIssuers.push({ issuerName, reason: 'no content-signer delegation stored (run the demo-corpus "Authorize content signing" ceremony)' }); continue; }
-    if (row.delegate_key.toLowerCase() !== delegateKey.toLowerCase()) { skippedIssuers.push({ issuerName, reason: `stored delegate ${row.delegate_key} ≠ KMS key address ${delegateKey}` }); continue; }
-    byIssuer.set(issuerName, { issuerSa, delegateKey, signDigest, leaf: JSON.parse(row.delegation_leaf) });
+    try {
+      // spec 276 §7 — the bespoke "resolve name → SA, derive KMS address, match stored delegate" orchestration
+      // is replaced by the shared delegated-signer primitive: it resolves the issuer name → SA, confirms the SA
+      // is deployed, validates the (single-leaf, ROOT) delegation chain, and confirms the leaf delegates to THIS
+      // KMS key. Throws → skip + surface, preserving the per-issuer fail-closed resilience.
+      const kms = new GcpKmsSigner({ cryptoKeyVersionName: keyName, serviceAccountJson: saJson });
+      const leaf = JSON.parse(row.delegation_leaf) as Delegation;
+      const resolved = await resolveDelegatedSigner({
+        name: issuerName,
+        signer: kms,
+        delegationChain: [leaf],
+        resolveName: (n) => naming.resolveName(n) as Promise<Address | null>,
+        verifyAccount: (sa) => aac.isDeployed(sa),
+        chainId,
+        delegationManager,
+      });
+      byIssuer.set(issuerName, {
+        issuerSa: resolved.delegatorAgent,
+        delegateKey: resolved.signerAddress,
+        kms,
+        signDigest: (hash: Hex) => resolved.sign(toBytes(hash)),
+        leaf,
+      });
+    } catch (e) {
+      skippedIssuers.push({ issuerName, reason: (e as Error).message });
+    }
   }
   // Surface dropped issuers — never hide them (data-integrity rule). They degrade per-edition, not globally.
   if (skippedIssuers.length) console.warn('[trust:delegated] issuers without a usable content signer:', JSON.stringify(skippedIssuers));
@@ -238,7 +258,7 @@ async function buildDelegated(env: McpEnv): Promise<TrustContext> {
     const entry = EDITIONS.find((e) => e.edition === edition) ?? EDITIONS[0]!;
     const d = issuerOf(entry);
     return {
-      signer: { issuerAddress: d.issuerSa, chainId, verifyingContract: d.issuerSa, signDigest: d.signDigest } as CredentialSigner,
+      signer: kmsCredentialSigner({ backend: d.kms, issuerAddress: d.issuerSa, chainId, verifyingContract: d.issuerSa }),
       delegatingSigner: { delegatorIssuer: d.issuerSa, delegateKey: d.delegateKey, delegationLeaf: d.leaf },
     };
   };
@@ -334,9 +354,9 @@ export async function contentSignerForIssuer(
   if (!row) return { error: `no stored delegation for ${issuerName} (run the demo-corpus "Authorize content signing" ceremony)` };
   if (row.issuer_sa.toLowerCase() !== issuerSa.toLowerCase()) return { error: `stored SA ${row.issuer_sa} ≠ resolved SA ${issuerSa} (re-authorize)` };
   if (row.delegate_key.toLowerCase() !== delegateKey.toLowerCase()) return { error: `stored delegate ${row.delegate_key} ≠ KMS key ${delegateKey} (re-authorize)` };
-  const signDigest = async (hash: Hex): Promise<Hex> => bytesToHex((await kms.signA2AAction({ digest: toBytes(hash) })).signature);
+  // spec 276 §7 — credential signer built from the KMS backend via kmsCredentialSigner (no hand-rolled signDigest).
   return {
-    signer: { issuerAddress: issuerSa, chainId, verifyingContract: issuerSa, signDigest },
+    signer: kmsCredentialSigner({ backend: kms, issuerAddress: issuerSa, chainId, verifyingContract: issuerSa }),
     delegatingSigner: { delegatorIssuer: issuerSa, delegateKey, delegationLeaf: JSON.parse(row.delegation_leaf) },
     issuerSa,
     chainId,

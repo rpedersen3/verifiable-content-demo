@@ -26,6 +26,10 @@ import { createSign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+// spec 276 — derive each provisioned key's EVM address from its SPKI public key so the operator can VERIFY
+// the address BEFORE wiring CONTENT_SIGNER_KEYS / signing any delegation (the same primitives the runtime
+// signer uses). /kms-core is peer-free (only @noble/* transitively), so this stays a zero-viem script.
+import { addressFromSpkiPem, createGcpKmsTransport, parseServiceAccountJson } from '@agenticprimitives/key-custody/kms-core';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const KMS_BASE = 'https://cloudkms.googleapis.com/v1';
@@ -176,9 +180,25 @@ async function main() {
   const runtimeSa = process.env.RUNTIME_SA_EMAIL ?? sa.client_email;
   await ensureSignerBinding(token, project, runtimeSa);
 
+  // Derive each key's EVM signing address from its SPKI public key (the delegate address each issuer SA must
+  // authorize). The transport reuses the SAME service account; addressFromSpkiPem mirrors the runtime signer,
+  // so what's printed here is exactly what the issuer→delegate leaf will bind. Best-effort: a viewPublicKey
+  // hiccup must not lose the key map we just built.
+  const transport = createGcpKmsTransport(parseServiceAccountJson(sa));
+  const addresses = {};
+  for (const issuer of ISSUERS) {
+    try {
+      addresses[issuer] = addressFromSpkiPem(await transport.getPublicKeyPem(map[issuer]));
+    } catch (e) {
+      addresses[issuer] = `(could not derive address: ${e.message})`;
+    }
+  }
+
   const json = JSON.stringify(map);
   console.log('\n✅ CONTENT_SIGNER_KEYS (issuerName → KMS cryptoKeyVersion):\n');
   console.log(JSON.stringify(map, null, 2));
+  console.log('\n🔑 Derived signing addresses (issuerName → EVM address) — VERIFY these before authorizing:\n');
+  console.log(JSON.stringify(addresses, null, 2));
   console.log('\nSet it on the MCP worker (the SAME GCP_SERVICE_ACCOUNT_JSON the relayer already uses):');
   console.log('  cd apps/demo-bible-mcp');
   console.log(`  echo '${json}' | npx wrangler secret put CONTENT_SIGNER_KEYS --env production`);

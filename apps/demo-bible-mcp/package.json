@@ -21,6 +21,7 @@
     "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.2",
     "@agenticprimitives/a2a": "0.0.0-alpha.1",
     "@agenticprimitives/delegation": "^1.0.0-alpha.7",
+    "@agenticprimitives/delegated-signer": "^0.0.0-alpha.1",
     "@agenticprimitives/key-custody": "^1.0.0-alpha.6",
     "@agenticprimitives/connect-auth": "^1.0.0-alpha.7",
     "hono": "^4.12.23",
