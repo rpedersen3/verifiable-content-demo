@@ -3,6 +3,7 @@
 // matches actor+audience+resource+action+fields+purpose and the data classification is ≤ the credential's
 // ceiling). VC proof/status verification is a later upstream wave — credentials here are stored + trusted.
 import { resolveEntitlements, type AgenticEntitlementCredentialV1, type EntitlementAction, type EntitlementClassification, type EntitlementDecision } from '@agenticprimitives/entitlements';
+import { createDecryptGrant, verifyDecryptGrant, createInMemoryReplayStore, canonicalize, sha256Hex, type KeyReleaseDecision } from '@agenticprimitives/key-authorization';
 import type { VaultClassification } from '@agenticprimitives/vault';
 import type { D1Like } from '../editions/d1.js';
 
@@ -83,4 +84,46 @@ export async function gateVaultRead(
     classification: args.classification,
     at: new Date(),
   });
+}
+
+// ── spec 277 §14 — one-time DecryptGrant + KAS re-verification (P3) ──
+// After the durable entitlement check (gateVaultRead) allows, the authority mints a one-time DecryptGrant
+// bound to THIS request (tool + argsHash + resource + fields + purpose + classification + the entitlement
+// decision hash), and the KAS independently re-verifies it before any field is released. JTI is one-time
+// (replay store). In P5 the same allow gates the key-custody DEK unwrap; here it gates plaintext projection.
+const replayStore = createInMemoryReplayStore(); // per-isolate (Phase-1 demo; a durable D1/DO store in prod)
+
+export async function keyReleaseForRead(args: {
+  serverId: string;
+  resourceUri: string;
+  audience: string;
+  principal: string;
+  actor: string;
+  resource: string;
+  allowedFields?: string[];
+  purpose?: string;
+  classification: EntitlementClassification;
+  matchedCredentials: string[];
+}): Promise<KeyReleaseDecision> {
+  const argsHash = await sha256Hex(canonicalize({ principal: args.principal, actor: args.actor, resource: args.resource, fields: args.allowedFields ?? null, purpose: args.purpose ?? null }));
+  const entHash = await sha256Hex(canonicalize(args.matchedCredentials)); // bind the grant to the entitlement decision
+  const now = new Date();
+  const ttlSeconds = 120;
+  const grant = await createDecryptGrant({
+    id: `urn:ap:decrypt-grant:${crypto.randomUUID()}`,
+    issuer: args.serverId,
+    audience: args.audience,
+    principal: args.principal,
+    delegate: args.actor,
+    mcp: { resourceUri: args.resourceUri, serverId: args.serverId, toolName: 'vault_get', argsHash },
+    authorization: { entitlementHashes: [entHash] },
+    vault: { vaultId: args.serverId, objectIds: [`${args.principal}/${args.resource}`], resource: args.resource, fields: args.allowedFields, purpose: args.purpose, classificationCeiling: args.classification },
+    constraints: { ttlSeconds, notBefore: now.toISOString(), expiresAt: new Date(now.getTime() + ttlSeconds * 1000).toISOString(), oneTimeUse: true },
+    replay: { jti: crypto.randomUUID() },
+  });
+  return verifyDecryptGrant(
+    grant,
+    { audience: args.audience, principal: args.principal, delegate: args.actor, toolName: 'vault_get', argsHash, resource: args.resource, requestedFields: args.allowedFields, purpose: args.purpose, classification: args.classification, entitlementHashes: [entHash] },
+    { now, replayStore },
+  );
 }

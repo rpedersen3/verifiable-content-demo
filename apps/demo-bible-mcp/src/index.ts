@@ -33,11 +33,14 @@ import { verifySignedEntitlement } from './lib/trust.js';
 import { resolveTrust, resolveContentSignerKeys, verifyContentSignerLeaf, contentSignerForIssuer, type McpEnv, type TrustContext } from './lib/trust-context.js';
 import { createD1Vault } from './lib/vault.js';
 import { isSensitiveClassification, projectFields, type VaultClassification } from '@agenticprimitives/vault';
-import { buildEntitlementCredential, storeEntitlement, gateVaultRead, toEntitlementClass } from './lib/vault-access.js';
+import { buildEntitlementCredential, storeEntitlement, gateVaultRead, keyReleaseForRead, toEntitlementClass } from './lib/vault-access.js';
 import type { EntitlementAction, EntitlementClassification } from '@agenticprimitives/entitlements';
 
-// Audience the vault entitlements are bound to (the MCP vault surface). Constant for the demo.
+// Identity of the MCP vault surface — the audience/serverId/resourceUri the entitlements + decrypt-grants
+// are bound to. Constants for the demo.
 const VAULT_AUDIENCE = 'urn:mcp:demo-bible:vault';
+const VAULT_SERVER_ID = 'demo-bible-mcp';
+const VAULT_RESOURCE_URI = 'https://demo-bible-mcp-production.richardpedersen3.workers.dev/vault';
 import { handleA2aRpcBody } from '@agenticprimitives/a2a';
 import { buildBsbAgent, type A2aEnv } from './a2a/agent.js';
 export { BsbTaskDO } from './a2a/task-do.js';
@@ -894,14 +897,23 @@ app.post('/tools/vault_get', async (c) => {
   // P2 — fail-closed entitlement gate. `actor` is the requester (defaults to the owner for self-reads, which
   // still requires a matching self-grant). The data's classification is checked against the credential ceiling.
   const actor = b.actor ?? b.owner;
-  const decision = await gateVaultRead(c.env.DB, { principal: b.owner, actor, audience: VAULT_AUDIENCE, resource: b.resource, fields: b.fields, purpose: b.purpose, classification: toEntitlementClass(obj.classification) });
+  const cls = toEntitlementClass(obj.classification);
+  // Gate 1 (durable authz): does the actor hold an entitlement for this resource/fields/purpose/classification?
+  const decision = await gateVaultRead(c.env.DB, { principal: b.owner, actor, audience: VAULT_AUDIENCE, resource: b.resource, fields: b.fields, purpose: b.purpose, classification: cls });
   if (decision.decision !== 'allow') {
-    audit('vault.get', 'denied', b.resource, { owner: b.owner, actor, reason: decision.reason });
-    return c.json({ ok: false, error: 'entitlement denied', reason: decision.reason }, 403);
+    audit('vault.get', 'denied', b.resource, { owner: b.owner, actor, stage: 'entitlement', reason: decision.reason });
+    return c.json({ ok: false, error: 'entitlement denied', stage: 'entitlement', reason: decision.reason }, 403);
   }
-  const data = projectFields(obj.data, decision.allowedFields);
-  audit('vault.get', 'success', b.resource, { owner: b.owner, actor, sensitive: isSensitiveClassification(obj.classification), allowed: decision.allowedFields?.join(',') ?? '*' });
-  return c.json({ ok: true, object: { ...obj, data }, allowedFields: decision.allowedFields ?? null, constraints: decision.constraints ?? null });
+  // Gate 2 (per-request key release): mint a one-time DecryptGrant bound to this request + the entitlement
+  // decision, and have the KAS independently re-verify it before any field is released (spec 277 §14).
+  const release = await keyReleaseForRead({ serverId: VAULT_SERVER_ID, resourceUri: VAULT_RESOURCE_URI, audience: VAULT_AUDIENCE, principal: b.owner, actor, resource: b.resource, allowedFields: decision.allowedFields, purpose: b.purpose, classification: cls, matchedCredentials: decision.matchedCredentials });
+  if (release.decision !== 'allow') {
+    audit('vault.get', 'denied', b.resource, { owner: b.owner, actor, stage: 'key-release', reason: release.reason });
+    return c.json({ ok: false, error: 'key release denied', stage: 'key-release', reason: release.reason }, 403);
+  }
+  const data = projectFields(obj.data, release.releasedFields);
+  audit('vault.get', 'success', b.resource, { owner: b.owner, actor, sensitive: isSensitiveClassification(obj.classification), released: release.releasedFields?.join(',') ?? '*' });
+  return c.json({ ok: true, object: { ...obj, data }, releasedFields: release.releasedFields ?? null, constraints: decision.constraints ?? null });
 });
 
 app.post('/tools/vault_list', async (c) => {
