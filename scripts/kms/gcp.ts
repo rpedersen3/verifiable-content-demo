@@ -87,6 +87,14 @@ export class GcpProvisioner {
     throw new Error(`${keyId} version 1 did not reach ENABLED in time`);
   }
 
+  /** Read-only: the ENABLED key-version resource name if the key exists, else null (no creation). For --verify. */
+  async keyVersionIfExists(keyId: string): Promise<string | null> {
+    const keyVersionName = `${this.ringPath}/cryptoKeys/${keyId}/cryptoKeyVersions/1`;
+    const v = await kms(this.token, keyVersionName);
+    if (v.ok && v.json.state === 'ENABLED') return keyVersionName;
+    return null;
+  }
+
   /** Grant the runtime SA roles/cloudkms.signerVerifier on THIS key only (per-key separation). Idempotent. */
   async ensureKeyIam(keyId: string, memberEmail: string): Promise<boolean> {
     const keyPath = `${this.ringPath}/cryptoKeys/${keyId}`;

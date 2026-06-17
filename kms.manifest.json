@@ -10,6 +10,7 @@
     "registry": "0x15F7ed064A230C011b0244A14fD9653f011d609B",
     "universalResolver": "0x7d777d2d0bbc1806B9Cc779121C27fbaAaFDb60b"
   },
+  "bindingsUrl": "https://demo-bible-mcp-production.richardpedersen3.workers.dev",
   "deployments": {
     "mcp": { "platform": "cloudflare", "worker": "demo-bible-mcp", "dir": "apps/demo-bible-mcp", "env": "production" },
     "validator": { "platform": "vercel", "project": "scripture-validator", "env": "production" }

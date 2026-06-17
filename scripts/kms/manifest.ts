@@ -57,6 +57,9 @@ export interface KmsManifest {
   /** The secret name each runtime expects the SA JSON under (written base64, no echo). */
   saSecretName: string;
   naming: NamingConfig;
+  /** Base URL exposing the stored content-signer bindings (POST /tools/list_content_signers) — used by
+   *  --verify to compare each agent's live KMS delegate against its stored, owner-authorized delegate. */
+  bindingsUrl?: string;
   deployments: Record<string, Deployment>;
   identities: Identity[];
 }

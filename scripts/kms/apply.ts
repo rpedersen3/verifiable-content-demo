@@ -35,6 +35,46 @@ async function resolveSA(m: KmsManifest, names: string[]): Promise<Map<string, A
   return out;
 }
 
+/** --verify: confirm each agent is still hooked to its own KMS key — the LIVE KMS delegate (derived from
+ *  the key's public key) must equal the owner-AUTHORIZED delegate stored in content_signers, and the stored
+ *  SA must equal the name's on-chain resolution. Read-only; returns the count of drifted/unbound identities. */
+export async function verify(opts: { manifestPath?: string }): Promise<number> {
+  const m = loadManifest(opts.manifestPath);
+  console.log(`KMS verify — ${m.identities.length} identities\n`);
+  const sa = loadServiceAccount(m.runtimeServiceAccountFile);
+  const prov = new GcpProvisioner(sa, m.location, m.keyRing);
+  await prov.init();
+
+  const stored = new Map<string, { issuer_sa: string; delegate_key: string }>();
+  if (m.bindingsUrl) {
+    const res = await fetch(`${m.bindingsUrl}/tools/list_content_signers`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const j = (await res.json()) as { rows?: Array<Record<string, string>>; signers?: Array<Record<string, string>> };
+    for (const r of j.rows ?? j.signers ?? []) stored.set(r.issuer_name!, { issuer_sa: r.issuer_sa!, delegate_key: r.delegate_key! });
+  } else {
+    console.warn('! manifest.bindingsUrl not set — cannot compare against stored delegations\n');
+  }
+  const saByName = await resolveSA(m, m.identities.map((i) => i.name));
+
+  let problems = 0;
+  for (const id of m.identities) {
+    const kv = await prov.keyVersionIfExists(keyIdFor(id.name));
+    const live = kv ? await deriveKeyAddress(sa.raw, kv) : null;
+    const resolvedSA = saByName.get(id.name) ?? null;
+    const b = stored.get(id.name);
+    const issues: string[] = [];
+    if (!live) issues.push('KMS key missing / not ENABLED');
+    if (!b) issues.push('no stored delegation (ceremony not run)');
+    else {
+      if (live && b.delegate_key.toLowerCase() !== live.toLowerCase()) issues.push(`stored delegate ${b.delegate_key} ≠ live KMS ${live}`);
+      if (resolvedSA && b.issuer_sa.toLowerCase() !== resolvedSA.toLowerCase()) issues.push(`stored SA ${b.issuer_sa} ≠ resolved SA ${resolvedSA}`);
+    }
+    if (issues.length) problems++;
+    console.log(`  ${issues.length ? '✗' : '✓'} ${id.name.padEnd(26)} live=${live ?? '-'} SA=${resolvedSA ?? '(unresolved)'}${issues.length ? ' — ' + issues.join('; ') : ' bound'}`);
+  }
+  console.log(problems === 0 ? '\n✓ all identities bound — live KMS delegate === owner-authorized delegate' : `\n✗ ${problems} identity/identities drifted or unbound`);
+  return problems;
+}
+
 export async function apply(opts: { manifestPath?: string; write?: boolean; dryRun?: boolean }) {
   const m = loadManifest(opts.manifestPath);
   console.log(`KMS apply — project=${m.project} location=${m.location} keyRing=${m.keyRing} | ${m.identities.length} identities | write=${!!opts.write} dryRun=${!!opts.dryRun}\n`);
