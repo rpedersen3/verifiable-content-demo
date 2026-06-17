@@ -83,6 +83,24 @@ Legend: 🔴 bug (breaks consumers) · 🟠 gap (blocks the managed-KMS goal) ·
     `key-custody` (key-custody must stay a dependency-light custody leaf, ADR-0021).
   - Reference impl: `scripts/kms/targets.ts` in this repo.
 
+### B7. 🟠 Implement `GcpKmsProvider` envelope encrypt/decrypt (v0.2 stub today)
+- **What:** `key-custody`'s `GcpKmsProvider` envelope methods (`generateSessionDataKey` /
+  `decryptSessionDataKey` — the symmetric DEK-wrap path of `A2AKeyProvider`) are still a **v0.2 stub**
+  (documented in the package CLAUDE.md / AUDIT.md / spec 203). Only the asymmetric `GcpKmsSigner` is real.
+- **Why:** distinct from every other B-item (those are about the asymmetric **signer** + provisioning).
+  This is the **vault's** dependency, not the content-signer's: the **MCP delegated data vault (spec 277,
+  Phase 2)** wraps each per-object DEK via a `key-custody` `DekWrapper`, and currently uses
+  `LocalAesProvider` as a **testnet-grade** backend (with an explicit "a managed KMS backend MUST replace
+  this before real-value data" warning + a Workers `process.env` opt-in bridge). Production-grade vault
+  encryption can't drop `LocalAesProvider` until `GcpKmsProvider`'s envelope path exists.
+- **Fix:** implement `GcpKmsProvider.generateSessionDataKey` / `decryptSessionDataKey` against Cloud KMS
+  `encrypt`/`decrypt` (symmetric KEK, `GOOGLE_SYMMETRIC_ENCRYPTION`) — envelope-wrap a locally-generated
+  DEK under the KMS KEK with the AAD bound as `EncryptionContext`. REST + SA-JWT (same transport as the
+  signer, reuse B1's executor), so it works on Workers without the gRPC SDK. Then the vault injects this
+  provider as its `DekWrapper` in place of `LocalAesProvider`.
+- **Sequence with the vault, not the signer:** this is the gating dependency for the vault's "go to managed
+  KMS" step (spec 277), so prioritize it alongside that work rather than with the C/E signer-orchestrator items.
+
 ---
 
 ## C. The `ap-kms` orchestrator (lift this repo's prototype upstream)
@@ -140,3 +158,7 @@ Legend: 🔴 bug (breaks consumers) · 🟠 gap (blocks the managed-KMS goal) ·
 3. **C1, C2** — lift `ap-kms` (+ `--verify`) onto that foundation; changeset + release.
 4. **D1** — make the ceremony a repeatable per-identity flow.
 5. **E1** — keyless WIF transport (drops the SA-JSON bridge).
+
+**B7** is sequenced separately — it gates the **vault's** (spec 277) move off the testnet `LocalAesProvider`
+to managed-KMS DEK wrapping, so prioritize it with that vault work rather than with the signer-path items
+above. (It can reuse B1's REST executor for the Workers-friendly transport.)
