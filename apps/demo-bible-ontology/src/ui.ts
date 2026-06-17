@@ -1087,9 +1087,24 @@ async function loadAccount(){
     const rec=r.record||{};const ks=Object.keys(rec);
     el.innerHTML=(ks.length?'<table class="acct">'+ks.map(k=>'<tr><td class="muted">'+esc(k.split('_').join(' '))+'</td><td>'+esc(rec[k]==null?'—':String(rec[k]))+'</td></tr>').join('')+'</table>':'<div class="muted">No PII record.</div>')+
       '<div class="hint" style="margin-top:6px">subject <b>'+esc(r.subject_name||'')+'</b> <span class="mono">'+esc((r.subject||'').slice(0,16))+'…</span> · served by <span class="mono">'+esc(r.served_by||'demo-mcp')+'</span> · via delegation '+esc((session.delegation.delegator||'').slice(0,10))+'…→'+esc((session.delegation.delegate||'').slice(0,10))+'…</div>';
-  }catch(e){el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read your vault: '+esc(e&&e.message?e.message:String(e))+'</div>'+
-    '<div class="hint" style="margin-top:5px">For this to work, the deployed <b>demo-a2a</b> must allow-list this app\\'s origin (<span class="mono">'+esc(location.origin)+'</span>) in its <span class="mono">ALLOWED_ORIGINS</span> (CSRF + CORS).</div>';}
+  }catch(e){
+    const msg=e&&e.message?e.message:String(e);
+    if(msg.indexOf('vault_key_unauthorized')>=0){
+      // No spec-278 vault-key binding yet. The binding needs YOUR signature (this app signs nothing), so hand
+      // off to your Global.Church home /vault-key page: it provisions your per-person KMS key, you sign the
+      // one-time VAULT_KEY_USE authorization with your own credential, and it binds it to this server.
+      el.innerHTML='<div style="font-size:13px">Your personal vault is not set up yet.</div>'+
+        '<div class="hint" style="margin:6px 0">Authorize this server to use your encrypted vault key — a one-time setup at your Global.Church home. You sign once with your own credential; this app signs nothing and your data stays encrypted under your key.</div>'+
+        '<button class="ap" onclick="setupVault()">Set up my vault</button> <button class="ap" onclick="loadAccount()">Re-read</button>';
+    }else{
+      el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read your vault: '+esc(msg)+'</div>'+
+        '<div class="hint" style="margin-top:5px">For this to work, the deployed <b>demo-a2a</b> must allow-list this app\\'s origin (<span class="mono">'+esc(location.origin)+'</span>) in its <span class="mono">ALLOWED_ORIGINS</span> (CSRF + CORS).</div>';
+    }
+  }
 }
+// Hand off to the home's standalone vault-key activation page (spec 278): opens in a new tab; the reader
+// activates with their own custodian there, then returns and clicks Re-read. The app never signs.
+function setupVault(){window.open(CENTRAL_AUTH_ORIGIN+'/vault-key','_blank','noopener');}
 async function loadIntegrity(max){
   const d=await api('/integrity?max='+encodeURIComponent(max));
   document.getElementById('ibands').innerHTML=bandChips(d.bands);
