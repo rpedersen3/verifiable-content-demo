@@ -1,10 +1,12 @@
-// Deploy-target secret writers — write a named secret to Cloudflare or Vercel with NO terminal echo and
-// no copy/paste. Cloudflare: pipe into `wrangler secret put`. Vercel: REST API (vercel env add from stdin
-// is unreliable — observed storing empty). Values are passed in-memory; never logged.
+// App-side deploy-platform secret writers — the provider-specific half the orchestrator deliberately does
+// NOT ship (@agenticprimitives/ap-kms is provider-agnostic; ADR-0020). We inject `writeSecret` into
+// `makeNodeDeps`, dispatching on `deployment.platform`. No terminal echo; values passed in-memory.
+// Cloudflare: pipe into `wrangler secret put`. Vercel: REST API (`vercel env add` from stdin stores empty).
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import type { Deployment } from '@agenticprimitives/ap-kms';
 
 /** Pipe a secret value into `wrangler secret put <name> --env <env>` from the worker's dir (no echo). */
 export function writeCloudflareSecret(dir: string, env: string, name: string, value: string): Promise<void> {
@@ -28,7 +30,7 @@ const vercelToken = (): string => {
 
 async function vercelProjectId(token: string, project: string): Promise<{ id: string; teamId: string | null }> {
   const h = { authorization: `Bearer ${token}` };
-  let r = await fetch(`https://api.vercel.com/v9/projects/${project}`, { headers: h });
+  const r = await fetch(`https://api.vercel.com/v9/projects/${project}`, { headers: h });
   if (r.ok) return { id: (await r.json() as { id: string }).id, teamId: null };
   const teams = (await (await fetch('https://api.vercel.com/v2/teams', { headers: h })).json()) as { teams?: Array<{ id: string }> };
   for (const t of teams.teams ?? []) {
@@ -50,4 +52,17 @@ export async function writeVercelSecret(project: string, target: string, name: s
   }
   const c = await fetch(`https://api.vercel.com/v10/projects/${id}/env${q}`, { method: 'POST', headers: h, body: JSON.stringify({ key: name, value, type: 'encrypted', target: [target] }) });
   if (!c.ok) throw new Error(`Vercel env create ${name} failed: ${c.status} ${(await c.text()).slice(0, 200)}`);
+}
+
+/** The injected `writeSecret` for `makeNodeDeps` — dispatch on the manifest deployment's platform tag. */
+export async function writeSecret(deployment: Deployment, name: string, value: string): Promise<void> {
+  if (deployment.platform === 'cloudflare') {
+    if (!deployment.dir) throw new Error(`deployment "${deployment.platform}" missing "dir" for ${name}`);
+    return writeCloudflareSecret(deployment.dir, deployment.env, name, value);
+  }
+  if (deployment.platform === 'vercel') {
+    if (!deployment.project) throw new Error(`deployment "${deployment.platform}" missing "project" for ${name}`);
+    return writeVercelSecret(deployment.project, deployment.env, name, value);
+  }
+  throw new Error(`unknown deploy platform "${deployment.platform}" for ${name}`);
 }

@@ -22,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^22.7.0",
     "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.8",
+    "@agenticprimitives/ap-kms": "0.0.0-alpha.2",
     "@agenticprimitives/key-custody": "1.0.0-alpha.11",
     "@agenticprimitives/delegation": "1.0.0-alpha.11",
     "@agenticprimitives/agent-naming": "1.0.0-alpha.11",
@@ -41,6 +42,7 @@
       "@agenticprimitives/delegated-signer": "0.0.0-alpha.3",
       "@agenticprimitives/agent-account": "1.0.0-alpha.11",
       "@agenticprimitives/agent-naming": "1.0.0-alpha.11",
+      "@agenticprimitives/ap-kms": "0.0.0-alpha.2",
       "@agenticprimitives/audit": "1.0.0-alpha.11",
       "@agenticprimitives/connect": "1.0.0-alpha.11",
       "@agenticprimitives/connect-auth": "1.0.0-alpha.11",

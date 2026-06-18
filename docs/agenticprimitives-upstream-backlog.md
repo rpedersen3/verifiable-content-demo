@@ -115,7 +115,18 @@ Legend: 🔴 bug (breaks consumers) · 🟠 gap (blocks the managed-KMS goal) ·
 
 ## C. The `ap-kms` orchestrator (lift this repo's prototype upstream)
 
-### C1. 🟠 `ap-kms` CLI + manifest schema
+### C1. ✅ `ap-kms` CLI + manifest schema — DONE (published `@agenticprimitives/ap-kms@0.0.0-alpha.2`, consumed here)
+- **Status:** lifted upstream (PRs #350 + #353), published as `@agenticprimitives/ap-kms@0.0.0-alpha.2`, and
+  this repo now CONSUMES it. Pure injected-deps core (`applyKmsManifest`/`verifyKmsManifest` +
+  `KmsOrchestratorDeps`); node wiring + fs `loadManifest`/`makeNodeDeps` behind the `/node` subpath; `ap-kms`
+  CLI bin (`apply [--write|--dry-run]` / `verify`). The name→SA resolver, provisioner, address derivation,
+  and stored-bindings reader are injected (key-custody stays a leaf). Per ADR-0020 the package is also
+  **provider-agnostic**: it ships NO deploy-platform writer — `deployment.platform` is an opaque tag and the
+  app injects `writeSecret`. This repo keeps only `kms.manifest.json` + `scripts/kms/secret-writers.ts`
+  (the Cloudflare/Vercel writers) + a thin `scripts/kms-apply.ts` that drives the package. The prototype
+  `scripts/kms/{manifest,gcp,targets,apply}.ts` was deleted. Verified: `pnpm kms:apply --dry-run` runs
+  through the package (correct plan/keys/targets); scripts typecheck clean.
+
 - **What:** a manifest-driven orchestrator that runs the whole flow: provision → per-key IAM → derive +
   verify EVM address → resolve name→SA → (report the ceremony gap) → write runtime secrets to each target →
   `--verify` binding-drift. Modes: default report / `--write` / `--dry-run` / `--verify`.
