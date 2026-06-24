@@ -90,6 +90,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 : `${identity.address.slice(0, 6)}…${identity.address.slice(-4)}`}
             </span>
           )}
+          <button className="btn btn-ghost btn-sm" onClick={signOut} title="Disconnect this home (clears your session)">
+            <IconSignOut width={15} height={15} /> Sign out
+          </button>
         </header>
         <main className="content anim-in" key={pathname}>
           {children}
