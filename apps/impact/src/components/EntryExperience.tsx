@@ -42,6 +42,22 @@ export default function EntryExperience() {
     if (h) setName(h);
   }, []);
 
+  // A social sign-in that VERIFIED but found no home returns ?connect_status=bootstrap.
+  // (A new Google/YouVersion home is KMS-custodied — it needs the server custody bridge to
+  // mint it.) Surface it instead of silently dropping back to the entry screen.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("connect_status") === "bootstrap") {
+      const email = p.get("email") || "your account";
+      const v = p.get("via");
+      const provider = v === "youversion" ? "YouVersion" : v === "google" ? "Google" : "Your provider";
+      setError(
+        `${provider} verified ${email}, but there's no home for it yet. Creating a new home from a social sign-in needs the server custody bridge configured (A2A_CUSTODY_BRIDGE_SECRET matching your demo-a2a). Once set, this signs you straight in.`,
+      );
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
   const onHandle = currentHandle();
 
   // Debounced live name resolution against the naming service.
