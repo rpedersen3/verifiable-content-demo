@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useSession } from "@/context/session";
 import { ACTIVITY, orgById, servicesForOrg } from "@/lib/seed";
-import { Glyph, SectionHead, StatTile, TrustMeter, DimensionBadges, Pill } from "@/components/ui";
-import { IconVault, IconWallet, IconShield, IconGraph, IconBot, IconOrg } from "@/components/Icons";
+import { Glyph, SectionHead, StatTile, TrustMeter, DimensionBadges, Pill, EmptyNote } from "@/components/ui";
+import { IconVault, IconWallet, IconShield, IconGraph, IconBot, IconOrg, IconPlus } from "@/components/Icons";
+import { useAgentBalances } from "@/lib/use-live";
 
 export default function HomePage() {
   const { person, active } = useSession();
@@ -13,11 +14,12 @@ export default function HomePage() {
 }
 
 function PersonDashboard() {
-  const { person } = useSession();
+  const { person, identity } = useSession();
+  const bal = useAgentBalances(identity?.address);
   if (!person) return null;
   const orgs = person.custodyOf.map(orgById).filter(Boolean);
   const memberships = person.membershipIds.map(orgById).filter(Boolean);
-  const recent = ACTIVITY.filter((a) => a.context === "person").slice(0, 4);
+  const hasOrgs = orgs.length + memberships.length > 0;
 
   return (
     <>
@@ -52,16 +54,24 @@ function PersonDashboard() {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats — treasury balance is read LIVE on-chain for the connected agent */}
       <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: "1.4rem" }}>
-        <StatTile num={`$${person.treasury.balanceUsdc.toFixed(0)}`} label="Treasury (USDC)" accent="var(--amber-700)" />
-        <StatTile num={person.entitlements.filter((e) => e.status === "active").length} label="Active entitlements" />
-        <StatTile num={person.delegations.length} label="Delegations" />
+        <StatTile num={bal.loading ? "…" : `$${bal.usdc ?? "0.00"}`} label="Treasury USDC (live)" accent="var(--amber-700)" />
+        <StatTile num={bal.loading ? "…" : `${bal.eth ?? "0"}`} label="ETH (live)" />
+        <StatTile num={person.entitlements.length} label="Entitlements" />
         <StatTile num={orgs.length + memberships.length} label="Organizations" />
       </div>
 
       {/* What you steward */}
       <SectionHead title="What you steward" sub="Organizations you custody and the communities you belong to." />
+      {!hasOrgs ? (
+        <div style={{ marginBottom: "1.6rem" }}>
+          <EmptyNote>
+            <div style={{ marginBottom: ".7rem" }}>You haven&apos;t connected any organizations yet.</div>
+            <Link href="/organizations" className="btn btn-primary btn-sm"><IconPlus width={15} height={15} /> Connect an organization</Link>
+          </EmptyNote>
+        </div>
+      ) : (
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", marginBottom: "1.6rem" }}>
         {orgs.map((o) => o && (
           <Link key={o.id} href="/organizations" className="card card-pad card-hover">
@@ -96,6 +106,7 @@ function PersonDashboard() {
           </Link>
         ))}
       </div>
+      )}
 
       {/* Quick links + activity */}
       <div className="grid" style={{ gridTemplateColumns: "1.3fr 1fr" }}>
@@ -111,15 +122,7 @@ function PersonDashboard() {
         <div>
           <SectionHead title="Recent activity" />
           <div className="card card-pad col" style={{ gap: ".9rem" }}>
-            {recent.map((a) => (
-              <div key={a.id} className="row" style={{ gap: ".7rem", alignItems: "flex-start" }}>
-                <span className="dot" style={{ color: "var(--amber-500)", marginTop: 7 }} />
-                <div>
-                  <div style={{ fontSize: ".88rem" }}><strong>{a.actor}</strong> {a.verb} {a.object}</div>
-                  <div className="faint" style={{ fontSize: ".72rem" }}>{new Date(a.at).toLocaleDateString()}</div>
-                </div>
-              </div>
-            ))}
+            <span className="muted" style={{ fontSize: ".86rem" }}>No activity yet — actions you take (granting permission, giving, attestations) will appear here.</span>
           </div>
         </div>
       </div>

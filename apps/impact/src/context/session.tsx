@@ -72,7 +72,25 @@ function personFromIdentity(id: Identity): Person {
     agentName: id.name ?? shortAddr(id.address),
     address: id.address as Address,
     deployed: id.deployed,
-    pii: { ...PERSON.pii, preferredName: label, legalName: id.name ?? label },
+    blurb: id.name ? `${id.name} · your home` : "your home",
+    // Real connected agent: it has its OWN (initially empty) data — not the seed's.
+    // Balances come live from chain (useAgentBalances); orgs/vault/etc. are empty until
+    // the agent actually has them. No assessment yet → no trust meter.
+    trust: undefined,
+    custodyOf: [],
+    membershipIds: [],
+    defaultOrgId: null,
+    entitlements: [],
+    delegations: [],
+    vaultRecords: [],
+    attestations: [],
+    treasury: { ownerId: id.address, address: id.address as Address, balanceUsdc: 0, mandates: [] },
+    pii: {
+      legalName: id.name ?? label,
+      preferredName: label,
+      email: "",
+      visibility: { preferredName: "public", legalName: "restricted" },
+    },
   };
 }
 

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useSession } from "@/context/session";
 import { orgById, servicesForOrg } from "@/lib/seed";
-import { Glyph, SectionHead, Pill, TrustMeter } from "@/components/ui";
+import { Glyph, SectionHead, Pill, TrustMeter, EmptyNote } from "@/components/ui";
 import { IconPlus } from "@/components/Icons";
 import type { Organization } from "@/lib/types";
 
@@ -28,6 +28,16 @@ export default function OrganizationsPage() {
         sub="The communities you steward and belong to. Switch into a custodian context to manage one, or pin it as your default home."
         action={<button className="btn btn-ghost btn-sm"><IconPlus width={15} height={15} /> Connect an org</button>}
       />
+
+      {custody.length === 0 && member.length === 0 && (
+        <EmptyNote>
+          <div style={{ marginBottom: ".7rem" }}>
+            You&apos;re not connected to any organizations yet. Organizations are agents you steward
+            (a church, ministry, or coalition) — each with its own treasury, security, and service agents.
+          </div>
+          <button className="btn btn-primary btn-sm"><IconPlus width={15} height={15} /> Connect or create an organization</button>
+        </EmptyNote>
+      )}
 
       {custody.length > 0 && <div className="eyebrow" style={{ marginBottom: ".6rem" }}>You steward</div>}
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))", marginBottom: "1.6rem" }}>

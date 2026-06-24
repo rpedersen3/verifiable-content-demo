@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useSession } from "@/context/session";
-import { SectionHead, Pill, classBadge } from "@/components/ui";
+import { SectionHead, Pill, classBadge, EmptyNote } from "@/components/ui";
 import { IconVault, IconLink, IconCheck } from "@/components/Icons";
 
 type Tab = "records" | "entitlements" | "delegations";
@@ -32,7 +32,10 @@ export default function VaultPage() {
         </TabBtn>
       </div>
 
-      {tab === "records" && (
+      {tab === "records" && person.vaultRecords.length === 0 && (
+        <EmptyNote>Your vault is empty so far — your encrypted PII profile and other records appear here once you add them. Activate your vault from Security to store sensitive data.</EmptyNote>
+      )}
+      {tab === "records" && person.vaultRecords.length > 0 && (
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
           {person.vaultRecords.map((r) => (
             <div key={r.type} className="card card-pad card-hover">
@@ -57,6 +60,7 @@ export default function VaultPage() {
 
       {tab === "entitlements" && (
         <div className="col" style={{ gap: ".7rem" }}>
+          {person.entitlements.length === 0 && <EmptyNote>No entitlements yet — credentials an organization or service grants you will appear here.</EmptyNote>}
           {person.entitlements.map((e) => (
             <div key={e.id} className="card card-pad row-between" style={{ alignItems: "flex-start" }}>
               <div>
@@ -77,6 +81,7 @@ export default function VaultPage() {
 
       {tab === "delegations" && (
         <div className="col" style={{ gap: ".7rem" }}>
+          {person.delegations.length === 0 && <EmptyNote>No delegations yet — authority you grant to (or receive from) other agents will appear here.</EmptyNote>}
           {person.delegations.map((d) => (
             <div key={d.id} className="card card-pad">
               <div className="row-between">

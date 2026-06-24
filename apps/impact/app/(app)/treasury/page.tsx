@@ -4,16 +4,21 @@ import { useSession } from "@/context/session";
 import { orgById } from "@/lib/seed";
 import { SectionHead, StatTile, Pill } from "@/components/ui";
 import { IconWallet, IconGift } from "@/components/Icons";
+import { useAgentBalances } from "@/lib/use-live";
 import type { Treasury } from "@/lib/types";
 
 export default function TreasuryPage() {
   const { person, active } = useSession();
+  const bal = useAgentBalances(active.mode === "org" ? undefined : person?.treasury.address);
   if (!person) return null;
 
   const isOrg = active.mode === "org";
   const org = isOrg ? orgById(active.orgId) : undefined;
   const treasury: Treasury | undefined = isOrg ? org?.treasury : person.treasury;
   if (!treasury) return null;
+
+  // For your own treasury the balance is read LIVE on-chain; org (seed) keeps its figure.
+  const balanceLabel = isOrg ? `$${treasury.balanceUsdc.toLocaleString()}` : bal.loading ? "…" : `$${bal.usdc ?? "0.00"}`;
 
   const ownerName = isOrg ? org?.name : person.name;
   const subscriptions = treasury.mandates.filter((m) => m.kind === "subscription");
@@ -30,7 +35,7 @@ export default function TreasuryPage() {
       />
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1.4rem" }}>
-        <StatTile num={`$${treasury.balanceUsdc.toLocaleString()}`} label="Balance (USDC)" accent={isOrg ? "var(--emerald-700)" : "var(--amber-700)"} />
+        <StatTile num={balanceLabel} label={isOrg ? "Balance (USDC)" : "Balance USDC (live)"} accent={isOrg ? "var(--emerald-700)" : "var(--amber-700)"} />
         <StatTile num={`$${committed.toLocaleString()}`} label="Committed per period" />
         <StatTile num={treasury.mandates.length} label="Active mandates" />
       </div>
