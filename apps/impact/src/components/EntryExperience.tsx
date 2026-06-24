@@ -59,6 +59,9 @@ export default function EntryExperience() {
 
   const onHandle = currentHandle();
   const isNamed = mode === "named";
+  // While a passkey/wallet ceremony runs we show the guided value-step securing view.
+  // (Social redirects the whole page out, so there's nothing to show inline.)
+  const securing = busy === "passkey" || busy === "wallet";
 
   // Debounced live name resolution — only in named mode.
   useEffect(() => {
@@ -130,6 +133,10 @@ export default function EntryExperience() {
             : copy.enterSub.replace("{community}", brand.community)}
         </p>
 
+        {securing ? (
+          <SecuringView mode={mode} name={name} step={step} />
+        ) : (
+        <>
         {/* Named vs nameless choice */}
         <div className="eyebrow" style={{ marginBottom: ".4rem" }}>Your agent</div>
         <div className="row" style={{ gap: ".5rem", marginBottom: isNamed ? ".5rem" : "1.1rem" }}>
@@ -219,10 +226,53 @@ export default function EntryExperience() {
             </button>
           ))}
         </div>
+        </>
+        )}
 
         <p className="faint" style={{ fontSize: ".74rem", marginTop: "1.4rem", textAlign: "center" }}>
           You own this home. We never hold your keys — every action is yours to authorize.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// The guided "secure → register → sign-in" value steps shown while the ceremony runs
+// (ported from demo-sso-next OnboardingJourney's ValueStepList).
+function SecuringView({ mode, name, step }: { mode: Mode; name: string; step: string | null }) {
+  const named = mode === "named";
+  const base = name.trim().toLowerCase().replace(/\.impact$/, "").replace(/[^a-z0-9-]/g, "") || "your-home";
+  const steps = [
+    { title: "Secure your home", body: "Your agent, deployed on-chain — only you can open it." },
+    named
+      ? { title: `Register ${base}.impact`, body: "Claim your name in the community registry." }
+      : { title: "Stay nameless", body: "A home you can name later, by choice." },
+    { title: "Sign you in", body: "A short-lived session, signed by your key." },
+  ];
+  return (
+    <div>
+      <div className="eyebrow" style={{ marginBottom: ".2rem" }}>Securing your home</div>
+      <p className="faint" style={{ fontSize: ".78rem", marginBottom: "1rem" }}>One credential interaction does it all.</p>
+      <div className="col" style={{ gap: ".8rem", marginBottom: "1.1rem" }}>
+        {steps.map((s, i) => (
+          <div key={i} className="row" style={{ gap: ".7rem", alignItems: "flex-start" }}>
+            <span
+              className="glyph glyph-sm"
+              style={{ background: "var(--surface-sunken)", color: "var(--amber-700)", fontSize: ".82rem" }}
+              aria-hidden
+            >
+              {i + 1}
+            </span>
+            <div className="col" style={{ gap: 0 }}>
+              <strong style={{ fontSize: ".9rem" }}>{s.title}</strong>
+              <span className="muted" style={{ fontSize: ".8rem" }}>{s.body}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="card card-pad row" style={{ gap: ".6rem" }}>
+        <span className="spin" aria-hidden />
+        <span className="muted" style={{ fontSize: ".86rem" }}>{step ?? "Working…"}</span>
       </div>
     </div>
   );

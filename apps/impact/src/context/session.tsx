@@ -45,6 +45,9 @@ interface SessionState {
   token: string | null;
   active: ActiveContext;
   defaultOrgId: string | null;
+  /** Set right after a connect THIS session (not a restored session) so the gate can show
+   *  the onboarding welcome beat. `fresh` = a brand-new home vs a reconnect (welcome back). */
+  justConnected: { fresh: boolean } | null;
 }
 
 interface SessionApi extends SessionState {
@@ -54,6 +57,8 @@ interface SessionApi extends SessionState {
   signOut: () => void;
   setActive: (ctx: ActiveContext) => void;
   setDefaultOrg: (orgId: string | null) => void;
+  /** Dismiss the welcome beat (the gate calls this when the member enters their home). */
+  clearJustConnected: () => void;
 }
 
 const KEY = "impact.session.v2";
@@ -105,7 +110,7 @@ interface Persisted {
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>({
     phase: "restoring", identity: null, person: null, token: null,
-    active: { mode: "person" }, defaultOrgId: null,
+    active: { mode: "person" }, defaultOrgId: null, justConnected: null,
   });
 
   useEffect(() => {
@@ -121,7 +126,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const identity: Identity = { address: out.address, name: out.name, deployed: out.deployed, via };
         const active: ActiveContext = { mode: "person" };
         try { localStorage.setItem(KEY, JSON.stringify({ token: out.token, identity, defaultOrgId: null, active })); } catch { /* ignore */ }
-        setState({ phase: "authed", identity, person: personFromIdentity(identity), token: out.token, defaultOrgId: null, active });
+        // Social return = a connect this session → show the welcome beat.
+        setState({ phase: "authed", identity, person: personFromIdentity(identity), token: out.token, defaultOrgId: null, active, justConnected: { fresh: out.fresh } });
       })();
       return;
     }
@@ -129,9 +135,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const raw = localStorage.getItem(KEY);
       if (!raw) { setState((s) => ({ ...s, phase: "anon" })); return; }
       const p = JSON.parse(raw) as Persisted;
+      // Restored session (page reload while logged in) → no welcome beat.
       setState({
         phase: "authed", identity: p.identity, person: personFromIdentity(p.identity), token: p.token,
-        defaultOrgId: p.defaultOrgId ?? null,
+        defaultOrgId: p.defaultOrgId ?? null, justConnected: null,
         active: p.active ?? (p.defaultOrgId ? { mode: "org", orgId: p.defaultOrgId } : { mode: "person" }),
       });
     } catch {
@@ -152,7 +159,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const identity: Identity = { address: out.address, name: out.name, deployed: out.deployed, via };
       const active: ActiveContext = { mode: "person" };
       persist({ token: out.token, identity, defaultOrgId: null, active });
-      setState({ phase: "authed", identity, person: personFromIdentity(identity), token: out.token, defaultOrgId: null, active });
+      setState({ phase: "authed", identity, person: personFromIdentity(identity), token: out.token, defaultOrgId: null, active, justConnected: { fresh: out.fresh } });
       return null;
     },
     [persist],
@@ -160,7 +167,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     try { localStorage.removeItem(KEY); } catch { /* ignore */ }
-    setState({ phase: "anon", identity: null, person: null, token: null, active: { mode: "person" }, defaultOrgId: null });
+    setState({ phase: "anon", identity: null, person: null, token: null, active: { mode: "person" }, defaultOrgId: null, justConnected: null });
+  }, []);
+
+  const clearJustConnected = useCallback(() => {
+    setState((s) => ({ ...s, justConnected: null }));
   }, []);
 
   const setActive = useCallback((ctx: ActiveContext) => {
@@ -179,8 +190,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [persist]);
 
   const api = useMemo<SessionApi>(
-    () => ({ ...state, signIn, signOut, setActive, setDefaultOrg }),
-    [state, signIn, signOut, setActive, setDefaultOrg],
+    () => ({ ...state, signIn, signOut, setActive, setDefaultOrg, clearJustConnected }),
+    [state, signIn, signOut, setActive, setDefaultOrg, clearJustConnected],
   );
 
   return <SessionCtx.Provider value={api}>{children}</SessionCtx.Provider>;

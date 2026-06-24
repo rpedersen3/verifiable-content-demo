@@ -4,16 +4,20 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/context/session";
 import EntryExperience from "@/components/EntryExperience";
+import HomeResolvedView from "@/components/onboarding/HomeResolvedView";
 
 export default function LandingGate() {
-  const { phase } = useSession();
+  const { phase, justConnected } = useSession();
   const router = useRouter();
 
   useEffect(() => {
-    if (phase === "authed") router.replace("/home");
-  }, [phase, router]);
+    // A RESTORED session (page reload) goes straight in. A connect THIS session pauses on
+    // the welcome beat (justConnected) until the member taps "Enter your home".
+    if (phase === "authed" && !justConnected) router.replace("/home");
+  }, [phase, justConnected, router]);
 
   if (phase === "anon") return <EntryExperience />;
+  if (phase === "authed" && justConnected) return <HomeResolvedView />;
 
   // restoring / about-to-redirect
   return (
