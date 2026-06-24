@@ -13,6 +13,7 @@ interface NameInfo {
   hasEoa?: boolean;
   hasPasskey?: boolean;
 }
+type Mode = "nameless" | "named";
 type Lookup =
   | { status: "idle" }
   | { status: "checking" }
@@ -21,13 +22,13 @@ type Lookup =
   | { status: "orphan"; name: string }
   | { status: "error" };
 
-// Real arrival. As you type a name, it resolves against the agent NAMING SERVICE
-// (live, via /connect/name-info) and ADAPTS: a free name → secure a new home with any
-// credential; an existing home → open it with only the credential(s) it was registered
-// with (derived from the agent's on-chain custodian set). Passkey + wallet run the real
-// ceremony; Google/YouVersion report "needs configuration" until their env is set.
+// Arrival. You choose a NAMELESS home (default — claim a public name later) or a NAMED
+// home. In named mode the name resolves live against the agent naming service and adapts:
+// a free name → secure a new home; an existing home → open it with the credential(s) it
+// was registered with. Passkey + wallet run the real ceremony; Google/YouVersion redirect.
 export default function EntryExperience() {
   const { signIn } = useSession();
+  const [mode, setMode] = useState<Mode>("nameless");
   const [busy, setBusy] = useState<Via | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,16 +36,14 @@ export default function EntryExperience() {
   const [lookup, setLookup] = useState<Lookup>({ status: "idle" });
   const seq = useRef(0);
 
-  // If we're already on a personal subdomain (lbsb.<domain>), this home IS that handle —
-  // prefill it so the connect runs here, on the domain the passkey is bound to.
+  // On a personal subdomain (lbsb.<domain>) we ARE that named home: force named mode +
+  // prefill the handle so the connect runs here, on the domain the passkey is bound to.
   useEffect(() => {
     const h = currentHandle();
-    if (h) setName(h);
+    if (h) { setMode("named"); setName(h); }
   }, []);
 
   // A social sign-in that VERIFIED but found no home returns ?connect_status=bootstrap.
-  // (A new Google/YouVersion home is KMS-custodied — it needs the server custody bridge to
-  // mint it.) Surface it instead of silently dropping back to the entry screen.
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     if (p.get("connect_status") === "bootstrap") {
@@ -59,9 +58,11 @@ export default function EntryExperience() {
   }, []);
 
   const onHandle = currentHandle();
+  const isNamed = mode === "named";
 
-  // Debounced live name resolution against the naming service.
+  // Debounced live name resolution — only in named mode.
   useEffect(() => {
+    if (mode !== "named") { setLookup({ status: "idle" }); return; }
     const base = name.trim().toLowerCase().replace(/\.(impact)$/, "");
     if (!base) { setLookup({ status: "idle" }); return; }
     const id = ++seq.current;
@@ -70,7 +71,7 @@ export default function EntryExperience() {
       try {
         const r = await fetch(`/connect/name-info?name=${encodeURIComponent(base)}`);
         const info = (await r.json()) as NameInfo;
-        if (id !== seq.current) return; // a newer keystroke superseded this
+        if (id !== seq.current) return;
         const full = `${base}.impact`;
         if (!info.exists) { setLookup({ status: "free", name: full }); return; }
         if (info.exists && info.deployed === false) { setLookup({ status: "orphan", name: full }); return; }
@@ -83,20 +84,16 @@ export default function EntryExperience() {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [name]);
+  }, [name, mode]);
 
-  const isOpen = lookup.status === "exists";
-  // Which credential buttons to show: an existing home shows only its registered
-  // credential(s); anything else (free / typing / empty) shows all create methods.
+  const isOpen = isNamed && lookup.status === "exists";
   const shown = isOpen
     ? credentialMethods.filter((m) => (lookup as { vias: Via[] }).vias.includes(m.via))
     : credentialMethods;
 
   async function enter(via: Via) {
-    const label = name.trim().toLowerCase().replace(/\.impact$/, "").replace(/[^a-z0-9-]/g, "");
-    // Passkeys are bound to the host. A named home must be connected on its own
-    // subdomain (<handle>.<domain>) so the passkey is associated with that named
-    // domain. If we're not already there, switch to it first (then connect).
+    const label = isNamed ? name.trim().toLowerCase().replace(/\.impact$/, "").replace(/[^a-z0-9-]/g, "") : "";
+    // A NAMED passkey home binds to its own subdomain — switch there first.
     if (via === "passkey" && label && onHandle !== label) {
       setBusy(via);
       setStep(`Switching to ${label}’s home…`);
@@ -106,7 +103,8 @@ export default function EntryExperience() {
     setBusy(via);
     setError(null);
     setStep(via === "passkey" ? "Starting…" : via === "wallet" ? "Connecting your wallet…" : "Redirecting…");
-    const err = await signIn(via, name.trim() || undefined, (s) => setStep(s));
+    const nameHint = isNamed ? name.trim() || undefined : undefined;
+    const err = await signIn(via, nameHint, (s) => setStep(s));
     if (err) { setError(err); setBusy(null); setStep(null); }
   }
 
@@ -126,52 +124,73 @@ export default function EntryExperience() {
         <h1 className="h1" style={{ marginBottom: ".4rem" }}>
           {isOpen ? "Welcome back" : copy.enterTitle}
         </h1>
-        <p className="muted" style={{ marginBottom: "1.3rem" }}>
+        <p className="muted" style={{ marginBottom: "1.2rem" }}>
           {isOpen
             ? "This home is already registered — open it with your credential below."
             : copy.enterSub.replace("{community}", brand.community)}
         </p>
 
-        <label className="faint" style={{ fontSize: ".74rem", fontWeight: 600 }}>
-          Your name <span style={{ fontWeight: 400 }}>(optional — leave blank to stay nameless and claim a name later)</span>
-        </label>
-        <div className="row" style={{ gap: ".4rem", margin: ".35rem 0 .5rem" }}>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="grace"
+        {/* Named vs nameless choice */}
+        <div className="eyebrow" style={{ marginBottom: ".4rem" }}>Your agent</div>
+        <div className="row" style={{ gap: ".5rem", marginBottom: isNamed ? ".5rem" : "1.1rem" }}>
+          <button
+            className={`btn btn-sm ${!isNamed ? "btn-primary" : "btn-ghost"}`}
+            style={{ flex: 1 }}
+            disabled={busy !== null || !!onHandle}
+            onClick={() => setMode("nameless")}
+          >
+            Nameless
+          </button>
+          <button
+            className={`btn btn-sm ${isNamed ? "btn-primary" : "btn-ghost"}`}
+            style={{ flex: 1 }}
             disabled={busy !== null}
-            autoFocus
-            style={{
-              flex: 1, padding: ".6rem .8rem", borderRadius: "var(--r-md)",
-              border: "1px solid var(--border-strong)", background: "var(--surface-raised)",
-              fontSize: ".92rem", color: "var(--ink)",
-            }}
-          />
-          <span className="addr">.impact</span>
+            onClick={() => setMode("named")}
+          >
+            Choose a name
+          </button>
         </div>
 
-        {/* Live naming-service status */}
-        <div style={{ minHeight: 22, marginBottom: ".9rem", fontSize: ".78rem" }}>
-          {lookup.status === "checking" && <span className="faint">Checking the naming service…</span>}
-          {lookup.status === "free" && (
-            <span style={{ color: "var(--emerald-700)" }}>
-              <IconCheck width={13} height={13} style={{ verticalAlign: "-2px" }} /> {lookup.name} is available — secure it as your new home.
-            </span>
-          )}
-          {lookup.status === "exists" && (
-            <span className="muted">
-              {lookup.name} is registered — opens with{" "}
-              <strong>{lookup.vias.join(" or ")}</strong>.
-            </span>
-          )}
-          {lookup.status === "orphan" && (
-            <span style={{ color: "var(--amber-700)" }}>
-              {lookup.name} has an incomplete previous setup — try again or pick another name.
-            </span>
-          )}
-          {lookup.status === "error" && <span className="faint">Couldn’t reach the naming service — you can still proceed.</span>}
-        </div>
+        {!isNamed && (
+          <p className="faint" style={{ fontSize: ".78rem", marginBottom: "1.1rem" }}>
+            We&apos;ll secure a nameless home — fully yours. You can claim a public name anytime later.
+          </p>
+        )}
+
+        {isNamed && (
+          <>
+            <div className="row" style={{ gap: ".4rem", margin: ".25rem 0 .5rem" }}>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="grace"
+                disabled={busy !== null || !!onHandle}
+                autoFocus
+                style={{
+                  flex: 1, padding: ".6rem .8rem", borderRadius: "var(--r-md)",
+                  border: "1px solid var(--border-strong)", background: "var(--surface-raised)",
+                  fontSize: ".92rem", color: "var(--ink)",
+                }}
+              />
+              <span className="addr">.impact</span>
+            </div>
+            <div style={{ minHeight: 22, marginBottom: ".9rem", fontSize: ".78rem" }}>
+              {lookup.status === "checking" && <span className="faint">Checking the naming service…</span>}
+              {lookup.status === "free" && (
+                <span style={{ color: "var(--emerald-700)" }}>
+                  <IconCheck width={13} height={13} style={{ verticalAlign: "-2px" }} /> {lookup.name} is available — secure it as your new home.
+                </span>
+              )}
+              {lookup.status === "exists" && (
+                <span className="muted">{lookup.name} is registered — opens with <strong>{lookup.vias.join(" or ")}</strong>.</span>
+              )}
+              {lookup.status === "orphan" && (
+                <span style={{ color: "var(--amber-700)" }}>{lookup.name} has an incomplete previous setup — try again or pick another name.</span>
+              )}
+              {lookup.status === "error" && <span className="faint">Couldn’t reach the naming service — you can still proceed.</span>}
+            </div>
+          </>
+        )}
 
         {error && (
           <div className="card-pad chip-danger" style={{ borderRadius: "var(--r-md)", marginBottom: "1rem", fontSize: ".82rem" }}>
@@ -192,7 +211,7 @@ export default function EntryExperience() {
                 {busy === m.via ? <span className="spin" aria-hidden /> : <IconKey width={15} height={15} />}
               </span>
               <span className="col" style={{ gap: 1, minWidth: 0 }}>
-                <span>{busy === m.via ? (isOpen ? openLabel(m.via) : m.label) : isOpen ? openLabel(m.via) : m.label}</span>
+                <span>{isOpen ? openLabel(m.via) : m.label}</span>
                 <span className="faint" style={{ fontSize: ".74rem", fontWeight: 500 }}>
                   {busy === m.via ? (step ?? "Working…") : m.hint}
                 </span>
