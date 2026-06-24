@@ -48,8 +48,9 @@ interface SessionState {
 }
 
 interface SessionApi extends SessionState {
-  /** Run the real connect ceremony. Resolves to an error string on failure, null on success. */
-  signIn: (via: Via, nameHint?: string) => Promise<string | null>;
+  /** Run the real connect ceremony. `onStep` receives progress messages. Resolves to an
+   *  error string on failure, null on success. */
+  signIn: (via: Via, nameHint?: string, onStep?: (s: string) => void) => Promise<string | null>;
   signOut: () => void;
   setActive: (ctx: ActiveContext) => void;
   setDefaultOrg: (orgId: string | null) => void;
@@ -143,10 +144,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(
-    async (via: Via, nameHint?: string): Promise<string | null> => {
+    async (via: Via, nameHint?: string, onStep?: (s: string) => void): Promise<string | null> => {
       if (via === "google") { startGoogleSignIn(); return await new Promise<string | null>(() => {}); }
       if (via === "youversion") { startYouVersionSignIn(); return await new Promise<string | null>(() => {}); }
-      const out = via === "passkey" ? await connectPasskey(nameHint) : await connectWalletSiwe(nameHint);
+      const out = via === "passkey" ? await connectPasskey(nameHint, onStep) : await connectWalletSiwe(nameHint, onStep);
       if (!out.ok) return out.error;
       const identity: Identity = { address: out.address, name: out.name, deployed: out.deployed, via };
       const active: ActiveContext = { mode: "person" };

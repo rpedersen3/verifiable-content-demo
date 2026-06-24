@@ -89,8 +89,8 @@ export default function EntryExperience() {
     }
     setBusy(via);
     setError(null);
-    setStep(via === "passkey" ? "Touch your authenticator…" : via === "wallet" ? "Confirm in your wallet…" : "Redirecting…");
-    const err = await signIn(via, name.trim() || undefined);
+    setStep(via === "passkey" ? "Starting…" : via === "wallet" ? "Connecting your wallet…" : "Redirecting…");
+    const err = await signIn(via, name.trim() || undefined, (s) => setStep(s));
     if (err) { setError(err); setBusy(null); setStep(null); }
   }
 
@@ -171,11 +171,13 @@ export default function EntryExperience() {
                   color: m.via === "wallet" ? "#fff" : "#1c1917",
                 }}
               >
-                <IconKey width={15} height={15} />
+                {busy === m.via ? <span className="spin" aria-hidden /> : <IconKey width={15} height={15} />}
               </span>
-              <span className="col" style={{ gap: 1 }}>
-                <span>{busy === m.via ? (step ?? "Working…") : isOpen ? openLabel(m.via) : m.label}</span>
-                <span className="faint" style={{ fontSize: ".74rem", fontWeight: 500 }}>{m.hint}</span>
+              <span className="col" style={{ gap: 1, minWidth: 0 }}>
+                <span>{busy === m.via ? (isOpen ? openLabel(m.via) : m.label) : isOpen ? openLabel(m.via) : m.label}</span>
+                <span className="faint" style={{ fontSize: ".74rem", fontWeight: 500 }}>
+                  {busy === m.via ? (step ?? "Working…") : m.hint}
+                </span>
               </span>
             </button>
           ))}

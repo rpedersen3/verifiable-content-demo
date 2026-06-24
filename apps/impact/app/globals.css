@@ -717,6 +717,20 @@ code,
 }
 
 /* ── Misc ── */
+.spin {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(28, 25, 23, 0.25);
+  border-top-color: #1c1917;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .anim-in {
   animation: rise 0.4s ease-out both;
 }

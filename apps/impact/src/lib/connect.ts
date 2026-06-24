@@ -166,14 +166,20 @@ type PasskeyOutcome =
   | { status: "bootstrap"; passkey: DemoPasskey }
   | { status: "rejected"; passkey?: DemoPasskey; reason?: string };
 
-async function passkeyLogin(registerIfMissing = true): Promise<PasskeyOutcome> {
+type Step = (s: string) => void;
+
+async function passkeyLogin(registerIfMissing = true, onStep?: Step): Promise<PasskeyOutcome> {
   let passkey = loadPasskey();
   if (!passkey) {
     if (!registerIfMissing) return { status: "rejected", reason: "no passkey on this device" };
+    onStep?.("Creating a passkey on this device — confirm with your authenticator…");
     passkey = await registerPasskey("Impact home passkey");
+  } else {
+    onStep?.("Touch your authenticator to prove it's you…");
   }
   const { challenge } = (await (await fetch("/connect/passkey-challenge")).json()) as { challenge: Hex };
   const signature = await signWithPasskey(challenge);
+  onStep?.("Checking your home on-chain…");
   const r = await fetch("/connect/passkey", {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -189,7 +195,8 @@ async function passkeyLogin(registerIfMissing = true): Promise<PasskeyOutcome> {
 }
 
 /** Deploy a passkey-direct SA via the relayer; `callData` (name claim) rides in the deploy op. */
-async function bootstrapWithPasskey(passkey: DemoPasskey, callData?: Hex): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
+async function bootstrapWithPasskey(passkey: DemoPasskey, callData?: Hex, onStep?: Step): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
+  onStep?.("Preparing your home…");
   await ensureCsrfToken();
   const rpIdHash = await derivePasskeyRpIdHash();
   const buildRes = await fetch("/a2a/session/deploy", {
@@ -203,9 +210,11 @@ async function bootstrapWithPasskey(passkey: DemoPasskey, callData?: Hex): Promi
     }),
   });
   if (buildRes.status === 409) return { ok: false, error: "Gas sponsorship is not enabled on the backend (paymaster)." };
-  const built = (await buildRes.json()) as { ok?: boolean; userOpHash?: Hex; userOp?: Record<string, unknown>; error?: string };
-  if (!buildRes.ok || !built.ok || !built.userOpHash || !built.userOp) return { ok: false, error: built.error ?? `deploy build failed (HTTP ${buildRes.status})` };
+  const built = (await readJson<{ ok?: boolean; userOpHash?: Hex; userOp?: Record<string, unknown>; error?: string; _raw?: string }>(buildRes));
+  if (!buildRes.ok || !built.ok || !built.userOpHash || !built.userOp) return { ok: false, error: httpError(buildRes, built) || `deploy build failed (HTTP ${buildRes.status})` };
+  onStep?.("Touch your authenticator to authorize the deploy…");
   const signature = await signWithPasskey(built.userOpHash);
+  onStep?.("Securing your home on the network…");
   const submitRes = await fetch("/a2a/session/deploy/submit", {
     method: "POST", credentials: "include",
     headers: { "content-type": "application/json", ...csrfHeaders() },
@@ -218,11 +227,12 @@ async function bootstrapWithPasskey(passkey: DemoPasskey, callData?: Hex): Promi
   return { ok: true, agent: submitted.deployedAddress };
 }
 
-async function deployAndClaimPasskey(passkey: DemoPasskey, base: string): Promise<{ ok: true; agent: Address; name: string } | { ok: false; error: string }> {
+async function deployAndClaimPasskey(passkey: DemoPasskey, base: string, onStep?: Step): Promise<{ ok: true; agent: Address; name: string } | { ok: false; error: string }> {
+  onStep?.("Finding a free name…");
   const sa = await derivePasskeySa(passkey, 0n);
   const claim = await buildClaimCallData(base, sa);
   if (!claim.ok) return { ok: false, error: claim.error };
-  const dep = await bootstrapWithPasskey(passkey, claim.callData);
+  const dep = await bootstrapWithPasskey(passkey, claim.callData, onStep);
   if (!dep.ok) return { ok: false, error: dep.error };
   return { ok: true, agent: dep.agent, name: claim.name };
 }
@@ -233,9 +243,11 @@ type SiweOutcome =
   | { status: "bootstrap"; address: Address }
   | { status: "rejected"; address?: Address; reason?: string };
 
-async function siweLogin(): Promise<SiweOutcome> {
+async function siweLogin(onStep?: Step): Promise<SiweOutcome> {
+  onStep?.("Connect your wallet…");
   const address = await connectWallet(true);
   const nonce = await getNonce();
+  onStep?.("Sign the message in your wallet…");
   const message = buildMessage({
     domain: window.location.host, address, uri: window.location.origin,
     chainId: CHAIN_ID, nonce,
@@ -252,7 +264,8 @@ async function siweLogin(): Promise<SiweOutcome> {
   return { status: "rejected", address, reason: httpError(r, body) };
 }
 
-async function bootstrapWithWallet(address: Address): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
+async function bootstrapWithWallet(address: Address, onStep?: Step): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
+  onStep?.("Preparing your home…");
   await ensureCsrfToken();
   const buildRes = await fetch("/a2a/session/deploy", {
     method: "POST", credentials: "include",
@@ -313,14 +326,15 @@ function sanitizeBase(nameHint?: string): string {
 }
 
 // ── High-level entry flows the UI calls ─────────────────────────────────────────
-export async function connectPasskey(nameHint?: string): Promise<ConnectOutcome> {
+export async function connectPasskey(nameHint?: string, onStep?: Step): Promise<ConnectOutcome> {
   try {
-    const login = await passkeyLogin(true);
-    if (login.status === "issued") return finish(login.token, "passkey", false);
+    const login = await passkeyLogin(true, onStep);
+    if (login.status === "issued") { onStep?.("Opening your home…"); return finish(login.token, "passkey", false); }
     if (login.status === "bootstrap") {
-      const dep = await deployAndClaimPasskey(login.passkey, sanitizeBase(nameHint));
+      const dep = await deployAndClaimPasskey(login.passkey, sanitizeBase(nameHint), onStep);
       if (!dep.ok) return { ok: false, error: dep.error };
-      const again = await passkeyLogin(false);
+      onStep?.("Signing you in…");
+      const again = await passkeyLogin(false, onStep);
       if (again.status === "issued") return finish(again.token, "passkey", true);
       return { ok: false, error: `home secured, but sign-in returned ${again.status}` };
     }
@@ -364,17 +378,20 @@ export async function exchangeCode(code: string, via: ConnectVia): Promise<Conne
   }
 }
 
-export async function connectWalletSiwe(nameHint?: string): Promise<ConnectOutcome> {
+export async function connectWalletSiwe(nameHint?: string, onStep?: Step): Promise<ConnectOutcome> {
   try {
-    const first = await siweLogin();
-    if (first.status === "issued") return finish(first.token, "wallet", false);
+    const first = await siweLogin(onStep);
+    if (first.status === "issued") { onStep?.("Opening your home…"); return finish(first.token, "wallet", false); }
     if (first.status === "bootstrap") {
-      const dep = await bootstrapWithWallet(first.address);
+      onStep?.("Securing your home on the network…");
+      const dep = await bootstrapWithWallet(first.address, onStep);
       if (!dep.ok) return { ok: false, error: dep.error };
       rememberHomeEoa(sanitizeBase(nameHint), first.address);
+      onStep?.("Claiming your name…");
       const signHash: SignHash = (h) => personalSign(first.address, h);
       await claimName(dep.agent, signHash, sanitizeBase(nameHint), 1n); // best-effort name
-      const again = await siweLogin();
+      onStep?.("Signing you in…");
+      const again = await siweLogin(onStep);
       if (again.status === "issued") return finish(again.token, "wallet", true);
       return { ok: false, error: `home secured, but sign-in returned ${again.status}` };
     }
