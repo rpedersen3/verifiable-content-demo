@@ -4,11 +4,11 @@
 // (connect-auth/youversion), stashes them under `state` (single-use, short TTL), and 302-redirects the
 // browser to YouVersion. YouVersion is a PUBLIC PKCE client — there is no client secret anywhere.
 import { beginLogin } from '@agenticprimitives/connect-auth/youversion';
-import { json, type FnContext } from '../../_lib/server-broker';
+import { json, resolveOrigin, type FnContext } from '../../_lib/server-broker';
 
 export const onRequestGet = async ({ request, env }: FnContext): Promise<Response> => {
-  if (!env.YOUVERSION_CLIENT_ID || !env.YOUVERSION_REDIRECT_URI) {
-    return json({ error: 'YouVersion OIDC not configured (set YOUVERSION_CLIENT_ID + YOUVERSION_REDIRECT_URI).' }, 503);
+  if (!env.YOUVERSION_CLIENT_ID) {
+    return json({ error: 'YouVersion OIDC not configured (set YOUVERSION_CLIENT_ID).' }, 503);
   }
   const url = new URL(request.url);
   const aud = url.searchParams.get('aud'); // the relying site (its client_id)
@@ -18,9 +18,13 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
   const linkToken = url.searchParams.get('link_token') ?? undefined;
   if (!aud) return json({ error: 'aud query param required (the relying site)' }, 400);
 
+  // Redirect URI: explicit env, else derived from THIS host (register it in the YouVersion
+  // portal). Start + callback derive it identically, so the OAuth redirect_uri matches.
+  const redirectUri = env.YOUVERSION_REDIRECT_URI || `${resolveOrigin(request, env)}/oidc/youversion/callback`;
+
   const { authUrl, codeVerifier, state, nonce } = beginLogin({
     clientId: env.YOUVERSION_CLIENT_ID,
-    redirectUri: env.YOUVERSION_REDIRECT_URI,
+    redirectUri,
     // spec 265 — sign-in is IDENTITY only. `read_highlights` is NOT an OIDC scope (YouVersion silently
     // drops it here); highlights access is granted through the separate Data Exchange consent flow
     // (GET /connect/youversion/data-exchange → approval page → callback). See spec 265 W5.

@@ -65,9 +65,11 @@ async function resolveKmsAgent(
 }
 
 export const onRequestGet = async ({ request, env }: FnContext): Promise<Response> => {
-  if (!env.YOUVERSION_CLIENT_ID || !env.YOUVERSION_REDIRECT_URI) {
+  if (!env.YOUVERSION_CLIENT_ID) {
     return json({ error: 'YouVersion OIDC not configured.' }, 503);
   }
+  // Same derivation as /oidc/youversion/start so the OAuth redirect_uri matches.
+  const redirectUri = env.YOUVERSION_REDIRECT_URI || `${resolveOrigin(request, env)}/oidc/youversion/callback`;
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
@@ -114,7 +116,7 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
     expectedState: state,
     expectedNonce: stash.nonce,
     codeVerifier: stash.codeVerifier,
-    redirectUri: env.YOUVERSION_REDIRECT_URI,
+    redirectUri,
     clientId: env.YOUVERSION_CLIENT_ID,
   });
   if (!result.ok) return json({ error: `OIDC verification failed: ${result.reason}` }, 401);
