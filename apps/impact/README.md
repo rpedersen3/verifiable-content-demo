@@ -19,15 +19,31 @@ agents. Modeled after [`agenticprimitives/demo-sso-next`](https://github.com/age
   delegation, payment mandates, and corroborated trust **assertions** (carrying identity-match
   confidence + method, kept separate from entity trust).
 
-## Status (phase 1)
+## Status
 
-The **redesigned UI shell + trust graph** are complete and render from realistic seed
-data (`src/lib/seed.ts`). Sign-in and all ceremonies (delegation signing, vault
-read/write, KMS custody, x402) are **stubbed behind clean seams** (`src/context/session.tsx`).
+- **Redesigned UI shell + trust graph** — complete; render from seed (`src/lib/seed.ts`).
+- **Connect is REAL** (ported from demo-sso-next, same packages + wire protocol):
+  - **Passkey** and **SIWE/wallet** run the actual WebAuthn / SIWE ceremony against the
+    live `demo-a2a` relayer + the ported broker routes (`/connect/*`, `/me`, `/jwks`),
+    producing a real Smart Agent + a signed `AgentSession`. See `src/lib/connect.ts` +
+    `server/connect/*`.
+  - **Social (Google / YouVersion)** — degrades to a "needs configuration" message until
+    its OAuth client + custody-bridge env is set (below).
+- **Live reads** (Network page, status chip) hit the deployed backends via the
+  `/a2a` + `/mcp-bind` rewrites.
+- **Still seeded** (labeled demo content): the org / vault / treasury / trust-graph
+  *content* after connect — pending live-vault wiring. The connected identity itself is real.
 
-The next phase wires those seams to the **live agenticprimitives backends** — `demo-a2a`
-and `demo-mcp` — via the same-origin rewrites in `next.config.mjs` (`/a2a/*`, `/mcp-bind/*`),
-exactly as `demo-sso-next` does.
+## Required configuration (to run connect)
+
+| Env | Needed for | How |
+|-----|-----------|-----|
+| `BROKER_PRIVATE_JWK` + `BROKER_KID` | passkey + SIWE (mint sessions) | `node scripts/gen-broker-key.mjs`, set both in Vercel (JWK = Sensitive) |
+| `KV_REST_API_URL` + `KV_REST_API_TOKEN` | single-use nonces / challenges | attach a Vercel KV / Upstash store (local dev falls back to in-memory) |
+| `GOOGLE_*`, `YOUVERSION_*`, `A2A_CUSTODY_*` | social sign-in only | provision a Google OAuth client + a custody-bridge secret matching demo-a2a |
+
+See `.env.example`. Without `BROKER_PRIVATE_JWK` + a KV store, passkey/SIWE can't mint a
+session; the bridge secret + OAuth client are only needed for Google/YouVersion.
 
 ## Layout
 

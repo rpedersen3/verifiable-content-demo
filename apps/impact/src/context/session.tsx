@@ -2,83 +2,81 @@
 
 // ============================================================================
 // Session + active-context.
-// Phase 1: sign-in is stubbed (every entry method resolves to the seeded member,
-// Grace). The real ceremonies (passkey / SIWE / Google / YouVersion via the live
-// demo-a2a custody bridge) wire in behind this same interface in a later phase.
 //
-// "Active context" is the heart of the home: a person can act AS THEMSELVES
-// (person-only) or AS A CUSTODIAN of one of their organizations. They may also
-// pin a default org so they land in that context on arrival.
+// Connect is REAL now (spec parity with demo-sso-next): passkey and wallet/SIWE
+// run the actual WebAuthn / SIWE ceremony against the live demo-a2a relayer + the
+// ported broker routes (/connect/*, /me), producing a real Smart Agent + a signed
+// AgentSession. `identity` holds that real connected agent.
+//
+// The seeded `person` (orgs / vault / treasury / trust-graph content) is retained
+// as labeled demo content layered under the real identity until those surfaces are
+// wired to the live vault.
+//
+// "Active context": act AS YOURSELF (person) or AS CUSTODIAN of an org you steward.
 // ============================================================================
 
 import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
+  createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode,
 } from "react";
 import { PERSON } from "@/lib/seed";
 import type { Person } from "@/lib/types";
+import { connectPasskey, connectWalletSiwe } from "@/lib/connect";
 
 export type Via = "passkey" | "wallet" | "google" | "youversion";
 export type Phase = "restoring" | "anon" | "authed";
 
-/** Acting as yourself, or as custodian of a specific org. */
-export type ActiveContext =
-  | { mode: "person" }
-  | { mode: "org"; orgId: string };
+/** The real connected agent. */
+export interface Identity {
+  address: string;
+  name: string | null;
+  deployed: boolean;
+  via: Via;
+}
+
+export type ActiveContext = { mode: "person" } | { mode: "org"; orgId: string };
 
 interface SessionState {
   phase: Phase;
+  /** real connected agent (from the live ceremony). */
+  identity: Identity | null;
+  /** seeded demo content backing the org/vault/treasury/graph surfaces. */
   person: Person | null;
-  via: Via | null;
+  token: string | null;
   active: ActiveContext;
-  /** the org the member pinned to land in (null = person home). */
   defaultOrgId: string | null;
 }
 
 interface SessionApi extends SessionState {
-  signIn: (via: Via) => void;
+  /** Run the real connect ceremony. Resolves to an error string on failure, null on success. */
+  signIn: (via: Via, nameHint?: string) => Promise<string | null>;
   signOut: () => void;
   setActive: (ctx: ActiveContext) => void;
   setDefaultOrg: (orgId: string | null) => void;
 }
 
-const KEY = "impact.session.v1";
-
+const KEY = "impact.session.v2";
 const SessionCtx = createContext<SessionApi | null>(null);
 
 interface Persisted {
-  via: Via;
+  token: string;
+  identity: Identity;
   defaultOrgId: string | null;
   active: ActiveContext;
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>({
-    phase: "restoring",
-    person: null,
-    via: null,
-    active: { mode: "person" },
-    defaultOrgId: null,
+    phase: "restoring", identity: null, person: null, token: null,
+    active: { mode: "person" }, defaultOrgId: null,
   });
 
-  // Restore on mount.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
-      if (!raw) {
-        setState((s) => ({ ...s, phase: "anon" }));
-        return;
-      }
+      if (!raw) { setState((s) => ({ ...s, phase: "anon" })); return; }
       const p = JSON.parse(raw) as Persisted;
       setState({
-        phase: "authed",
-        person: PERSON,
-        via: p.via,
+        phase: "authed", identity: p.identity, person: PERSON, token: p.token,
         defaultOrgId: p.defaultOrgId ?? null,
         active: p.active ?? (p.defaultOrgId ? { mode: "org", orgId: p.defaultOrgId } : { mode: "person" }),
       });
@@ -88,54 +86,44 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const persist = useCallback((next: Persisted) => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(next));
-    } catch {
-      /* ignore */
-    }
+    try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* ignore */ }
   }, []);
 
   const signIn = useCallback(
-    (via: Via) => {
-      const active: ActiveContext = PERSON.defaultOrgId
-        ? { mode: "org", orgId: PERSON.defaultOrgId }
-        : { mode: "person" };
-      const defaultOrgId = PERSON.defaultOrgId;
-      persist({ via, defaultOrgId, active });
-      setState({ phase: "authed", person: PERSON, via, active, defaultOrgId });
+    async (via: Via, nameHint?: string): Promise<string | null> => {
+      if (via === "google" || via === "youversion") {
+        return "Social sign-in needs the Google/YouVersion OAuth client + custody-bridge secret to be configured (see README). Use a passkey or wallet for now.";
+      }
+      const out = via === "passkey" ? await connectPasskey(nameHint) : await connectWalletSiwe(nameHint);
+      if (!out.ok) return out.error;
+      const identity: Identity = { address: out.address, name: out.name, deployed: out.deployed, via };
+      const active: ActiveContext = { mode: "person" };
+      persist({ token: out.token, identity, defaultOrgId: null, active });
+      setState({ phase: "authed", identity, person: PERSON, token: out.token, defaultOrgId: null, active });
+      return null;
     },
     [persist],
   );
 
   const signOut = useCallback(() => {
-    try {
-      localStorage.removeItem(KEY);
-    } catch {
-      /* ignore */
-    }
-    setState({ phase: "anon", person: null, via: null, active: { mode: "person" }, defaultOrgId: null });
+    try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+    setState({ phase: "anon", identity: null, person: null, token: null, active: { mode: "person" }, defaultOrgId: null });
   }, []);
 
-  const setActive = useCallback(
-    (ctx: ActiveContext) => {
-      setState((s) => {
-        if (s.via) persist({ via: s.via, defaultOrgId: s.defaultOrgId, active: ctx });
-        return { ...s, active: ctx };
-      });
-    },
-    [persist],
-  );
+  const setActive = useCallback((ctx: ActiveContext) => {
+    setState((s) => {
+      if (s.token && s.identity) persist({ token: s.token, identity: s.identity, defaultOrgId: s.defaultOrgId, active: ctx });
+      return { ...s, active: ctx };
+    });
+  }, [persist]);
 
-  const setDefaultOrg = useCallback(
-    (orgId: string | null) => {
-      setState((s) => {
-        const active: ActiveContext = orgId ? { mode: "org", orgId } : { mode: "person" };
-        if (s.via) persist({ via: s.via, defaultOrgId: orgId, active });
-        return { ...s, defaultOrgId: orgId, active };
-      });
-    },
-    [persist],
-  );
+  const setDefaultOrg = useCallback((orgId: string | null) => {
+    setState((s) => {
+      const active: ActiveContext = orgId ? { mode: "org", orgId } : { mode: "person" };
+      if (s.token && s.identity) persist({ token: s.token, identity: s.identity, defaultOrgId: orgId, active });
+      return { ...s, defaultOrgId: orgId, active };
+    });
+  }, [persist]);
 
   const api = useMemo<SessionApi>(
     () => ({ ...state, signIn, signOut, setActive, setDefaultOrg }),

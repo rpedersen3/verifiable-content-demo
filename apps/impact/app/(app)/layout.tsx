@@ -12,7 +12,7 @@ import { IconShield, IconSignOut } from "@/components/Icons";
 import LiveStatus from "@/components/LiveStatus";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { phase, person, active, signOut } = useSession();
+  const { phase, person, identity, active, signOut } = useSession();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -83,7 +83,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <header className="topbar">
           <div className="spacer" />
           <LiveStatus />
-          <span className="addr">{person.agentName}</span>
+          {identity && (
+            <span className="addr" title={identity.address}>
+              {identity.name
+                ? (identity.name.endsWith(".impact") ? identity.name : `${identity.name}.impact`)
+                : `${identity.address.slice(0, 6)}…${identity.address.slice(-4)}`}
+            </span>
+          )}
         </header>
         <main className="content anim-in" key={pathname}>
           {children}

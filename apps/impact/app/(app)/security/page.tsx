@@ -6,7 +6,8 @@ import { SectionHead, Pill } from "@/components/ui";
 import { IconKey, IconShield, IconCheck } from "@/components/Icons";
 
 export default function SecurityPage() {
-  const { person, active, via } = useSession();
+  const { person, active, identity } = useSession();
+  const via = identity?.via;
   if (!person) return null;
   const isOrg = active.mode === "org";
   const subject = isOrg ? orgById(active.orgId)?.name : person.name;

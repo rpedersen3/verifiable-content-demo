@@ -21,6 +21,17 @@ const securityHeaders = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // The @agenticprimitives connect/auth packages ship ESM; transpile them so Next
+  // bundles them consistently across server routes + client (same as demo-sso-next).
+  transpilePackages: [
+    "@agenticprimitives/types",
+    "@agenticprimitives/connect",
+    "@agenticprimitives/connect-auth",
+    "@agenticprimitives/agent-account",
+    "@agenticprimitives/agent-naming",
+    "@agenticprimitives/identity-directory",
+    "@agenticprimitives/identity-directory-adapters",
+  ],
   // Pin the monorepo root for file-tracing (a stray ~/package-lock.json otherwise
   // confuses Next's workspace-root inference).
   outputFileTracingRoot: new URL("../../", import.meta.url).pathname,
