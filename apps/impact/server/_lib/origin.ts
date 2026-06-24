@@ -34,6 +34,12 @@ function parseAllowlist(env: { ALLOWED_ISSUER_HOSTS?: string } | undefined | nul
 export function isAllowedIssuerHost(host: string, env?: { ALLOWED_ISSUER_HOSTS?: string }): boolean {
   const bare = host.split(':')[0]?.toLowerCase() ?? '';
   if (!bare) return false;
+  // Standalone-home deployment: when no explicit allowlist is configured, accept the
+  // serving host (impact signs only `iss=<its own origin>` — the multi-host SEC-006
+  // concern applies to a relying-app broker, which impact is not). A deployment can
+  // still lock this down by setting ALLOWED_ISSUER_HOSTS. This lets impact run on ANY
+  // domain (e.g. churchcore.me) out of the box instead of 500ing on the passkey path.
+  if (!(env?.ALLOWED_ISSUER_HOSTS ?? '').trim()) return true;
   for (const pat of parseAllowlist(env)) {
     const p = pat.toLowerCase();
     if (p === bare) return true;

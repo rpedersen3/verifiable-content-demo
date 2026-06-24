@@ -52,10 +52,28 @@ export interface ConnectResult {
 }
 export type ConnectOutcome = ConnectResult | { ok: false; error: string };
 
+/** Parse a response body safely — never throws on empty/non-JSON (e.g. a 500 with an
+ *  empty body), so callers surface a real message instead of "Unexpected end of JSON input". */
+async function readJson<T = Record<string, unknown>>(r: Response): Promise<T & { error?: string; _raw?: string }> {
+  const text = await r.text();
+  let parsed: unknown = {};
+  if (text) {
+    try { parsed = JSON.parse(text); }
+    catch { parsed = { _raw: text.slice(0, 200) }; }
+  }
+  return parsed as T & { error?: string; _raw?: string };
+}
+
+/** A human message for a failed broker response (prefers the JSON `error`, then status). */
+function httpError(r: Response, body: { error?: string; _raw?: string }): string {
+  return body.error || body._raw || `request failed (HTTP ${r.status})`;
+}
+
 async function getNonce(): Promise<string> {
   const r = await fetch("/connect/nonce");
-  if (!r.ok) throw new Error("nonce fetch failed");
-  return ((await r.json()) as { nonce: string }).nonce;
+  const body = await readJson<{ nonce?: string }>(r);
+  if (!r.ok || !body.nonce) throw new Error(httpError(r, body) || "nonce fetch failed");
+  return body.nonce;
 }
 
 function agentAccountClient(): AgentAccountClient {
@@ -162,10 +180,10 @@ async function passkeyLogin(registerIfMissing = true): Promise<PasskeyOutcome> {
       challenge, signature, aud: AUD,
     }),
   });
-  const body = (await r.json()) as { status: string; token?: string };
-  if (body.status === "issued" && body.token) return { status: "issued", token: body.token, passkey };
-  if (body.status === "bootstrap") return { status: "bootstrap", passkey };
-  return { status: "rejected", passkey };
+  const body = await readJson<{ status?: string; token?: string }>(r);
+  if (r.ok && body.status === "issued" && body.token) return { status: "issued", token: body.token, passkey };
+  if (r.ok && body.status === "bootstrap") return { status: "bootstrap", passkey };
+  return { status: "rejected", passkey, reason: httpError(r, body) };
 }
 
 /** Deploy a passkey-direct SA via the relayer; `callData` (name claim) rides in the deploy op. */
@@ -226,10 +244,10 @@ async function siweLogin(): Promise<SiweOutcome> {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ message, signature, aud: AUD }),
   });
-  const body = (await r.json()) as { status: string; token?: string; agent?: string };
-  if (body.status === "issued" && body.token) return { status: "issued", token: body.token, address, agent: (body.agent ?? address) as Address };
-  if (body.status === "bootstrap") return { status: "bootstrap", address };
-  return { status: "rejected", address };
+  const body = await readJson<{ status?: string; token?: string; agent?: string }>(r);
+  if (r.ok && body.status === "issued" && body.token) return { status: "issued", token: body.token, address, agent: (body.agent ?? address) as Address };
+  if (r.ok && body.status === "bootstrap") return { status: "bootstrap", address };
+  return { status: "rejected", address, reason: httpError(r, body) };
 }
 
 async function bootstrapWithWallet(address: Address): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
