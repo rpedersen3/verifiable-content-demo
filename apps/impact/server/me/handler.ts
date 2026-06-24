@@ -20,8 +20,9 @@ function addressFromSub(sub: string | undefined): Address | null {
   return sub.split(':').pop() as Address;
 }
 
-/** The person MCP's own audience (same-origin demo; the server-client mints with this aud). */
-const AUD = 'demo-sso';
+/** The person MCP's own audience — MUST match the aud the connect client mints with
+ *  (src/lib/connect.ts AUD). Impact uses 'impact'. */
+const AUD = 'impact';
 
 /**
  * Is `origin` one of THIS site's own Connect origins (ADR-0021 app policy)? The apex + per-handle

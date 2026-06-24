@@ -19,7 +19,8 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode,
 } from "react";
 import { PERSON } from "@/lib/seed";
-import type { Person } from "@/lib/types";
+import type { Address, Person } from "@/lib/types";
+import { nameLabel } from "@/lib/domain";
 import { connectPasskey, connectWalletSiwe } from "@/lib/connect";
 
 export type Via = "passkey" | "wallet" | "google" | "youversion";
@@ -57,6 +58,24 @@ interface SessionApi extends SessionState {
 const KEY = "impact.session.v2";
 const SessionCtx = createContext<SessionApi | null>(null);
 
+const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+/** Render the home for the REAL connected agent: overlay its name/handle/address onto
+ *  the seeded person (the orgs/vault/treasury content stays demo data for now, but the
+ *  identity surfaces — greeting, You card, topbar — reflect who actually connected). */
+function personFromIdentity(id: Identity): Person {
+  const label = id.name ? nameLabel(id.name) : shortAddr(id.address);
+  return {
+    ...PERSON,
+    handle: label,
+    name: id.name ? label : "Your agent",
+    agentName: id.name ?? shortAddr(id.address),
+    address: id.address as Address,
+    deployed: id.deployed,
+    pii: { ...PERSON.pii, preferredName: label, legalName: id.name ?? label },
+  };
+}
+
 interface Persisted {
   token: string;
   identity: Identity;
@@ -76,7 +95,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (!raw) { setState((s) => ({ ...s, phase: "anon" })); return; }
       const p = JSON.parse(raw) as Persisted;
       setState({
-        phase: "authed", identity: p.identity, person: PERSON, token: p.token,
+        phase: "authed", identity: p.identity, person: personFromIdentity(p.identity), token: p.token,
         defaultOrgId: p.defaultOrgId ?? null,
         active: p.active ?? (p.defaultOrgId ? { mode: "org", orgId: p.defaultOrgId } : { mode: "person" }),
       });
@@ -99,7 +118,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const identity: Identity = { address: out.address, name: out.name, deployed: out.deployed, via };
       const active: ActiveContext = { mode: "person" };
       persist({ token: out.token, identity, defaultOrgId: null, active });
-      setState({ phase: "authed", identity, person: PERSON, token: out.token, defaultOrgId: null, active });
+      setState({ phase: "authed", identity, person: personFromIdentity(identity), token: out.token, defaultOrgId: null, active });
       return null;
     },
     [persist],
