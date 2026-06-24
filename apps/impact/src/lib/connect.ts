@@ -331,8 +331,17 @@ export async function connectPasskey(nameHint?: string, onStep?: Step): Promise<
     const login = await passkeyLogin(true, onStep);
     if (login.status === "issued") { onStep?.("Opening your home…"); return finish(login.token, "passkey", false); }
     if (login.status === "bootstrap") {
-      const dep = await deployAndClaimPasskey(login.passkey, sanitizeBase(nameHint), onStep);
-      if (!dep.ok) return { ok: false, error: dep.error };
+      const base = nameHint && nameHint.trim() ? sanitizeBase(nameHint) : null;
+      if (base) {
+        const dep = await deployAndClaimPasskey(login.passkey, base, onStep);
+        if (!dep.ok) return { ok: false, error: dep.error };
+      } else {
+        // No name given → secure a NAMELESS home (deploy with no name claim). The member
+        // can claim a public name later. (spec 257 name-deferral.)
+        onStep?.("Securing your home (no name yet)…");
+        const dep = await bootstrapWithPasskey(login.passkey, undefined, onStep);
+        if (!dep.ok) return { ok: false, error: dep.error };
+      }
       onStep?.("Signing you in…");
       const again = await passkeyLogin(false, onStep);
       if (again.status === "issued") return finish(again.token, "passkey", true);
@@ -386,10 +395,13 @@ export async function connectWalletSiwe(nameHint?: string, onStep?: Step): Promi
       onStep?.("Securing your home on the network…");
       const dep = await bootstrapWithWallet(first.address, onStep);
       if (!dep.ok) return { ok: false, error: dep.error };
-      rememberHomeEoa(sanitizeBase(nameHint), first.address);
-      onStep?.("Claiming your name…");
-      const signHash: SignHash = (h) => personalSign(first.address, h);
-      await claimName(dep.agent, signHash, sanitizeBase(nameHint), 1n); // best-effort name
+      const base = nameHint && nameHint.trim() ? sanitizeBase(nameHint) : null;
+      if (base) {
+        rememberHomeEoa(base, first.address);
+        onStep?.("Claiming your name…");
+        const signHash: SignHash = (h) => personalSign(first.address, h);
+        await claimName(dep.agent, signHash, base, 1n); // best-effort name
+      } // else → nameless home (claim a name later)
       onStep?.("Signing you in…");
       const again = await siweLogin(onStep);
       if (again.status === "issued") return finish(again.token, "wallet", true);

@@ -132,7 +132,9 @@ export default function EntryExperience() {
             : copy.enterSub.replace("{community}", brand.community)}
         </p>
 
-        <label className="faint" style={{ fontSize: ".74rem", fontWeight: 600 }}>Your name</label>
+        <label className="faint" style={{ fontSize: ".74rem", fontWeight: 600 }}>
+          Your name <span style={{ fontWeight: 400 }}>(optional — leave blank to stay nameless and claim a name later)</span>
+        </label>
         <div className="row" style={{ gap: ".4rem", margin: ".35rem 0 .5rem" }}>
           <input
             value={name}
