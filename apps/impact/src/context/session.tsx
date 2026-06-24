@@ -21,7 +21,7 @@ import {
 import { PERSON } from "@/lib/seed";
 import type { Address, Person } from "@/lib/types";
 import { nameLabel } from "@/lib/domain";
-import { connectPasskey, connectWalletSiwe } from "@/lib/connect";
+import { connectPasskey, connectWalletSiwe, exchangeCode, startGoogleSignIn, startYouVersionSignIn } from "@/lib/connect";
 
 export type Via = "passkey" | "wallet" | "google" | "youversion";
 export type Phase = "restoring" | "anon" | "authed";
@@ -108,6 +108,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
+    // Social return: the OIDC callback redirects back to `/?code=…&via=…`. Exchange it.
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (code) {
+      const via = (params.get("via") as Via) || "google";
+      window.history.replaceState({}, "", window.location.pathname);
+      void (async () => {
+        const out = await exchangeCode(code, via);
+        if (!out.ok) { setState((s) => ({ ...s, phase: "anon" })); return; }
+        const identity: Identity = { address: out.address, name: out.name, deployed: out.deployed, via };
+        const active: ActiveContext = { mode: "person" };
+        try { localStorage.setItem(KEY, JSON.stringify({ token: out.token, identity, defaultOrgId: null, active })); } catch { /* ignore */ }
+        setState({ phase: "authed", identity, person: personFromIdentity(identity), token: out.token, defaultOrgId: null, active });
+      })();
+      return;
+    }
     try {
       const raw = localStorage.getItem(KEY);
       if (!raw) { setState((s) => ({ ...s, phase: "anon" })); return; }
@@ -128,9 +144,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (via: Via, nameHint?: string): Promise<string | null> => {
-      if (via === "google" || via === "youversion") {
-        return "Social sign-in needs the Google/YouVersion OAuth client + custody-bridge secret to be configured (see README). Use a passkey or wallet for now.";
-      }
+      if (via === "google") { startGoogleSignIn(); return await new Promise<string | null>(() => {}); }
+      if (via === "youversion") { startYouVersionSignIn(); return await new Promise<string | null>(() => {}); }
       const out = via === "passkey" ? await connectPasskey(nameHint) : await connectWalletSiwe(nameHint);
       if (!out.ok) return out.error;
       const identity: Identity = { address: out.address, name: out.name, deployed: out.deployed, via };

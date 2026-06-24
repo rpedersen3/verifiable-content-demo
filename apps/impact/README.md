@@ -45,6 +45,23 @@ agents. Modeled after [`agenticprimitives/demo-sso-next`](https://github.com/age
 See `.env.example`. Without `BROKER_PRIVATE_JWK` + a KV store, passkey/SIWE can't mint a
 session; the bridge secret + OAuth client are only needed for Google/YouVersion.
 
+### Social sign-in (Google / YouVersion) setup
+
+The OIDC flow is ported (`/oidc/{google,youversion}/{start,callback}`, `/token`, the
+demo-a2a custody bridge). Until configured, those buttons return a 503 "not configured".
+To enable, set on the Vercel project + register the callback URLs:
+
+- **Google** ([console.cloud.google.com](https://console.cloud.google.com) → OAuth client):
+  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (Sensitive), `GOOGLE_REDIRECT_URI` =
+  `https://<your-domain>/oidc/google/callback` — register that exact URI in Google.
+- **YouVersion** (public PKCE — no secret): `YOUVERSION_CLIENT_ID`,
+  `YOUVERSION_REDIRECT_URI` = `https://<your-domain>/oidc/youversion/callback`.
+- **Custody bridge** (so a NEW social home gets a KMS-custodied Smart Agent):
+  `A2A_CUSTODY_URL` = your demo-a2a, `A2A_CUSTODY_BRIDGE_SECRET` = the value configured
+  in **your** demo-a2a. Without it, social sign-in only works for a subject already
+  linked to an agent (else it returns `bootstrap`).
+- `DEMO_SSO_AUD` defaults to `impact` (must match the connect aud for custody-grade sessions).
+
 ## Layout
 
 ```

@@ -34,7 +34,9 @@ export function makeEnv(): Env {
     // KMS-custodied SA. Without these the callback degrades to login-grade (no custody).
     A2A_CUSTODY_URL: t(process.env.A2A_CUSTODY_URL),
     A2A_CUSTODY_BRIDGE_SECRET: t(process.env.A2A_CUSTODY_BRIDGE_SECRET),
-    DEMO_SSO_AUD: t(process.env.DEMO_SSO_AUD),
+    // Impact's personal-home audience. Google/YouVersion mint a CUSTODY-grade session
+    // only when the sign-in aud matches this — defaults to 'impact' (= connect.ts AUD).
+    DEMO_SSO_AUD: t(process.env.DEMO_SSO_AUD) ?? "impact",
     ALLOWED_ISSUER_HOSTS: t(process.env.ALLOWED_ISSUER_HOSTS),
   };
 }

@@ -40,11 +40,13 @@ export interface BasicProfile {
   deployed: boolean;
 }
 
+export type ConnectVia = "passkey" | "wallet" | "google" | "youversion";
+
 /** What a successful connect yields for the session. */
 export interface ConnectResult {
   ok: true;
   token: string;
-  via: "passkey" | "wallet";
+  via: ConnectVia;
   address: Address;
   name: string | null;
   deployed: boolean;
@@ -295,7 +297,7 @@ function addressOf(agent: string | null | undefined): Address {
   return (m?.[0] ?? agent) as Address;
 }
 
-async function finish(token: string, via: "passkey" | "wallet", fresh: boolean): Promise<ConnectResult> {
+async function finish(token: string, via: ConnectVia, fresh: boolean): Promise<ConnectResult> {
   const p = await fetchProfile(token);
   return {
     ok: true, token, via, fresh,
@@ -325,6 +327,40 @@ export async function connectPasskey(nameHint?: string): Promise<ConnectOutcome>
     return { ok: false, error: login.reason ?? `passkey ${login.status}` };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "passkey connect failed" };
+  }
+}
+
+// ── Social (Google / YouVersion) — OIDC redirect + code exchange ────────────────
+// These redirect the whole page out to the broker's /oidc/<provider>/start, which
+// bounces through the provider and back to `/?code=…&via=…`. The session provider
+// then exchanges the code (exchangeCode) on return. Needs the OAuth client + (for a
+// new home) the custody-bridge env configured — else /oidc/*/start returns 503.
+export function startGoogleSignIn(): void {
+  const u = new URL("/oidc/google/start", window.location.origin);
+  u.searchParams.set("aud", AUD);
+  u.searchParams.set("redirect_uri", window.location.origin + "/");
+  window.location.assign(u.toString());
+}
+
+export function startYouVersionSignIn(): void {
+  const u = new URL("/oidc/youversion/start", window.location.origin);
+  u.searchParams.set("aud", AUD);
+  u.searchParams.set("redirect_uri", window.location.origin + "/");
+  window.location.assign(u.toString());
+}
+
+/** Exchange the single-use ?code delivered to the redirect for the AgentSession + profile. */
+export async function exchangeCode(code: string, via: ConnectVia): Promise<ConnectOutcome> {
+  try {
+    const r = await fetch("/token", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, aud: AUD }),
+    });
+    const body = await readJson<{ agentSession?: string }>(r);
+    if (!r.ok || !body.agentSession) return { ok: false, error: httpError(r, body) };
+    return finish(body.agentSession, via, true);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "code exchange failed" };
   }
 }
 
