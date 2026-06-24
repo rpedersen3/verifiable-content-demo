@@ -89,6 +89,26 @@ export async function erc20BalanceOf(token: Address, owner: Address): Promise<bi
   return out && out !== "0x" ? BigInt(out) : 0n;
 }
 
+export interface NameInfo {
+  exists: boolean;
+  name?: string;
+  agent?: Address;
+  deployed?: boolean;
+  hasEoa?: boolean;
+  hasPasskey?: boolean;
+}
+
+/** Resolve a name against the agent naming service (via the ported /connect/name-info). */
+export async function getNameInfo(name: string): Promise<NameInfo> {
+  try {
+    const r = await fetch(`/connect/name-info?name=${encodeURIComponent(name)}`);
+    if (!r.ok) return { exists: false };
+    return (await r.json()) as NameInfo;
+  } catch {
+    return { exists: false };
+  }
+}
+
 /** Reverse-resolve an agent address → its primary .impact name (or null). */
 export async function reverseName(address: Address): Promise<string | null> {
   const r = await getJson<{ address: string; name: string | null }>(

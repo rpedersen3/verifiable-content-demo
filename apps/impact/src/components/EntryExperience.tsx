@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSession, type Via } from "@/context/session";
 import { brand, credentialMethods, copy } from "@/whitelabel/config";
 import { IconKey, IconShield, IconCheck } from "@/components/Icons";
+import { currentHandle, homeOrigin } from "@/lib/domain";
 
 interface NameInfo {
   exists: boolean;
@@ -33,6 +34,15 @@ export default function EntryExperience() {
   const [step, setStep] = useState<string | null>(null);
   const [lookup, setLookup] = useState<Lookup>({ status: "idle" });
   const seq = useRef(0);
+
+  // If we're already on a personal subdomain (lbsb.<domain>), this home IS that handle —
+  // prefill it so the connect runs here, on the domain the passkey is bound to.
+  useEffect(() => {
+    const h = currentHandle();
+    if (h) setName(h);
+  }, []);
+
+  const onHandle = currentHandle();
 
   // Debounced live name resolution against the naming service.
   useEffect(() => {
@@ -67,6 +77,16 @@ export default function EntryExperience() {
     : credentialMethods;
 
   async function enter(via: Via) {
+    const label = name.trim().toLowerCase().replace(/\.impact$/, "").replace(/[^a-z0-9-]/g, "");
+    // Passkeys are bound to the host. A named home must be connected on its own
+    // subdomain (<handle>.<domain>) so the passkey is associated with that named
+    // domain. If we're not already there, switch to it first (then connect).
+    if (via === "passkey" && label && onHandle !== label) {
+      setBusy(via);
+      setStep(`Switching to ${label}’s home…`);
+      window.location.href = `${homeOrigin(label)}/`;
+      return;
+    }
     setBusy(via);
     setError(null);
     setStep(via === "passkey" ? "Touch your authenticator…" : via === "wallet" ? "Confirm in your wallet…" : "Redirecting…");

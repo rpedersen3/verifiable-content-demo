@@ -3,7 +3,7 @@
 // Live on-chain reads for the connected agent, through the same /a2a proxy the rest of
 // the app uses. No vault/delegation infra needed — just real balances from Base Sepolia.
 import { useEffect, useState } from "react";
-import { erc20BalanceOf, getEthBalance, formatUnits } from "./backend";
+import { erc20BalanceOf, getEthBalance, formatUnits, getNameInfo } from "./backend";
 import { CONTRACTS } from "./chain";
 import type { Address } from "./types";
 
@@ -41,4 +41,43 @@ export function useAgentBalances(address?: string | null): AgentBalances {
   }, [address]);
 
   return { usdc, eth, loading };
+}
+
+export interface TreasuryInfo {
+  exists: boolean;
+  name: string | null;
+  address: Address | null;
+  usdc: string | null;
+  loading: boolean;
+}
+
+/** Detect the person's treasury by the naming convention `<handle>-treasury.impact`
+ *  (the same money-agent demo-sso-next shows), resolve it via the naming service, and
+ *  read its live USDC balance. Returns exists:false when the person has no treasury yet. */
+export function usePersonTreasury(handle?: string | null): TreasuryInfo {
+  const [state, setState] = useState<TreasuryInfo>({ exists: false, name: null, address: null, usdc: null, loading: true });
+
+  useEffect(() => {
+    let alive = true;
+    if (!handle) { setState({ exists: false, name: null, address: null, usdc: null, loading: false }); return; }
+    setState((s) => ({ ...s, loading: true }));
+    (async () => {
+      try {
+        const info = await getNameInfo(`${handle}-treasury`);
+        if (!alive) return;
+        if (!info.exists || !info.agent) {
+          setState({ exists: false, name: null, address: null, usdc: null, loading: false });
+          return;
+        }
+        const bal = await erc20BalanceOf(CONTRACTS.mockUsdc as Address, info.agent);
+        if (!alive) return;
+        setState({ exists: true, name: `${handle}-treasury.impact`, address: info.agent, usdc: formatUnits(bal, 6, 2), loading: false });
+      } catch {
+        if (alive) setState({ exists: false, name: null, address: null, usdc: null, loading: false });
+      }
+    })();
+    return () => { alive = false; };
+  }, [handle]);
+
+  return state;
 }

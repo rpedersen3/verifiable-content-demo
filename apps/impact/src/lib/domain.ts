@@ -22,6 +22,38 @@ export const BACKEND = {
   mcpBind: '/mcp-bind',
 } as const;
 
+// ── Dynamic per-deployment domain (works on impact-agent.me, churchcore.me, …) ──
+// A person's home lives on a single-label subdomain `<handle>.<registrable-domain>`,
+// and passkeys bind to that host — so connecting a named home means being ON its
+// subdomain. These derive the registrable domain + current handle from the live host
+// rather than the hardcoded CONNECT_DOMAIN, so impact runs under any domain.
+
+/** Registrable domain of the current host = the last two dot-labels
+ *  (`lbsb.impact-agent.me` → `impact-agent.me`; `www.churchcore.me` → `churchcore.me`). */
+export function currentBaseDomain(): string {
+  if (typeof window === 'undefined') return CONNECT_DOMAIN;
+  const host = window.location.hostname.toLowerCase();
+  const parts = host.split('.');
+  return parts.length >= 2 ? parts.slice(-2).join('.') : host;
+}
+
+/** The handle this page is serving, if on a personal subdomain (`lbsb.<base>` → `lbsb`).
+ *  null on the apex, on `www`, or on localhost. */
+export function currentHandle(): string | null {
+  if (typeof window === 'undefined') return null;
+  const host = window.location.hostname.toLowerCase();
+  if (host === 'localhost' || /^[0-9.]+$/.test(host)) return null;
+  const parts = host.split('.');
+  if (parts.length < 3) return null;
+  const first = parts[0];
+  return !first || first === 'www' ? null : first;
+}
+
+/** Origin of a handle's home on the CURRENT registrable domain (for the subdomain switch). */
+export function homeOrigin(label: string): string {
+  return `https://${label}.${currentBaseDomain()}`;
+}
+
 /** Alias kept for existing imports. */
 export const CENTRAL_AUTH_DOMAIN = CONNECT_DOMAIN;
 /** Platform (apex) Connect origin — landing + bootstrap default. */
