@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/context/session";
 import { SectionHead, Pill, classBadge, EmptyNote } from "@/components/ui";
@@ -8,10 +8,11 @@ import { IconVault, IconLink, IconCheck } from "@/components/Icons";
 import {
   loadImpactProfile, PROFILE_FIELDS, VaultKeyUnauthorizedError, type ImpactContactProfile,
 } from "@/lib/profile-store";
+import type { AccessContext } from "@/lib/access";
 import { displayNameFromContact } from "@/lib/profile-name";
 import { listMyOrgs, listMyReceivedDelegations, flattenDelegations, type LiveDelegation } from "@/lib/related";
 import { revokeDelegation } from "@/lib/connect";
-import { activateVaultKey } from "@/lib/vault-key";
+import { activateVaultKey, isVaultKeyBound } from "@/lib/vault-key";
 import { loadImpactEntitlements, saveImpactEntitlements, type ImpactEntitlement } from "@/lib/entitlements-store";
 
 type Tab = "records" | "entitlements" | "delegations";
@@ -28,12 +29,27 @@ export default function VaultPage() {
   const address = (isOrg ? liveOrg!.address : identity?.address) as `0x${string}` | undefined;
   const via = isOrg ? liveOrg!.via : (identity?.via ?? "passkey");
   const subjectLabel = isOrg ? (liveOrg!.name ?? "this organization") : "you";
+
+  // Access is DELEGATION-presented (custody ≠ access): self → a person→person session delegation we
+  // sign; org → the org→person stewardship grant. null when we can't present one (e.g. an org whose
+  // stewardship grant wasn't captured) — reads then surface as needing activation/custodianship.
+  const accessCtx = useMemo<AccessContext | null>(() => {
+    if (isOrg) {
+      if (!liveOrg!.stewardship) return null;
+      return { kind: "org", orgSA: liveOrg!.address, requester: liveOrg!.custodian, stewardship: liveOrg!.stewardship };
+    }
+    if (!identity?.address) return null;
+    return { kind: "self", personSA: identity.address as `0x${string}`, via: identity.via, token };
+  }, [isOrg, liveOrg, identity?.address, identity?.via, token]);
   const [contact, setContact] = useState<ImpactContactProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [needsVaultKey, setNeedsVaultKey] = useState(false);
   const [activating, setActivating] = useState<string | null>(null);
   const [activateErr, setActivateErr] = useState<string | null>(null);
   const [keyRefresh, setKeyRefresh] = useState(0);
+  // Signature-free activation check first — so an inactive vault shows "activate" WITHOUT prompting a
+  // signing gesture (a self read would otherwise sign a delegation just to discover it's unbound).
+  const [bound, setBound] = useState<boolean | null>(null);
 
   // Live delegations (spec 246/247) — the person's home-managed grants + inbound grants.
   const [delegations, setDelegations] = useState<LiveDelegation[]>([]);
@@ -43,15 +59,28 @@ export default function VaultPage() {
   const [delRefresh, setDelRefresh] = useState(0);
 
   useEffect(() => {
-    if (!address) return;
+    if (!address) { setBound(null); return; }
+    let cancelled = false;
+    setBound(null);
+    isVaultKeyBound(address).then((b) => {
+      if (cancelled) return;
+      setBound(b);
+      if (!b) { setNeedsVaultKey(true); setEntNeedsKey(false); setLoading(false); setEntLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [address, keyRefresh]);
+
+  useEffect(() => {
+    if (bound !== true) return;
+    if (!accessCtx) { setLoading(false); if (isOrg) setNeedsVaultKey(true); return; }
     let cancelled = false;
     setLoading(true); setNeedsVaultKey(false);
-    loadImpactProfile(address as `0x${string}`)
+    loadImpactProfile(accessCtx)
       .then((p) => { if (!cancelled) setContact(p.contact ?? {}); })
       .catch((err) => { if (!cancelled && err instanceof VaultKeyUnauthorizedError) setNeedsVaultKey(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [address, keyRefresh]);
+  }, [bound, accessCtx, isOrg, keyRefresh]);
 
   /** Activate the active subject's vault key. For a live org, the connected person signs the org's
    *  VaultKeyAuthorization as its on-chain custodian (ERC-1271) — this is what gives the org a vault. */
@@ -103,24 +132,25 @@ export default function VaultPage() {
   const [entNeedsKey, setEntNeedsKey] = useState(false);
 
   useEffect(() => {
-    if (!address) return;
+    if (bound !== true) return; // not activated → the records gate already shows "activate"
+    if (!accessCtx) { setEntLoading(false); return; }
     let cancelled = false;
     setEntLoading(true); setEntErr(null); setEntNeedsKey(false);
-    loadImpactEntitlements(address as `0x${string}`)
+    loadImpactEntitlements(accessCtx)
       .then((list) => { if (!cancelled) setEntitlements(list); })
       .catch((err) => { if (!cancelled && err instanceof VaultKeyUnauthorizedError) setEntNeedsKey(true); })
       .finally(() => { if (!cancelled) setEntLoading(false); });
     return () => { cancelled = true; };
-  }, [address, keyRefresh]);
+  }, [bound, accessCtx, keyRefresh]);
 
   async function persistEntitlements(next: ImpactEntitlement[]) {
-    if (!address) return;
+    if (!accessCtx) return;
     setEntErr(null); setEntBusy(true);
     try {
-      await saveImpactEntitlements(address as `0x${string}`, next);
+      await saveImpactEntitlements(accessCtx, next);
       setEntitlements(next);
     } catch (err) {
-      setEntErr(err instanceof VaultKeyUnauthorizedError ? "Activate your vault key first (Account → Activate vault key)." : err instanceof Error ? err.message : "save failed");
+      setEntErr(err instanceof VaultKeyUnauthorizedError ? "Activate the vault key first (Account → Activate vault key)." : err instanceof Error ? err.message : "save failed");
     } finally {
       setEntBusy(false);
     }

@@ -107,7 +107,7 @@ export default function ContextSwitcher() {
                 <button
                   key={o.agent}
                   className={`ctx-opt ${isActive ? "active" : ""}`}
-                  onClick={() => { setActive({ mode: "org", orgId: o.agent, live: { address: o.agent, name: o.name, via } }); setOpen(false); }}
+                  onClick={() => { setActive({ mode: "org", orgId: o.agent, live: { address: o.agent, name: o.name, via, stewardship: o.stewardship, custodian: person.address } }); setOpen(false); }}
                 >
                   <Glyph kind="org" name={name} size="sm" />
                   <span className="col" style={{ gap: 0, flex: 1 }}>

@@ -3,8 +3,8 @@
 // so it shows instantly (no flash of address) and survives reloads; refreshed best-effort from the
 // vault and broadcast via a window event so the menu updates the moment the profile is saved.
 
-import type { Address } from "@agenticprimitives/types";
 import { loadImpactProfile, type ImpactContactProfile } from "./profile-store";
+import { hasCachedSelfDelegation, type AccessContext } from "./access";
 
 const keyFor = (a: string) => `impact.profileName.${a.toLowerCase()}`;
 const EVENT = "impact:profile-name";
@@ -37,11 +37,14 @@ export function onProfileNameChange(cb: (addr: string, name: string | null) => v
   return () => window.removeEventListener(EVENT, h);
 }
 
-/** Best-effort fetch of the friendly name from the member's vault. Returns null if the vault isn't
- *  activated yet or no name is set. Never throws. */
-export async function fetchProfileName(addr: Address): Promise<string | null> {
+/** Best-effort, NON-INTERACTIVE fetch of the friendly name from the member's vault. This runs on the
+ *  topbar on every page, so it must NEVER trigger a signing gesture: for a self subject it reads only
+ *  when a valid session delegation is already cached (an explicit vault/profile visit mints one).
+ *  Returns null otherwise — the menu falls back to the cached name / address. Never throws. */
+export async function fetchProfileName(ctx: AccessContext): Promise<string | null> {
+  if (ctx.kind === "self" && !hasCachedSelfDelegation(ctx.personSA)) return null;
   try {
-    const p = await loadImpactProfile(addr);
+    const p = await loadImpactProfile(ctx);
     return displayNameFromContact(p.contact);
   } catch {
     return null;

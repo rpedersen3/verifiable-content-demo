@@ -9,8 +9,7 @@ import Link from "next/link";
 import { useSession } from "@/context/session";
 import { SectionHead, Pill } from "@/components/ui";
 import { IconKey, IconShield, IconLink, IconSignOut, IconCheck } from "@/components/Icons";
-import { loadImpactProfile, VaultKeyUnauthorizedError } from "@/lib/profile-store";
-import { activateVaultKey, secureSocialHome } from "@/lib/vault-key";
+import { activateVaultKey, secureSocialHome, isVaultKeyBound } from "@/lib/vault-key";
 
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const VIA_LABEL: Record<string, string> = { passkey: "Passkey", wallet: "Wallet", google: "Google", youversion: "YouVersion" };
@@ -35,9 +34,10 @@ export default function AccountPage() {
     if (!address) return;
     let cancelled = false;
     setVaultStatus("checking");
-    loadImpactProfile(address as `0x${string}`)
-      .then(() => { if (!cancelled) setVaultStatus("active"); })
-      .catch((err) => { if (!cancelled) setVaultStatus(err instanceof VaultKeyUnauthorizedError ? "inactive" : "active"); });
+    // Signature-free: just ask whether a binding exists — no delegation, no signing gesture.
+    isVaultKeyBound(address as `0x${string}`)
+      .then((b) => { if (!cancelled) setVaultStatus(b ? "active" : "inactive"); })
+      .catch(() => { if (!cancelled) setVaultStatus("inactive"); });
     return () => { cancelled = true; };
   }, [address]);
 

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { erc20BalanceOf, getEthBalance, formatUnits } from "./backend";
 import { CONTRACTS } from "./chain";
 import { listMyOrgs } from "./related";
+import type { DelegationWire } from "./delegation";
 import type { Address } from "./types";
 
 export interface AgentBalances {
@@ -90,6 +91,8 @@ export interface LiveOrg {
   agent: Address;
   name: string | null;
   createdAt: number | null;
+  /** The org→person stewardship grant — presented to read the org's vault AS its custodian. */
+  stewardship: DelegationWire | null;
 }
 
 export interface LiveOrgs {
@@ -111,7 +114,7 @@ export function usePersonOrgs(token?: string | null, refreshKey = 0): LiveOrgs {
         if (!alive) return;
         const orgs = all
           .filter((o) => o.kind === "org")
-          .map((o) => ({ agent: o.orgAgent as Address, name: o.orgName?.trim() || null, createdAt: o.createdAt }));
+          .map((o) => ({ agent: o.orgAgent as Address, name: o.orgName?.trim() || null, createdAt: o.createdAt, stewardship: o.stewardshipDelegation ?? null }));
         setState({ orgs, loading: false });
       })
       .catch(() => { if (alive) setState({ orgs: [], loading: false }); });

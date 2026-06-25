@@ -20,6 +20,7 @@ import {
 } from "react";
 import { PERSON } from "@/lib/seed";
 import type { Address, Person } from "@/lib/types";
+import type { DelegationWire } from "@/lib/delegation";
 import { nameLabel } from "@/lib/domain";
 import { connectPasskey, connectWalletSiwe, exchangeCode, startGoogleSignIn, startYouVersionSignIn } from "@/lib/connect";
 
@@ -43,6 +44,11 @@ export interface LiveOrgRef {
   /** The custodian credential that controls the org SA — the same `via` as the person, since the
    *  person custodies the org. Used to sign the org's vault-key authorization (ERC-1271). */
   via: Via;
+  /** The org→person stewardship grant (delegator = org, delegate = the person SA). Presented to read
+   *  the org's vault AS its custodian — access is delegation-gated, never implied by custody. */
+  stewardship: DelegationWire | null;
+  /** The person SA — the stewardship delegate / requester when presenting the grant. */
+  custodian: Address;
 }
 
 export type ActiveContext =

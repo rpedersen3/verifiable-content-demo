@@ -42,7 +42,7 @@ export default function OrganizationsPage() {
   }
 
   function enterLiveAsCustodian(org: LiveOrg) {
-    setActive({ mode: "org", orgId: org.agent, live: { address: org.agent, name: org.name, via } });
+    setActive({ mode: "org", orgId: org.agent, live: { address: org.agent, name: org.name, via, stewardship: org.stewardship, custodian: person!.address } });
     router.push("/home");
   }
 

@@ -16,16 +16,16 @@ import { cachedProfileName, fetchProfileName, setCachedProfileName, onProfileNam
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 export default function AccountMenu() {
-  const { identity, signOut } = useSession();
+  const { identity, token, signOut } = useSession();
   const address = identity?.address;
   const [open, setOpen] = useState(false);
   const [vaultName, setVaultName] = useState<string | null>(() => (address ? cachedProfileName(address) : null));
 
   useEffect(() => {
-    if (!address) return;
+    if (!address || !identity) return;
     let cancelled = false;
     setVaultName(cachedProfileName(address));
-    fetchProfileName(address as Address).then((n) => {
+    fetchProfileName({ kind: "self", personSA: address as Address, via: identity.via, token }).then((n) => {
       if (cancelled) return;
       setVaultName(n);
       setCachedProfileName(address, n);
@@ -34,7 +34,7 @@ export default function AccountMenu() {
       if (addr.toLowerCase() === address.toLowerCase()) setVaultName(name);
     });
     return () => { cancelled = true; off(); };
-  }, [address]);
+  }, [address, identity, token]);
 
   if (!identity) return null;
 

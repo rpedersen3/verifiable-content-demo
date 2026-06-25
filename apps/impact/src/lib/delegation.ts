@@ -74,3 +74,18 @@ export function buildApprovedSiteDelegation(
   d.signature = APPROVED_HASH_SENTINEL;
   return { delegation: d, digest };
 }
+
+/** Build an UNSIGNED `delegator → delegateSA` site grant + its EIP-712 `digest`, for the caller to
+ *  sign OFF-CHAIN with the delegator's credential (passkey / social C_sub / wallet). Used for the
+ *  self session-delegation (person → person) that authorizes the member's own vault reads WITHOUT a
+ *  custodian shortcut — the signed delegation IS the read authority (mirrors demo-sso-next
+ *  issueSessionDelegation). Set `delegation.signature` to the returned signature before sending. */
+export function buildUnsignedSiteDelegation(
+  delegator: Address,
+  delegateSA: Address,
+  validitySeconds = 60 * 60 * 12,
+): { delegation: Delegation; digest: Hex } {
+  const d = buildSiteDelegation(delegator, delegateSA, validitySeconds);
+  const digest = hashDelegation(d, CHAIN_ID, CONTRACTS.delegationManager);
+  return { delegation: d, digest };
+}

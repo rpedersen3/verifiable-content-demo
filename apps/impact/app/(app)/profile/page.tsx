@@ -6,7 +6,7 @@
 // No copy is held at the home. Until the member activates their vault key (Account → Activate vault
 // key), the vault is fail-closed and this page prompts them to do so.
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useSession } from "@/context/session";
 import { SectionHead } from "@/components/ui";
@@ -15,6 +15,7 @@ import {
   loadImpactProfile, saveImpactProfile, PROFILE_FIELDS, VaultKeyUnauthorizedError,
   type ImpactStoredProfile, type ImpactContactProfile, type ImpactProfileFieldKey,
 } from "@/lib/profile-store";
+import type { AccessContext } from "@/lib/access";
 import { setCachedProfileName, displayNameFromContact } from "@/lib/profile-name";
 
 const inputStyle: React.CSSProperties = {
@@ -23,8 +24,13 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function ProfilePage() {
-  const { identity } = useSession();
+  const { identity, token } = useSession();
   const address = identity?.address;
+  // This page always edits the PERSON's own profile → a self delegation we present to the vault.
+  const accessCtx = useMemo<AccessContext | null>(
+    () => (identity?.address ? { kind: "self", personSA: identity.address as `0x${string}`, via: identity.via, token } : null),
+    [identity?.address, identity?.via, token],
+  );
   const [stored, setStored] = useState<ImpactStoredProfile | null>(null);
   const [contact, setContact] = useState<ImpactContactProfile>({});
   const [loading, setLoading] = useState(true);
@@ -34,10 +40,10 @@ export default function ProfilePage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!address) return;
+    if (!accessCtx || !address) return;
     let cancelled = false;
     setLoading(true); setNeedsVaultKey(false); setError(null);
-    loadImpactProfile(address as `0x${string}`)
+    loadImpactProfile(accessCtx)
       .then((p) => { if (!cancelled) { setStored(p); setContact(p.contact ?? {}); setCachedProfileName(address, displayNameFromContact(p.contact)); } })
       .catch((err) => {
         if (cancelled) return;
@@ -46,7 +52,7 @@ export default function ProfilePage() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [address]);
+  }, [accessCtx, address]);
 
   function change(key: ImpactProfileFieldKey, v: string) {
     setContact((c) => ({ ...c, [key]: v }));
@@ -55,11 +61,11 @@ export default function ProfilePage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!address) return;
+    if (!address || !accessCtx) return;
     setSubmitting(true); setError(null); setSaved(false);
     try {
       const next: ImpactStoredProfile = { v: 1, contact, attestations: stored?.attestations };
-      await saveImpactProfile(address as `0x${string}`, next);
+      await saveImpactProfile(accessCtx, next);
       setStored(next);
       setCachedProfileName(address, displayNameFromContact(contact));
       setSaved(true);

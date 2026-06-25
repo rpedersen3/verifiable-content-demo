@@ -120,6 +120,17 @@ export async function fetchVaultServerInfo(): Promise<VaultKeyServerInfo> {
   };
 }
 
+/** Does this owner (person or org SA) already have a live vault-key binding? A signature-free status
+ *  check (`GET /custody/vault-key/is-bound`) so surfaces can show "vault active/inactive" WITHOUT
+ *  presenting a delegation or triggering a signing gesture. */
+export async function isVaultKeyBound(owner: Address): Promise<boolean> {
+  try {
+    const r = await fetch(`${MCP_BIND}/custody/vault-key/is-bound?owner=${owner}`);
+    const b = (await r.json().catch(() => ({}))) as { ok?: boolean; bound?: boolean };
+    return b.ok === true && b.bound === true;
+  } catch { return false; }
+}
+
 /** Provision the owner's per-person KEK (idempotent). Returns the kmsKeyRef. */
 export async function provisionVaultKey(owner: Address): Promise<{ ok: true; kmsKeyRef: string } | { ok: false; error: string }> {
   const prov = (await (await fetch(`${MCP_BIND}/custody/vault-key/provision`, {

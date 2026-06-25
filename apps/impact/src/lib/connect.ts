@@ -507,8 +507,9 @@ export async function revokeDelegation(
 }
 
 /** A SignHash for the home's credential — passkey/wallet sign on device; social homes sign via the
- *  per-(iss,sub) custody session (no device gesture). */
-async function signHashForVia(via: ConnectVia, sender: Address, token?: string): Promise<SignHash> {
+ *  per-(iss,sub) custody session (no device gesture). `sender` is the SA the signature must validate
+ *  against (ERC-1271) — the person SA for self grants, an SA the session custodies for managed ones. */
+export async function signHashForVia(via: ConnectVia, sender: Address, token?: string): Promise<SignHash> {
   if (via === "wallet") {
     const addr = await connectWallet(true);
     return (h) => personalSign(addr, h);
