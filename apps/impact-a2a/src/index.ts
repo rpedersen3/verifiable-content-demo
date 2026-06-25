@@ -3424,7 +3424,7 @@ async function verifyDelegation(
  */
 async function forwardMcpToken(args: {
   env: Env;
-  toolName: 'get_pii' | 'get_org_sensitive' | 'get_vault_record' | 'set_vault_record' | 'list_vault_record';
+  toolName: 'get_pii' | 'get_org_sensitive' | 'get_vault_record' | 'set_vault_record' | 'list_vault_record' | 'issue_org_entitlement' | 'revoke_org_entitlement' | 'list_org_entitlements' | 'get_entitled_record';
   token: string;
   toolArgs?: Record<string, unknown>;
   /** spec 270 v4 W3 — per-source binding: set true ONLY on the client-mint path so impact-mcp enforces the
@@ -3490,7 +3490,7 @@ async function forwardMcpToken(args: {
 
 export async function callMcpToolViaDelegation(args: {
   env: Env;
-  toolName: 'get_pii' | 'get_org_sensitive' | 'get_vault_record' | 'set_vault_record' | 'list_vault_record';
+  toolName: 'get_pii' | 'get_org_sensitive' | 'get_vault_record' | 'set_vault_record' | 'list_vault_record' | 'issue_org_entitlement' | 'revoke_org_entitlement' | 'list_org_entitlements' | 'get_entitled_record';
   delegation: IncomingDelegation;
   requester: Address;
   /** Tool args forwarded to impact-mcp (e.g. vault recordType/data). Default {}. */
@@ -3724,6 +3724,80 @@ app.post('/mcp/vault/list', async (c) => {
     });
   } catch (e) {
     return c.json({ ok: false, error: 'vault_list_failed', detail: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
+
+// ─── Cross-principal ENTITLEMENTS (spec 277) — org → member ──────────────
+//
+// issue/revoke/list: the ORG presents its own authority (a delegation whose DELEGATOR is the org —
+// the org→person stewardship grant), so impact-mcp recovers principal = the org (the issuer). get:
+// the MEMBER presents THEIR OWN session delegation, so principal = the member (the entitlement actor).
+// callMcpToolViaDelegation verifies the delegation + mints the token; the tool args ride alongside.
+
+app.post('/mcp/entitlement/issue', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => null)) as {
+      delegation?: IncomingDelegation; requester?: Address;
+      subject?: Address; recordType?: string; fields?: string[]; actions?: string[]; classificationCeiling?: string; purpose?: string; ttlSeconds?: number;
+    } | null;
+    if (!body?.delegation || !body?.requester || !body?.subject || !body?.recordType) {
+      return c.json({ ok: false, error: 'bad_body' }, 400);
+    }
+    return await callMcpToolViaDelegation({
+      env: c.env,
+      toolName: 'issue_org_entitlement',
+      delegation: body.delegation,
+      requester: body.requester,
+      toolArgs: {
+        subject: body.subject, recordType: body.recordType,
+        ...(body.fields ? { fields: body.fields } : {}),
+        ...(body.actions ? { actions: body.actions } : {}),
+        ...(body.classificationCeiling ? { classificationCeiling: body.classificationCeiling } : {}),
+        ...(body.purpose ? { purpose: body.purpose } : {}),
+        ...(typeof body.ttlSeconds === 'number' ? { ttlSeconds: body.ttlSeconds } : {}),
+      },
+    });
+  } catch (e) {
+    return c.json({ ok: false, error: 'entitlement_issue_failed', detail: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
+
+app.post('/mcp/entitlement/revoke', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => null)) as { delegation?: IncomingDelegation; requester?: Address; id?: string } | null;
+    if (!body?.delegation || !body?.requester || !body?.id) return c.json({ ok: false, error: 'bad_body' }, 400);
+    return await callMcpToolViaDelegation({
+      env: c.env, toolName: 'revoke_org_entitlement', delegation: body.delegation, requester: body.requester, toolArgs: { id: body.id },
+    });
+  } catch (e) {
+    return c.json({ ok: false, error: 'entitlement_revoke_failed', detail: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
+
+app.post('/mcp/entitlement/list', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => null)) as { delegation?: IncomingDelegation; requester?: Address } | null;
+    if (!body?.delegation || !body?.requester) return c.json({ ok: false, error: 'bad_body' }, 400);
+    return await callMcpToolViaDelegation({
+      env: c.env, toolName: 'list_org_entitlements', delegation: body.delegation, requester: body.requester,
+    });
+  } catch (e) {
+    return c.json({ ok: false, error: 'entitlement_list_failed', detail: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
+
+app.post('/mcp/entitled/get', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => null)) as {
+      delegation?: IncomingDelegation; requester?: Address; owner?: Address; recordType?: string; fields?: string[]; purpose?: string;
+    } | null;
+    if (!body?.delegation || !body?.requester || !body?.owner || !body?.recordType) return c.json({ ok: false, error: 'bad_body' }, 400);
+    return await callMcpToolViaDelegation({
+      env: c.env, toolName: 'get_entitled_record', delegation: body.delegation, requester: body.requester,
+      toolArgs: { owner: body.owner, recordType: body.recordType, ...(body.fields ? { fields: body.fields } : {}), ...(body.purpose ? { purpose: body.purpose } : {}) },
+    });
+  } catch (e) {
+    return c.json({ ok: false, error: 'entitled_get_failed', detail: e instanceof Error ? e.message : String(e) }, 500);
   }
 });
 

@@ -37,8 +37,8 @@ import {
 import { resolvePersonVault, buildVaultKeyVerifier, verifyAndStoreBinding, isVaultKeyBound, VAULT_SERVER_ID, type PersonVault } from './vault-key';
 import { verifyVaultKeyAuthorization } from '@agenticprimitives/key-authorization';
 import type { Delegation } from '@agenticprimitives/delegation';
-import { entitlementResolver } from './entitlements';
-import type { EntitlementClassification } from '@agenticprimitives/entitlements';
+import { entitlementResolver, buildOrgEntitlement } from './entitlements';
+import type { EntitlementClassification, EntitlementAction } from '@agenticprimitives/entitlements';
 import { authorizeDecrypt } from './kas';
 import { resolveAgentName } from './naming';
 import {
@@ -171,7 +171,7 @@ async function readSensitive(
   if (!pv) return { ok: false, error: 'vault_key_unauthorized', served_by: spec.servedBy };
 
   // Phase 3: resolve the entitlement BEFORE decrypting; allowedFields scopes the projection.
-  const decision = await entitlementResolver().resolve({
+  const decision = await entitlementResolver(env).resolve({
     actor: principal,
     principal,
     audience: ctx.audience,
@@ -776,6 +776,183 @@ app.post('/tools/list_vault_record', async (c) => {
     );
     const result = await handler({ token: body.token, args: body.args ?? {} });
     return c.json(result as Record<string, unknown>);
+  } catch (e) {
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    return c.json({ error: 'internal error', detail: String(e) }, 500);
+  }
+});
+
+// ─── Cross-principal ENTITLEMENTS (spec 277) — org → member ──────────────
+//
+// An ORG (issuer) grants a MEMBER (a different SA that does NOT custody the org) scoped read access
+// to the org's vault. Access is gated SOLELY by the entitlement, never by custody/stewardship:
+//   • issue/revoke/list  — the ORG presents its own authority (token principal == the org) to mint,
+//     revoke, and list grants in `entitlements_issued`.
+//   • get_entitled_record — the MEMBER presents THEIR OWN session delegation (token principal == the
+//     member = the entitlement's actor), names the org as `owner`, and reads iff a matching, granted,
+//     unexpired grant exists. impact-mcp wields the OWNER's KEK (the org's own vault-key binding) to
+//     decrypt; the member never holds the org's key.
+
+const ENTITLEMENT_ADMIN_CLASSIFICATION = {
+  '@sa-tool': 'delegation-verified',
+  '@sa-auth': 'session-token',
+  '@sa-risk-tier': 'medium',
+} as const;
+const ENTITLED_READ_CLASSIFICATION = {
+  '@sa-tool': 'delegation-verified',
+  '@sa-auth': 'session-token',
+  '@sa-risk-tier': 'low',
+} as const;
+declareTool({ name: 'issue_org_entitlement' }, ENTITLEMENT_ADMIN_CLASSIFICATION);
+declareTool({ name: 'revoke_org_entitlement' }, ENTITLEMENT_ADMIN_CLASSIFICATION);
+declareTool({ name: 'list_org_entitlements' }, ENTITLED_READ_CLASSIFICATION);
+declareTool({ name: 'get_entitled_record' }, ENTITLED_READ_CLASSIFICATION);
+
+const ENV_NAME = () => (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production' ? 'production' : 'development') as 'production' | 'development';
+
+/** A MEMBER reads an ORG's vault record, gated by an org-issued entitlement (NOT custody). The
+ *  owner's vault-key binding authorizes this host to wield the owner KEK; the entitlement authorizes
+ *  WHO (the actor) + WHICH fields. */
+async function readEntitledRecord(
+  env: Env,
+  ctx: { actor: string; owner: string; recordType: string; fields?: string[]; purpose?: string; audience: string },
+): Promise<{ ok: true; data: unknown; allowedFields: string[] | null } | { ok: false; error: string; reason?: string }> {
+  const resource = `${VAULT_RECORD_PREFIX}${ctx.recordType}`;
+  const gate = await authorizePersonVaultOp(env, ctx.owner, resource, 'read', 'internal');
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const decision = await entitlementResolver(env).resolve({
+    actor: ctx.actor, principal: ctx.owner, audience: ctx.audience, resource, action: 'read',
+    fields: ctx.fields, purpose: ctx.purpose, classification: 'internal', at: new Date(),
+  });
+  if (decision.decision === 'deny') return { ok: false, error: 'entitlement_denied', reason: decision.reason };
+  const obj = await gate.pv.vault.read({ owner: ctx.owner, resource, fields: decision.allowedFields });
+  return { ok: true, data: obj?.data ?? null, allowedFields: decision.allowedFields ?? null };
+}
+
+app.post('/tools/issue_org_entitlement', async (c) => {
+  const body = c.get('parsedBody');
+  if (!body?.token) return c.json({ error: 'token required' }, 400);
+  const auditSink = buildAuditSink(c.env);
+  type Args = { args?: { subject?: string; recordType?: string; fields?: string[]; actions?: string[]; classificationCeiling?: string; purpose?: string; ttlSeconds?: number } };
+  try {
+    const handler = withDelegation<Args>(
+      baseConfig(c.env),
+      async ({ principal, args }) => {
+        const org = principal; // the issuer — recovered from the org's presented (stewardship) authority
+        const subject = args?.subject;
+        const recordType = args?.recordType;
+        if (!subject || !/^0x[0-9a-fA-F]{40}$/.test(subject)) return { ok: false, error: 'subject (member 0x address) required' };
+        if (subject.toLowerCase() === org.toLowerCase()) return { ok: false, error: 'subject must be a different agent than the org' };
+        if (!recordType) return { ok: false, error: 'recordType required' };
+        const resource = `${VAULT_RECORD_PREFIX}${recordType}`;
+        const id = `urn:ap:entitlement:${crypto.randomUUID()}`;
+        const validFromIso = new Date().toISOString();
+        const ttl = typeof args?.ttlSeconds === 'number' && args.ttlSeconds > 0 ? args.ttlSeconds : undefined;
+        const validUntilIso = ttl ? new Date(Date.now() + ttl * 1000).toISOString() : undefined;
+        const actions = (Array.isArray(args?.actions) && args!.actions.length ? args!.actions : ['read']) as EntitlementAction[];
+        const fields = Array.isArray(args?.fields) && args!.fields.length ? args!.fields : undefined;
+        const credential = buildOrgEntitlement({
+          issuer: org, subject, audience: c.env.MCP_AUDIENCE, resource, actions, fields,
+          classificationCeiling: (args?.classificationCeiling as EntitlementClassification) ?? 'internal',
+          purpose: typeof args?.purpose === 'string' ? args.purpose : undefined,
+          validFromIso, validUntilIso, id,
+        });
+        await c.env.DB.prepare(
+          `INSERT INTO entitlements_issued (id, principal, actor, resource, audience, credential, issued_by, valid_until, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'granted', ?)`,
+        ).bind(id, org.toLowerCase(), subject.toLowerCase(), resource, c.env.MCP_AUDIENCE, JSON.stringify(credential), org.toLowerCase(), validUntilIso ?? null, validFromIso).run();
+        return { ok: true, id, principal: org, subject, resource, valid_until: validUntilIso ?? null, served_by: 'impact-mcp:issue_org_entitlement' };
+      },
+      { toolName: 'issue_org_entitlement', classification: ENTITLEMENT_ADMIN_CLASSIFICATION, auditSink, correlationId: getCorrelationId(c), environment: ENV_NAME() },
+    );
+    return c.json((await handler({ token: body.token, args: body.args ?? {} })) as Record<string, unknown>);
+  } catch (e) {
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    return c.json({ error: 'internal error', detail: String(e) }, 500);
+  }
+});
+
+app.post('/tools/revoke_org_entitlement', async (c) => {
+  const body = c.get('parsedBody');
+  if (!body?.token) return c.json({ error: 'token required' }, 400);
+  const auditSink = buildAuditSink(c.env);
+  type Args = { args?: { id?: string } };
+  try {
+    const handler = withDelegation<Args>(
+      baseConfig(c.env),
+      async ({ principal, args }) => {
+        const id = args?.id;
+        if (!id) return { ok: false, error: 'id required' };
+        // Only the issuing org may revoke its own grant (principal-scoped UPDATE).
+        const res = await c.env.DB.prepare(
+          `UPDATE entitlements_issued SET status = 'revoked' WHERE id = ? AND principal = ? AND status = 'granted'`,
+        ).bind(id, principal.toLowerCase()).run();
+        const revoked = (res.meta?.changes ?? 0) > 0;
+        return { ok: true, id, revoked, served_by: 'impact-mcp:revoke_org_entitlement' };
+      },
+      { toolName: 'revoke_org_entitlement', classification: ENTITLEMENT_ADMIN_CLASSIFICATION, auditSink, correlationId: getCorrelationId(c), environment: ENV_NAME() },
+    );
+    return c.json((await handler({ token: body.token, args: body.args ?? {} })) as Record<string, unknown>);
+  } catch (e) {
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    return c.json({ error: 'internal error', detail: String(e) }, 500);
+  }
+});
+
+app.post('/tools/list_org_entitlements', async (c) => {
+  const body = c.get('parsedBody');
+  if (!body?.token) return c.json({ error: 'token required' }, 400);
+  const auditSink = buildAuditSink(c.env);
+  type Args = { args?: Record<string, unknown> };
+  try {
+    const handler = withDelegation<Args>(
+      baseConfig(c.env),
+      async ({ principal }) => {
+        const rows = await c.env.DB.prepare(
+          `SELECT id, actor, resource, valid_until, status, created_at FROM entitlements_issued WHERE principal = ? ORDER BY created_at DESC LIMIT 200`,
+        ).bind(principal.toLowerCase()).all<{ id: string; actor: string; resource: string; valid_until: string | null; status: string; created_at: string }>();
+        const entitlements = (rows.results ?? []).map((r) => ({
+          id: r.id, member: r.actor, resource: r.resource,
+          recordType: r.resource.startsWith(VAULT_RECORD_PREFIX) ? r.resource.slice(VAULT_RECORD_PREFIX.length) : r.resource,
+          validUntil: r.valid_until, status: r.status, createdAt: r.created_at,
+        }));
+        return { ok: true, principal, entitlements, served_by: 'impact-mcp:list_org_entitlements' };
+      },
+      { toolName: 'list_org_entitlements', classification: ENTITLED_READ_CLASSIFICATION, auditSink, correlationId: getCorrelationId(c), environment: ENV_NAME() },
+    );
+    return c.json((await handler({ token: body.token, args: body.args ?? {} })) as Record<string, unknown>);
+  } catch (e) {
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    return c.json({ error: 'internal error', detail: String(e) }, 500);
+  }
+});
+
+app.post('/tools/get_entitled_record', async (c) => {
+  const body = c.get('parsedBody');
+  if (!body?.token) return c.json({ error: 'token required' }, 400);
+  const auditSink = buildAuditSink(c.env);
+  type Args = { args?: { owner?: string; recordType?: string; fields?: string[]; purpose?: string } };
+  try {
+    const handler = withDelegation<Args>(
+      baseConfig(c.env),
+      async ({ principal, args }) => {
+        const actor = principal; // the MEMBER reading — recovered from their own session delegation
+        const owner = args?.owner;
+        const recordType = args?.recordType;
+        if (!owner || !/^0x[0-9a-fA-F]{40}$/.test(owner)) return { ok: false, error: 'owner (org 0x address) required' };
+        if (!recordType) return { ok: false, error: 'recordType required' };
+        const r = await readEntitledRecord(c.env, {
+          actor, owner, recordType,
+          fields: Array.isArray(args?.fields) ? args!.fields : undefined,
+          purpose: typeof args?.purpose === 'string' ? args.purpose : undefined,
+          audience: c.env.MCP_AUDIENCE,
+        });
+        if (!r.ok) return { ...r, served_by: 'impact-mcp:get_entitled_record' };
+        return { ok: true, owner, actor, recordType, data: r.data, allowedFields: r.allowedFields, served_by: 'impact-mcp:get_entitled_record' };
+      },
+      { toolName: 'get_entitled_record', classification: ENTITLED_READ_CLASSIFICATION, auditSink, correlationId: getCorrelationId(c), environment: ENV_NAME() },
+    );
+    return c.json((await handler({ token: body.token, args: body.args ?? {} })) as Record<string, unknown>);
   } catch (e) {
     if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
     return c.json({ error: 'internal error', detail: String(e) }, 500);
