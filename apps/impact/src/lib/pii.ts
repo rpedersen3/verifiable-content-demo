@@ -1,5 +1,5 @@
 // Person-MCP PII access, gated by the Connect AgentSession (spec 227 §7 / ADR-0017).
-// The "person MCP" for the demo is served from the Connect origin itself (a Pages
+// The "person MCP" is served from the Connect origin itself (a Pages
 // Function) which verifies the SAME-origin AgentSession against the broker JWKS —
 // the architect-clean app-layer verify (NOT mcp-runtime withDelegation; this is
 // session-gated, not delegation-gated).
@@ -32,7 +32,7 @@ export function canReadSensitivePii(session: AgentSession): boolean {
 
 export interface BasicProfile {
   agent: string; // canonical id (sub)
-  name: string | null; // .demo.agent primary name (reverse-resolved), if any
+  name: string | null; // .impact primary name (reverse-resolved), if any
   credential: string; // the credential kind that authenticated
   access: 'standard' | 'full (confirmed with device)';
   // spec 257 Phase 1.5 — is the SA actually deployed on-chain? A Google member returns in a
@@ -60,12 +60,12 @@ export function basicProfile(session: AgentSession, name: string | null, deploye
 }
 
 /** Sensitive PII — custody-grade only; null = denied (caller returns step-up). PII is
- *  keyed on the canonical agent id (never email, CN-3). Demo store; prod = KV/D1.
+ *  keyed on the canonical agent id (never email, CN-3). In-memory store; prod = KV/D1.
  *  SEC-014: re-asserts the namespace + custody gate at the call site (the helper
  *  above is the load-bearing version, but we never trust an upstream check alone). */
 export function sensitivePii(session: AgentSession): SensitivePiiFields | null {
   if (!canReadSensitivePii(session)) return null; // default-deny — re-asserts namespace + custody
   if (!isCustodiedSubject(session.sub)) return null; // belt-and-suspenders before address parsing
   const addr = session.sub.split(':').pop() ?? 'agent';
-  return { email: `${addr.slice(0, 8).toLowerCase()}@demo.agent`, phone: '+1 415 555 0123' };
+  return { email: `${addr.slice(0, 8).toLowerCase()}@example.local`, phone: '+1 415 555 0123' };
 }

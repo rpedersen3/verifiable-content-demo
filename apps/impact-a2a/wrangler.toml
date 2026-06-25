@@ -4,7 +4,7 @@
 # Production: wrangler deploy (uses [vars] + secrets set via `wrangler secret put`)
 #
 # Durable Object SESSIONS holds the SessionStore (one global instance for the
-# demo; production would shard per-user via idFromName(walletAddress)).
+# testnet; production would shard per-user via idFromName(walletAddress)).
 #
 # nodejs_compat is on so our @agenticprimitives/* packages can keep using
 # `process.env`, `Buffer`, and the Web-Crypto interfaces they already use.
@@ -97,7 +97,7 @@ A2A_KMS_BACKEND = "gcp-kms"
 GCP_KMS_KEY_NAME = "projects/churchcore2/locations/us-central1/keyRings/agenticprimitives-demo/cryptoKeys/smart-agent-2/cryptoKeyVersions/1"
 # A2A_ALLOW_LOCAL_MASTER_KEY: opt-in for the dev-only LocalSecp256k1Signer
 # (which loads A2A_MASTER_PRIVATE_KEY into worker memory) to run in
-# NODE_ENV=production. Required for the demo because esbuild's --define
+# NODE_ENV=production. Required on testnet because esbuild's --define
 # bakes NODE_ENV='production' at build time, so the runtime guard fires
 # unconditionally without this opt-in. Production stacks with real-value
 # keys MUST replace this with A2A_KMS_BACKEND=gcp-kms before this flag
@@ -109,7 +109,7 @@ A2A_ALLOW_LOCAL_MASTER_KEY = "true"
 # delegation.SessionManager). Same shape as A2A_ALLOW_LOCAL_MASTER_KEY
 # but a stricter threat model: compromise of the wrangler-secret
 # master = decrypt every session keypair at rest = forge delegations.
-# Acceptable for the demo (test keys, ephemeral DOs); MUST be replaced
+# Acceptable on testnet (test keys, ephemeral DOs); MUST be replaced
 # by A2A_KMS_BACKEND=gcp-kms + GCP_KMS_ENCRYPT_KEY_NAME before any
 # real-value keys land. See packages/key-custody/AUDIT.md → KC-3.
 # Disabled — impact-a2a wraps session-data-keys via Cloud KMS (GCP_KMS_ENCRYPT_KEY_NAME below),
@@ -120,10 +120,10 @@ A2A_ALLOW_LOCAL_ENVELOPE_KEY = "false"
 # Uses the `agent-envelope` symmetric key (SA encrypt/decrypt verified).
 GCP_KMS_ENCRYPT_KEY_NAME = "projects/churchcore2/locations/us-central1/keyRings/agenticprimitives-demo/cryptoKeys/agent-envelope"
 # PAYMASTER: SmartAgentPaymaster contract address. When set, impact-a2a
-# enables the /session/deploy endpoints; demo-web shows the Step 1.5
+# enables the /session/deploy endpoints; the web client shows the Step 1.5
 # "Deploy smart account" prompt and the user's smart account is deployed
 # via a paymaster-sponsored UserOp on first SIWE login. When empty,
-# /session/deploy returns 409 and the demo falls back to counterfactual
+# /session/deploy returns 409 and it falls back to counterfactual
 # mode (requireDeployed:false in impact-mcp).
 PAYMASTER = ""
 # PAYMASTER_VERIFYING_SIGNER: address that impact-a2a must sign paymaster

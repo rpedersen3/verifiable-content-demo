@@ -1,7 +1,7 @@
 # Impact — agent home
 
 A faith-based home where **people** and **organizations** connect and steward their
-agents. Modeled after [`agenticprimitives/demo-sso-next`](https://github.com/agentictrustlabs/agenticprimitives/tree/master/apps/demo-sso-next)
+agents. Modeled after [`agenticprimitives/impact`](https://github.com/agentictrustlabs/agenticprimitives/tree/master/apps/impact)
 (the "Impact" faith vertical) with a **completely redesigned UI** and a first-class
 **agentic trust graph**.
 
@@ -22,7 +22,7 @@ agents. Modeled after [`agenticprimitives/demo-sso-next`](https://github.com/age
 ## Status
 
 - **Redesigned UI shell + trust graph** — complete; render from seed (`src/lib/seed.ts`).
-- **Connect is REAL** (ported from demo-sso-next, same packages + wire protocol):
+- **Connect is REAL** (ported from impact, same packages + wire protocol):
   - **Passkey** and **SIWE/wallet** run the actual WebAuthn / SIWE ceremony against the
     live `impact-a2a` relayer + the ported broker routes (`/connect/*`, `/me`, `/jwks`),
     producing a real Smart Agent + a signed `AgentSession`. See `src/lib/connect.ts` +
@@ -31,7 +31,7 @@ agents. Modeled after [`agenticprimitives/demo-sso-next`](https://github.com/age
     its OAuth client + custody-bridge env is set (below).
 - **Live reads** (Network page, status chip) hit the deployed backends via the
   `/a2a` + `/mcp-bind` rewrites.
-- **Still seeded** (labeled demo content): the org / vault / treasury / trust-graph
+- **Still seeded** (labeled sample content): the org / vault / treasury / trust-graph
   *content* after connect — pending live-vault wiring. The connected identity itself is real.
 
 ## Required configuration (to run connect)
@@ -60,7 +60,7 @@ To enable, set on the Vercel project + register the callback URLs:
   `A2A_CUSTODY_URL` = your impact-a2a, `A2A_CUSTODY_BRIDGE_SECRET` = the value configured
   in **your** impact-a2a. Without it, social sign-in only works for a subject already
   linked to an agent (else it returns `bootstrap`).
-- `DEMO_SSO_AUD` defaults to `impact` (must match the connect aud for custody-grade sessions).
+- `SSO_AUD` defaults to `impact` (must match the connect aud for custody-grade sessions).
 
 ## Layout
 

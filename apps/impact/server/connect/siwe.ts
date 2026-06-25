@@ -5,7 +5,7 @@
 // mapping is DETERMINISTIC (factory CREATE2 of `{ mode:0, custodians:[eoa],
 // salt:0 }` — the same spec impact-a2a's eoa deploy uses), so resolution is: derive
 // the SA, then confirm on-chain (`isDeployed` + `isCustodian`). If it already
-// exists (possibly created via another demo) → RECONNECT (issue a custody-grade
+// exists (possibly created via another flow) → RECONNECT (issue a custody-grade
 // session + record the facet). If not → bootstrap. This is one mechanism (derive +
 // on-chain confirm), and it fixes the AA25 "re-deploy an existing SA" failure.
 import { verify as verifySiwe, parseMessage } from '@agenticprimitives/connect-auth/siwe';
@@ -18,7 +18,7 @@ import { recordCredentialFacet } from '../../src/lib/kv-indexer';
 import { CHAIN_ID, CONTRACTS, DEFAULT_RPC_URL } from '../../src/lib/chain';
 import { isAllowedClientOrigin } from '../../src/lib/oidc-clients';
 
-// CORS-enabled (spec 247) so a relying app (demo-jp) can drive a one-click SIWE
+// CORS-enabled (spec 247) so a relying app can drive a one-click SIWE
 // handoff cross-origin — only for registered relying-app origins.
 function cors(request: Request): Record<string, string> {
   const origin = request.headers.get('Origin') ?? '';
@@ -97,15 +97,7 @@ export const onRequestPost = async ({ request, env }: FnContext): Promise<Respon
     // Reconnect: the canonical SA already exists on-chain.
     const sub = toCanonicalAgentId(CHAIN_ID, sa);
     const { signer } = await getServer(env);
-    // DEMO-ONLY (spec 247): the demo-jp operator agents (Pete/Jill) get a ~10-year
-    // session so their "Sign in at churchcore.me" link from the demo dashboard is
-    // always valid. This is a deliberate, scoped weakening of ONLY these two demo
-    // person agents — NEVER do this for real users. See apps/demo-jp/docs/operator-recovery.md.
-    const DEMO_LONG_LIVED_EOAS = new Set([
-      '0x0376aac07ad725e01357b1725b5cec61ae10473c', // Jill — demo-jp JP broker operator
-      '0xe05fcc23807536bee418f142d19fa0d21bb0cff7', // Pete — demo-jp Global Church operator
-    ]);
-    const ttlSeconds = DEMO_LONG_LIVED_EOAS.has(eoa.toLowerCase()) ? 60 * 60 * 24 * 365 * 10 : 3600;
+    const ttlSeconds = 3600;
     const token = await mintAgentSession(
       { sub, principal, assurance: 'onchain-confirmed', aud: body.aud, iss, ttlSeconds },
       signer,

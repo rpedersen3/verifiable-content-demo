@@ -16,13 +16,13 @@ export interface Profile {
 }
 
 /** Pure seed builder (no DB write) — the encrypted vault adapter materializes +
- *  seals the demo profile into `vault_objects` on first read (the plaintext
+ *  seals the sample profile into `vault_objects` on first read (the plaintext
  *  `profiles` table was dropped in migration 0007). */
 export function buildSeedProfile(owner: string): Profile {
   return {
     owner_address: owner.toLowerCase(),
-    full_name: `Demo User (${owner.slice(0, 6)}…${owner.slice(-4)})`,
-    email: `${owner.slice(2, 10)}@demo.agenticprimitives.local`,
+    full_name: `Sample User (${owner.slice(0, 6)}…${owner.slice(-4)})`,
+    email: `${owner.slice(2, 10)}@example.local`,
     phone: '+1-555-0100',
     notes: 'Seeded by impact-mcp.',
     updated_at: new Date().toISOString(),
@@ -105,7 +105,7 @@ export function createD1AuditSink(
 // These are the payload TYPES the vault seals/returns (the plaintext
 // person_pii/org_sensitive tables + their accessors were dropped in
 // migration 0006 — all reads now go through the encrypted `vault_objects`
-// store via demoVault). Only the type defs + the seed builders below remain.
+// store via vault). Only the type defs + the seed builders below remain.
 
 export interface PersonPii {
   subject_address: string;
@@ -135,19 +135,19 @@ export interface OrgSensitive {
 // ─── spec 277 Phase 2 — envelope-encrypted vault storage ───────────────
 //
 // Pure seed builders (no DB write) so the encrypted vault adapter can
-// materialize the demo PII/org defaults and seal them into `vault_objects`
+// materialize the sample PII/org defaults and seal them into `vault_objects`
 // directly on first read.
 
 export function buildSeedPii(subject: string): PersonPii {
   const addr = subject.toLowerCase();
   return {
     subject_address: addr,
-    full_name: `Demo Person (${subject.slice(0, 6)}…${subject.slice(-4)})`,
-    email: `${subject.slice(2, 10).toLowerCase()}@demo.agenticprimitives.local`,
+    full_name: `Sample Person (${subject.slice(0, 6)}…${subject.slice(-4)})`,
+    email: `${subject.slice(2, 10).toLowerCase()}@example.local`,
     phone: '+1-555-0142',
     dob: '1985-06-15',
     ssn_last4: subject.slice(-4),
-    postal_address: '1 Demo Way, Springfield, IL 62701',
+    postal_address: '1 Sample Way, Springfield, IL 62701',
     notes: 'Seeded by impact-mcp.',
     updated_at: new Date().toISOString(),
   };

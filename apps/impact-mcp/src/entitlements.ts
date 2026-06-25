@@ -1,10 +1,10 @@
 // impact-mcp's entitlement gate (spec 277 Phase 3).
 //
 // Sensitive reads resolve an entitlement BEFORE the vault decrypts any field, and
-// the decision's `allowedFields` scopes the projection. Demo policy (testnet grade):
+// the decision's `allowedFields` scopes the projection. Policy (testnet grade):
 //
 //   - Owner-reads-own (actor == principal) → full access to all requested fields.
-//     This covers the current demo flows where withDelegation recovers the
+//     This covers the current testnet flows where withDelegation recovers the
 //     DELEGATOR (the data owner) and reads its OWN namespace.
 //   - Cross-principal access (a relying party reading another principal's data) →
 //     only the seeded, field/purpose-scoped grants below match; everything else
@@ -21,12 +21,12 @@ import {
   InMemoryEntitlementResolver,
 } from '@agenticprimitives/entitlements';
 
-// Seeded cross-principal grants (illustrative; empty until a demo cross-principal
+// Seeded cross-principal grants (illustrative; empty until a sample cross-principal
 // flow needs one). Add field/purpose-scoped credentials here to exercise scoping.
 const SEEDED: AgenticEntitlementCredentialV1[] = [];
 
-/** The demo entitlement resolver: owner-self → full; otherwise the seeded grants. */
-export function demoEntitlementResolver(): EntitlementResolver {
+/** The entitlement resolver: owner-self → full; otherwise the seeded grants. */
+export function entitlementResolver(): EntitlementResolver {
   const inner = new InMemoryEntitlementResolver(SEEDED);
   return {
     async resolve(q: EntitlementQuery): Promise<EntitlementDecision> {

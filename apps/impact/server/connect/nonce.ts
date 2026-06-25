@@ -1,6 +1,6 @@
 // GET /connect/nonce → a single-use SIWE nonce (KV, 5-min TTL). The browser
 // embeds it in the SIWE message; /connect/siwe consumes it once (replay guard).
-// CORS-enabled (spec 247) so a relying app (demo-jp) can drive a SIWE handoff
+// CORS-enabled (spec 247) so a relying app can drive a SIWE handoff
 // cross-origin — only for registered relying-app origins.
 import { type FnContext } from '../_lib/server-broker';
 import { isAllowedClientOrigin } from '../../src/lib/oidc-clients';

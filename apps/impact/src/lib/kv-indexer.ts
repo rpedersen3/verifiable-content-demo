@@ -57,7 +57,7 @@ export function createKvIndexer(kv: KvLike): IndexerPort {
  *  no on-chain presence, so it resolves from the indexer at `asserted`, NOT through
  *  the directory's on-chain confirmCandidates (which would drop it). spec 227 §5.
  *  SEC-009: returns the FIRST entry from the append-only list — preserves stable
- *  resolution for the demo while keeping the historical chain auditable. Multiple
+ *  resolution for now while keeping the historical chain auditable. Multiple
  *  agents on the same (iss,sub) would be a misconfiguration; the directory's
  *  on-chain confirm step is where that would surface in production. */
 export async function readOidcFacet(kv: KvLike, iss: string, sub: string): Promise<CanonicalAgentId | null> {

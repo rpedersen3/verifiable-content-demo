@@ -1,5 +1,5 @@
 // The REAL Base Sepolia directory for the Connect broker (spec 227 Phase A).
-// Replaces the in-memory fakes + the Google->Alice catch-all of `buildDemoDirectory`
+// Replaces the in-memory fakes + the Google->Alice catch-all of `buildDirectory`
 // with live ports. Resolution doctrine (ADR-0013/0015/0017, spec 227 §5):
 //
 //  - NamingPort: on-chain `resolveName` / `reverseResolve` via AgentNamingClient

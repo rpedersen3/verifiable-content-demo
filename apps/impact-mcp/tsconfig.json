@@ -3,7 +3,7 @@
   "compilerOptions": {
     "outDir": "./dist",
     "types": ["@cloudflare/workers-types", "node"],
-    // Consume built packages — see apps/demo-web/tsconfig.json for rationale.
+    // Consume built packages — see the workspace tsconfig for rationale.
     "paths": {}
   },
   "include": ["src/**/*"]

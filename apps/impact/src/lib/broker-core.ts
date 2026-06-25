@@ -1,5 +1,5 @@
 // Shared broker core — the directory wiring + issuance/verification logic, with
-// the signing key INJECTED. Used by both the in-browser demo broker
+// the signing key INJECTED. Used by both the in-browser broker
 // (src/broker.ts, key generated in-page) and the server-side Pages Function
 // broker (functions/*, key from an env secret). Pure Web Crypto — browser- AND
 // Workers-safe (no node:url; ontology's main entry is browser-safe).
@@ -47,7 +47,7 @@ function memberKey(agent: CanonicalAgentId, p: CredentialPrincipal): string {
   return `${agent}|${p.kind}|${p.id}`;
 }
 
-// The on-chain CURRENT custody set (demo: a Set; production: readContract).
+// The on-chain CURRENT custody set (in-memory: a Set; production: readContract).
 const onChainMembership = new Set<string>([
   memberKey(ALICE, ALICE_PASSKEY),
   memberKey(ALICE, ALICE_OIDC),
@@ -55,9 +55,9 @@ const onChainMembership = new Set<string>([
 ]);
 
 const indexEntries: IndexerEntry[] = [
-  { agent: ALICE, principalKind: 'passkey', principalId: ALICE_PASSKEY.id, assurance: 'asserted', ref: 'demo-index' },
-  { agent: ALICE, principalKind: 'oidc', principalId: ALICE_OIDC.id, assurance: 'asserted', ref: 'demo-index' },
-  { agent: BOB, principalKind: 'passkey', principalId: BOB_PASSKEY.id, assurance: 'asserted', ref: 'demo-index' },
+  { agent: ALICE, principalKind: 'passkey', principalId: ALICE_PASSKEY.id, assurance: 'asserted', ref: 'seed-index' },
+  { agent: ALICE, principalKind: 'oidc', principalId: ALICE_OIDC.id, assurance: 'asserted', ref: 'seed-index' },
+  { agent: BOB, principalKind: 'passkey', principalId: BOB_PASSKEY.id, assurance: 'asserted', ref: 'seed-index' },
 ];
 
 const NAMES: Record<string, Address> = { 'alice.agent': ALICE_ADDR, 'bob.agent': BOB_ADDR };
@@ -72,16 +72,16 @@ function isGoogleOidc(p: CredentialPrincipal): boolean {
 }
 
 /**
- * Build the demo directory (mock ports + seeds). Shared by both broker variants.
+ * Build the directory (mock ports + seeds). Shared by both broker variants.
  *
- * DEMO AID (so a real Google account that isn't pre-seeded still gets a session
+ * CATCH-ALL (so a real Google account that isn't pre-seeded still gets a session
  * on the live site): ANY verified Google login resolves to Alice. A production
  * directory instead maps a specific (iss, sub) → agent via a real indexer +
  * on-chain `confirmsCredential` (and routes a brand-new subject to bootstrap,
- * spec 220). This catch-all is purely a demo convenience, clearly fenced to the
+ * spec 220). This catch-all is purely a dev convenience, clearly fenced to the
  * Google issuer.
  */
-export function buildDemoDirectory(): IdentityDirectory {
+export function buildDirectory(): IdentityDirectory {
   const inMem = createInMemoryIndexer(indexEntries);
   return createDirectory({
     naming: makeNamingPort({
@@ -93,15 +93,15 @@ export function buildDemoDirectory(): IdentityDirectory {
     }),
     onChain: makeOnChainReadPort({
       exists: async (id) => id === ALICE || id === BOB,
-      // Demo aid: confirm any Google login for Alice; otherwise the seeded set.
+      // Catch-all: confirm any Google login for Alice; otherwise the seeded set.
       confirmsCredential: async (id, p) => (isGoogleOidc(p) && id === ALICE) || onChainMembership.has(memberKey(id, p)),
     }),
     indexer: {
       agentsByCredential: (p) => inMem.agentsByCredential(p),
-      // Demo aid: any Google subject proposes Alice; everything else is seeded.
+      // Catch-all: any Google subject proposes Alice; everything else is seeded.
       agentsByOidcSubject: async (iss, sub) =>
         iss === GOOGLE_ISS
-          ? [{ agent: ALICE, assurance: 'asserted', ref: 'demo-google-catchall' }]
+          ? [{ agent: ALICE, assurance: 'asserted', ref: 'google-catchall' }]
           : inMem.agentsByOidcSubject(iss, sub),
     },
   });
@@ -123,7 +123,7 @@ export async function issueForRelyingSite(
 /**
  * Resolve a VERIFIED OIDC subject → agent(s) and issue an aud-bound AgentSession.
  * OIDC resolves via `resolveByOidcSubject(oidcIss, oidcSub)`, NOT
- * `resolveByCredential`: the (iss, sub) pair is the key, and both the demo
+ * `resolveByCredential`: the (iss, sub) pair is the key, and both the in-browser
  * catch-all and a production indexer live on that path (identity-directory
  * doctrine — the broker passes the already-verified subject in). `principal` is
  * the login-grade OIDC facet; `connectIss` is the token issuer (the Connect origin).

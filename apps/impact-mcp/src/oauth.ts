@@ -6,7 +6,7 @@
 // bundle store are app-supplied). It provides exactly enough to let a public
 // HTTP MCP client talk to impact-mcp:
 //
-//   1. A demo authorization endpoint (`mintDemoMcpToken`) that synthesizes an
+//   1. A authorization endpoint (`mintMcpToken`) that synthesizes an
 //      Agentic Grant Bundle, DOGFOODS the vault to store it encrypted, and mints
 //      an HS256 bearer token that carries only a ref + hash to the bundle.
 //   2. An injected `verify` (`createHs256Verify`) for
@@ -14,7 +14,7 @@
 //   3. A vault-backed `GrantBundleStore` so `resolveGrantBundleFromToken` reads
 //      the bundle straight out of the encrypted vault (no second store).
 //
-// Demo-grade, by design: HS256 with a shared secret stands in for a real
+// Testnet-grade, by design: HS256 with a shared secret stands in for a real
 // AS/JWKS, and the bundle's delegation/entitlement/policy hashes are
 // illustrative — the REAL authority chain (entitlement → KAS → required audit →
 // projected decrypt) re-runs server-side off `ap_principal` on every `/mcp`
@@ -107,7 +107,7 @@ export function createHs256Verify(secret: string): (token: string) => Promise<Mc
   };
 }
 
-// ─── local sha256 (the bundle's illustrative demo hashes) ─────────────────
+// ─── local sha256 (the bundle's illustrative placeholder hashes) ─────────────────
 
 async function sha256(input: string): Promise<Sha256> {
   const digest = await globalThis.crypto.subtle.digest('SHA-256', enc.encode(input) as unknown as ArrayBuffer);
@@ -138,9 +138,9 @@ export function createVaultGrantBundleStore(env: OAuthEnv, owner: string): Grant
   };
 }
 
-// ─── demo authorization endpoint ──────────────────────────────────────────
+// ─── authorization endpoint ──────────────────────────────────────────
 
-export interface MintDemoTokenInput {
+export interface MintTokenInput {
   /** The SA whose data the token authorizes reading (becomes `sub` + `ap_principal`). */
   principal: string;
   /** The MCP resource identifier (becomes `aud`/`resource`). */
@@ -154,7 +154,7 @@ export interface MintDemoTokenInput {
   ttlSeconds?: number;
 }
 
-export interface MintDemoTokenResult {
+export interface MintTokenResult {
   access_token: string;
   token_type: 'Bearer';
   expires_in: number;
@@ -166,13 +166,13 @@ const DEFAULT_SCOPES = ['mcp:invoke', 'vault:read', 'vault:pii:read'];
 const DEFAULT_TTL_SECONDS = 300;
 
 /**
- * Demo authorization: synthesize an Agentic Grant Bundle, store it encrypted in
+ * Authorization: synthesize an Agentic Grant Bundle, store it encrypted in
  * the vault, and mint an HS256 bearer token bound to the bundle by ref + hash
  * (never carrying the delegation/entitlement payload — spec 277 §8).
  */
-export async function mintDemoMcpToken(env: OAuthEnv, input: MintDemoTokenInput): Promise<MintDemoTokenResult> {
+export async function mintMcpToken(env: OAuthEnv, input: MintTokenInput): Promise<MintTokenResult> {
   if (!env.OAUTH_SIGNING_SECRET) {
-    throw new Error('mintDemoMcpToken: OAUTH_SIGNING_SECRET is required to mint demo MCP tokens (spec 277 Phase 6).');
+    throw new Error('mintMcpToken: OAUTH_SIGNING_SECRET is required to mint MCP tokens (spec 277 Phase 6).');
   }
   const now = new Date();
   const ttl = input.ttlSeconds ?? DEFAULT_TTL_SECONDS;
@@ -190,17 +190,17 @@ export async function mintDemoMcpToken(env: OAuthEnv, input: MintDemoTokenInput)
     principal: { id: input.principal },
     mcp: { resourceUri: input.audience, serverId: 'impact-mcp' },
     delegation: {
-      // Illustrative demo hashes — the real authority chain re-runs server-side
+      // Illustrative placeholder hashes — the real authority chain re-runs server-side
       // off `ap_principal` in /mcp (owner-reads-own via the entitlement resolver).
-      delegationHash: await sha256(`demo-delegation:${input.principal}`),
+      delegationHash: await sha256(`delegation:${input.principal}`),
       expiresAt,
-      caveatsHash: await sha256(`demo-caveats:${input.principal}`),
+      caveatsHash: await sha256(`caveats:${input.principal}`),
       revocation: { mode: 'none' },
     },
     entitlements: [],
     constraints: { maxTtlSeconds: ttl, redactByDefault: true },
     replay: { jtiSeed: globalThis.crypto.randomUUID(), nonceScope: 'oauth-token' },
-    policy: { profile: 'mcp-delegated-vault-v1', policyHash: await sha256(`demo-policy:${input.audience}`), toolPolicyVersion: '1' },
+    policy: { profile: 'mcp-delegated-vault-v1', policyHash: await sha256(`policy:${input.audience}`), toolPolicyVersion: '1' },
     issuedAt,
     expiresAt,
     status: 'active',
@@ -211,7 +211,7 @@ export async function mintDemoMcpToken(env: OAuthEnv, input: MintDemoTokenInput)
   // token for a person with no binding fails closed (no global key for person data).
   const pv = await resolvePersonVault(env, input.principal);
   if (!pv) {
-    throw new Error('mintDemoMcpToken: principal has no vault-key binding (spec 278); run the connected-custodian ceremony before issuing tokens.');
+    throw new Error('mintMcpToken: principal has no vault-key binding (spec 278); run the connected-custodian ceremony before issuing tokens.');
   }
   await pv.vault.write({
     owner: input.principal,

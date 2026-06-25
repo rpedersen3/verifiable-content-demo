@@ -52,7 +52,7 @@ export interface TreasuryInfo {
 }
 
 /** Detect the person's treasury by the naming convention `<handle>-treasury.impact`
- *  (the same money-agent demo-sso-next shows), resolve it via the naming service, and
+ *  (the same money-agent impact shows), resolve it via the naming service, and
  *  read its live USDC balance. Returns exists:false when the person has no treasury yet. */
 export function usePersonTreasury(handle?: string | null): TreasuryInfo {
   const [state, setState] = useState<TreasuryInfo>({ exists: false, name: null, address: null, usdc: null, loading: true });

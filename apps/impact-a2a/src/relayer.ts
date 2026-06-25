@@ -1,4 +1,4 @@
-// Demo-a2a relayer factory — KMS-backed funded signer for the 4
+// impact-a2a relayer factory — KMS-backed funded signer for the 4
 // non-identity-bearing operator routes.
 //
 // R5.12d / PKG-KEY-CUSTODY-009-+-010 / PKG-AGENT-ACCOUNT-005 closure.

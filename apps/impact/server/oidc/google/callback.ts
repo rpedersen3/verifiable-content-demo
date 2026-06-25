@@ -149,7 +149,7 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
   // so it does NOT go through the directory's on-chain confirmCandidates.
   const oidcIss = result.principal.iss;
   const oidcSub = result.principal.sub;
-  const custodyAud = env.DEMO_SSO_AUD ?? 'demo-sso';
+  const custodyAud = env.SSO_AUD ?? 'impact';
   // Google × KMS custody is offered ONLY for the Personal-Home aud (spec 235).
   // Relying-app auds stay login-grade — their members onboard via the Personal Home.
   const custodyEligible = stash.aud === custodyAud;

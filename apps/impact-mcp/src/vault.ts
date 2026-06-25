@@ -13,7 +13,7 @@
 // `VaultKeyBinding` and wields that person's GCP Cloud KMS KEK. There is NO
 // global key (VKB-D1) — no binding ⇒ fail-closed (`vault_key_unauthorized`).
 // This adapter never selects a backend; it just seals/opens under the wrapper
-// it is handed (see the per-person construction note at `createDemoVault`).
+// it is handed (see the per-person construction note at `createVault`).
 
 import type { Vault, VaultObject, VaultReadRequest, VaultWriteRequest, VaultRef, VaultClassification, DekWrapper } from '@agenticprimitives/vault';
 import { sealEnvelope, openEnvelope, projectFields } from '@agenticprimitives/vault';
@@ -59,13 +59,13 @@ function b64decode(s: string): Uint8Array {
   return out;
 }
 
-// spec 278 P4 — there is NO `demoVault(env)` global anymore. A single global
+// spec 278 P4 — there is NO `vault(env)` global anymore. A single global
 // DEK-wrapping key that decrypts every owner is exactly what VKB-D1 forbids. The
 // Vault is built per-person from that person's KEK via `resolvePersonVault`
-// (src/vault-key.ts), which calls `createDemoVault(db, perPersonWrapper)` below.
+// (src/vault-key.ts), which calls `createVault(db, perPersonWrapper)` below.
 
 /** The encrypted adapter (wrapper injected — testable + KMS-swappable). */
-export function createDemoVault(db: D1Database, wrapper: DekWrapper): Vault {
+export function createVault(db: D1Database, wrapper: DekWrapper): Vault {
   async function seal(owner: string, resource: string, classification: VaultClassification, data: unknown): Promise<void> {
     const sealed = await sealEnvelope({ owner, resource, classification, data, wrapper });
     await putVaultObjectRow(db, {

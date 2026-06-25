@@ -13,7 +13,7 @@ export default function TreasuryPage() {
   const { person, active } = useSession();
   const isOrg = active.mode === "org";
   // The person's money agent is `<handle>-treasury.impact` — detected live via the
-  // naming service (same convention demo-sso-next uses), with its on-chain balance.
+  // naming service (same convention impact uses), with its on-chain balance.
   const treas = usePersonTreasury(isOrg ? null : person?.handle);
   // Fallback: the person SA's own balance, used only if there's no treasury agent yet.
   const selfBal = useAgentBalances(isOrg ? undefined : person?.address);

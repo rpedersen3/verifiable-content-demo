@@ -3,13 +3,13 @@
 // ============================================================================
 // Session + active-context.
 //
-// Connect is REAL now (spec parity with demo-sso-next): passkey and wallet/SIWE
+// Connect is REAL now (spec parity with impact): passkey and wallet/SIWE
 // run the actual WebAuthn / SIWE ceremony against the live impact-a2a relayer + the
 // ported broker routes (/connect/*, /me), producing a real Smart Agent + a signed
 // AgentSession. `identity` holds that real connected agent.
 //
 // The seeded `person` (orgs / vault / treasury / trust-graph content) is retained
-// as labeled demo content layered under the real identity until those surfaces are
+// as labeled sample content layered under the real identity until those surfaces are
 // wired to the live vault.
 //
 // "Active context": act AS YOURSELF (person) or AS CUSTODIAN of an org you steward.
@@ -40,7 +40,7 @@ interface SessionState {
   phase: Phase;
   /** real connected agent (from the live ceremony). */
   identity: Identity | null;
-  /** seeded demo content backing the org/vault/treasury/graph surfaces. */
+  /** seeded sample content backing the org/vault/treasury/graph surfaces. */
   person: Person | null;
   token: string | null;
   active: ActiveContext;
@@ -67,7 +67,7 @@ const SessionCtx = createContext<SessionApi | null>(null);
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /** Render the home for the REAL connected agent: overlay its name/handle/address onto
- *  the seeded person (the orgs/vault/treasury content stays demo data for now, but the
+ *  the seeded person (the orgs/vault/treasury content stays sample data for now, but the
  *  identity surfaces — greeting, You card, topbar — reflect who actually connected). */
 function personFromIdentity(id: Identity): Person {
   const label = id.name ? nameLabel(id.name) : shortAddr(id.address);

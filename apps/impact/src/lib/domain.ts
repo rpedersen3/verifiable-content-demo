@@ -1,4 +1,4 @@
-// THE single source of demo-sso-next's deployment-domain config (ADR-0021).
+// THE single source of impact's deployment-domain config (ADR-0021).
 // No other file in this app should hardcode a hostname or the name TLD — import
 // from here. This module is deployment-specific BY DESIGN and must never be
 // hoisted into packages/* (enforced by `pnpm check:no-domain-in-packages`).
@@ -82,12 +82,12 @@ export function personalAuthOrigin(label: string): string {
   return `https://${label}.${CONNECT_DOMAIN}`;
 }
 
-/** The `.agent` name for a label (alice → alice.demo.agent). */
+/** The `.agent` name for a label (alice → alice.impact). */
 export function agentNameForLabel(label: string): string {
   return `${label}.${AGENT_NAME_PARENT}`;
 }
 
-/** The label of a name (alice.demo.agent → alice; alice → alice). */
+/** The label of a name (alice.impact → alice; alice → alice). */
 export function nameLabel(name: string): string {
   return (
     name
@@ -99,7 +99,7 @@ export function nameLabel(name: string): string {
   );
 }
 
-/** Normalize any name/label to its full `<label>.demo.agent` form. */
+/** Normalize any name/label to its full `<label>.impact` form. */
 export function toAgentName(nameOrLabel: string): string {
   const n = nameOrLabel.trim().toLowerCase();
   return n.endsWith(`.${AGENT_NAME_PARENT}`) ? n : `${nameLabel(n)}.${AGENT_NAME_PARENT}`;

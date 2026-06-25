@@ -8,12 +8,12 @@ MCP gave agents a universal tool socket. It did not give them an authority model
 
 > Delegation token arrives → signature and caveats verified → JTI single-use check against D1 (replay protection) → tool executes for exactly the principal the delegation names → audit event recorded.
 
-The Worker holds demo PII and per-agent vault records in D1, and exposes delegation-verified tools:
+The Worker holds sample PII and per-agent vault records in D1, and exposes delegation-verified tools:
 
 - `get_profile` — read the caller's profile
 - `get_pii` — sensitive fields, gated at a higher bar
 - `get_org_sensitive` — organization-scoped sensitive reads
-- `get_vault_record` / `set_vault_record` / `list_vault_record` — the per-agent MCP vault ([spec 247](../../specs/247-per-agent-mcp-vault.md)) that [`demo-jp`](../demo-jp) and [`demo-gs`](../demo-gs) use as their source of truth
+- `get_vault_record` / `set_vault_record` / `list_vault_record` — the per-agent MCP vault ([spec 247](../../specs/247-per-agent-mcp-vault.md)) that relying apps use as their source of truth
 - `update_profile` — declared but still a 501 stub (honest status, see below)
 
 Replay protection is not a middleware afterthought: the JTI store uses D1's atomic `INSERT … ON CONFLICT … RETURNING`, so a replayed token loses the race at the database, not in application code. Tools carry classification tags (`@sa-tool`, `@sa-auth`, `@sa-risk-tier`) per [spec 204](../../specs/204-tool-policy.md), and the canonical audit walkthrough lives in [`docs/audit/guide.md`](docs/audit/guide.md).

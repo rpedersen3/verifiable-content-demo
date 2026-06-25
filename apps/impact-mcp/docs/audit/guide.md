@@ -2,7 +2,7 @@
 
 This guide walks through adopting agenticprimitives' append-only audit trail in your own MCP server (or A2A worker, or any consumer of the platform's primitives). It pairs with [spec 206](../../../../specs/206-audit.md), which is the architect's design doc.
 
-The canonical implementation lives in this app (`apps/impact-mcp/`) — `composeSinks(console, d1)` with a PII guardrail wrapped around the D1 sink, correlation-stitched across the a2a → mcp service boundary. You can run the demo, hit `/tools/get_profile`, then `wrangler d1 execute impact-mcp --remote --command "SELECT … FROM audit_events"` to see the trail.
+The canonical implementation lives in this app (`apps/impact-mcp/`) — `composeSinks(console, d1)` with a PII guardrail wrapped around the D1 sink, correlation-stitched across the a2a → mcp service boundary. You can hit `/tools/get_profile`, then `wrangler d1 execute impact-mcp --remote --command "SELECT … FROM audit_events"` to see the trail.
 
 ## What you get
 
@@ -158,9 +158,9 @@ Allowlisted context keys (hex passes through unchanged): `signerAddress`, `addre
 ## What this guide doesn't cover
 
 - **Cross-app destination unification** — impact-a2a is still console-only (no D1 binding). Spec 206 § 11 open question.
-- **Identity-auth caller-emit pattern** — `identity-auth` itself is forbidden from importing `audit` per the dep doctrine; the consuming app emits at call sites. Demo doesn't exercise this yet.
+- **Identity-auth caller-emit pattern** — `identity-auth` itself is forbidden from importing `audit` per the dep doctrine; the consuming app emits at call sites. Not exercised yet.
 - **Cloud Logging / Splunk / Datadog sinks** — straightforward to implement on top of `AuditSink`; not shipped.
 
 ## Related capabilities
 
-- **Multi-sig + threshold policy** — when you ship multi-sig in your app, the same correlation IDs stitch threshold-approval flows. See [`apps/demo-web-pro/docs/multi-sig/guide.md`](../../../demo-web-pro/docs/multi-sig/guide.md).
+- **Multi-sig + threshold policy** — when you ship multi-sig in your app, the same correlation IDs stitch threshold-approval flows. See your app's multi-sig guide.

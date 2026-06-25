@@ -1,4 +1,4 @@
-// Demo-a2a config loader. Reads env vars + the deployments JSON written by
+// Config loader for impact-a2a. Reads env vars + the deployments JSON written by
 // packages/contracts/script/Deploy.s.sol. Fails fast at boot if required env is
 // missing.
 
@@ -6,7 +6,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Address } from '@agenticprimitives/types';
 
-export interface DemoA2aConfig {
+export interface A2aConfig {
   port: number;
   rpcUrl: string;
   chainId: number;
@@ -30,7 +30,7 @@ function require_(name: string): string {
   return v;
 }
 
-function loadDeployments(): DemoA2aConfig['deployments'] {
+function loadDeployments(): A2aConfig['deployments'] {
   const network = process.env.DEPLOY_NETWORK ?? 'anvil';
   const path = join(
     process.env.DEPLOYMENTS_DIR ?? join(process.cwd(), '..', 'contracts'),
@@ -53,7 +53,7 @@ function loadDeployments(): DemoA2aConfig['deployments'] {
   };
 }
 
-export function loadConfig(): DemoA2aConfig {
+export function loadConfig(): A2aConfig {
   // Required regardless of signer backend:
   require_('SESSION_JWT_SECRETS');
   require_('CSRF_SECRET');

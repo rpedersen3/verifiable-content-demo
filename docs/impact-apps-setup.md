@@ -107,7 +107,7 @@ Copy this repo's `apps/impact-mcp` → `apps/<home>-mcp` and `apps/impact-a2a` �
 versions, unique dev port/persist-to, D1 scripts target `<home>-mcp`. `wrangler.toml`:
 `name = "<home>-mcp"`, both `[[d1_databases]]` blocks `database_name = "<home>-mcp"` + the id from §3,
 keep `[env.production.vars]` (`CHAIN_ID="84532"`, `MCP_AUDIENCE="urn:mcp:server:person"`,
-`DEMO_OAUTH_MINT_ENABLED="true"`, `DEMO_VAULT_PROVISION_ENABLED="true"` — testnet-only).
+`OAUTH_MINT_ENABLED="true"`, `VAULT_PROVISION_ENABLED="true"` — testnet-only).
 
 **`<home>-a2a`** — same package rename. `wrangler.toml`: `name = "<home>-a2a"`; **keep it route-less**
 (`impact-a2a` has no custom `routes` — you reach the worker via its `workers.dev` URL through the Next
@@ -149,7 +149,7 @@ it; keys are regional). Then **Create key** for each:
 |---|---|---|
 | **signer** (e.g. `a2a-master`) | Purpose **Asymmetric sign**; Algorithm **Elliptic Curve secp256k1 - SHA256** (`EC_SIGN_SECP256K1_SHA256`); Protection level **HSM** (or Software) | `GCP_KMS_KEY_NAME` — the **version** path `…/cryptoKeys/a2a-master/cryptoKeyVersions/1` |
 | **envelope** (e.g. `agent-envelope`) | Purpose **Symmetric encrypt/decrypt** | `GCP_KMS_ENCRYPT_KEY_NAME` — the **key** path `…/cryptoKeys/agent-envelope` (no version) |
-| **vault KEKs** (per-person) | Purpose **Symmetric encrypt/decrypt**; created **on demand** by `<home>-mcp` when `DEMO_VAULT_PROVISION_ENABLED=true`, named by person-SA address, in a `vault-keks` ring | resolved per-person at runtime from each `VaultKeyBinding` |
+| **vault KEKs** (per-person) | Purpose **Symmetric encrypt/decrypt**; created **on demand** by `<home>-mcp` when `VAULT_PROVISION_ENABLED=true`, named by person-SA address, in a `vault-keks` ring | resolved per-person at runtime from each `VaultKeyBinding` |
 
 > A KMS/HSM key is **never exported to a file** — you reference it by resource path and it signs
 > inside the HSM. The signer's Ethereum address is *derived* from its public key (§4.3).
@@ -162,7 +162,7 @@ you need). Grant it, on the key ring (Key Management → ring → **Permissions*
 
 - `roles/cloudkms.signerVerifier` — sign with the secp256k1 key
 - `roles/cloudkms.cryptoKeyEncrypterDecrypter` — envelope + vault KEK encrypt/decrypt
-- `roles/cloudkms.admin` on the **vault-keks** ring **only if** `DEMO_VAULT_PROVISION_ENABLED=true`
+- `roles/cloudkms.admin` on the **vault-keks** ring **only if** `VAULT_PROVISION_ENABLED=true`
   (the app creates a KEK per owner on demand)
 
 ### 4.3 Find a key's path + derived address (gcloud-free)
@@ -261,7 +261,7 @@ const IMPACT_MCP_URL = process.env.IMPACT_MCP_URL || 'https://<home>-mcp-product
 | `BROKER_PRIVATE_JWK`, `BROKER_KID` | **yes** | home mints `AgentSession` JWTs (ES256). Generate: `node apps/<home>/scripts/gen-broker-key.mjs`. JWK is **Sensitive**; only the public half serves at `/jwks`. |
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_URL`/`_TOKEN`) | **yes** | OIDC `state` + nonces span isolates → must be real KV, not in-memory. |
 | `RPC_URL` | yes | Base Sepolia (keyed in prod) |
-| `DEMO_SSO_AUD` | dflt `impact` | must equal `<home>-a2a`'s `DEMO_SSO_AUD` |
+| `SSO_AUD` | dflt `impact` | must equal `<home>-a2a`'s `SSO_AUD` |
 | `ALLOWED_ISSUER_HOSTS` | opt | unset = accept the serving host (runs on any domain) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`(**sensitive**), `GOOGLE_REDIRECT_URI` | for Google | `…/oidc/google/callback` exact-match (§5) |
 | `YOUVERSION_CLIENT_ID`, `YOUVERSION_REDIRECT_URI` | for YV | YouVersion redirect auto-derives from host |
@@ -282,7 +282,7 @@ Agent (else the callback returns `?connect_status=bootstrap`). The broker (Next)
 1. Generate one secret; set it on **both** sides (same value):
    `wrangler secret put A2A_CUSTODY_BRIDGE_SECRET --env production` (in `apps/<home>-a2a`) **and** on
    the Vercel project.
-2. `A2A_CUSTODY_URL` defaults to `IMPACT_A2A_URL`; `DEMO_SSO_AUD` must match on both.
+2. `A2A_CUSTODY_URL` defaults to `IMPACT_A2A_URL`; `SSO_AUD` must match on both.
 3. **`BROKER_ISS`** on `<home>-a2a` must equal the home origin (`https://www.<domain>`) — the
    `bootstrap-and-claim`/`sign` gate verifies broker-minted sessions against it. **One `<home>-a2a`
    custody-gates exactly one issuer** — if you run multiple home domains off one worker, only one can

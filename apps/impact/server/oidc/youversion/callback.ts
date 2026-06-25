@@ -152,7 +152,7 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
 
   const oidcIss = result.principal.iss;
   const oidcSub = result.principal.sub;
-  const custodyAud = env.DEMO_SSO_AUD ?? 'demo-sso';
+  const custodyAud = env.SSO_AUD ?? 'impact';
   // KMS custody is offered ONLY for the Personal-Home aud (spec 235); relying-app auds stay login-grade.
   const custodyEligible = stash.aud === custodyAud;
   const rotation = await readRotation(env.AUTH_CODES, oidcIss, oidcSub);

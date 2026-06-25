@@ -1,4 +1,4 @@
-// CSRF helper (ported from demo-web) — pairs with impact-a2a's /auth/csrf.
+// CSRF helper — pairs with impact-a2a's /auth/csrf.
 // Double-submit: a non-HttpOnly cookie JS can read, echoed in X-CSRF-Token.
 //
 // SEC-012: the cache invalidates when the cookie is missing or has changed

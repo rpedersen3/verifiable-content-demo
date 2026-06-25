@@ -4,7 +4,7 @@
 // The broker SIGNING KEY lives server-side here (an env secret), never in the
 // browser — that is the whole point of the broker being a server (ADR-0014).
 // The directory + issuance/verification logic is the SAME broker-core the
-// in-browser demo uses; only the key source + the transport differ.
+// in-browser broker uses; only the key source + the transport differ.
 
 import { publishJwks } from '@agenticprimitives/connect';
 import { signerFromPrivateJwk } from '../../src/lib/broker-core';
@@ -67,9 +67,9 @@ export interface Env {
    *  `A2A_CUSTODY_BRIDGE_SECRET`. */
   A2A_CUSTODY_BRIDGE_SECRET?: string;
   /** The Personal-Home `aud` for which Google sign-in mints a CUSTODY-grade,
-   *  KMS-custodied session. Defaults to `'demo-sso'`. Relying-app auds stay
+   *  KMS-custodied session. Defaults to `'impact'`. Relying-app auds stay
    *  login-grade (they onboard members through the Personal Home). */
-  DEMO_SSO_AUD?: string;
+  SSO_AUD?: string;
 
   /** SEC-006: comma-separated allowlist of inbound `Host` headers the broker will
    *  mint id_tokens for. Wildcards like `*.churchcore.me` match exactly one label.
@@ -91,7 +91,7 @@ export async function getServer(env: Env) {
   }
   const signer = await signerFromPrivateJwk(JSON.parse(env.BROKER_PRIVATE_JWK), env.BROKER_KID ?? 'broker-1');
   // Real Base Sepolia resolution (spec 227 §5): live naming + on-chain custody +
-  // a persistent KV login-facet index. Replaces the in-memory demo directory.
+  // a persistent KV login-facet index. Replaces the in-memory directory.
   const directory = buildRealDirectory({ rpcUrl: env.RPC_URL, indexer: createKvIndexer(env.AUTH_CODES) });
   const jwks = await publishJwks([signer]);
   return { signer, directory, jwks };

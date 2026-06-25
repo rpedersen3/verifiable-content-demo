@@ -1,6 +1,6 @@
 "use client";
 
-// The onboarding REWARD beat (ported from demo-sso-next HomeResolvedView): shown right
+// The onboarding REWARD beat (ported from impact HomeResolvedView): shown right
 // after a connect THIS session. A brand-new home → "You're in"; a reconnect → "Welcome
 // back". A restored session (page reload) skips this entirely (gate gates on justConnected).
 import { useRouter } from "next/navigation";

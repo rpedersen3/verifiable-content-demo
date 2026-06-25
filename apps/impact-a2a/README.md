@@ -11,12 +11,12 @@ Every agentic stack has a moment where a human's intent crosses into autonomous 
 Concretely, this Worker:
 
 - **Verifies authentication** — SIWE (including on-chain ERC-1271/ERC-6492 signature verification for smart accounts) and custody-grade sessions, with CSRF and origin enforcement.
-- **Relays on-chain actions** — builds and submits Smart Agent deploys, batched executes, and paymaster-sponsored UserOps so demo users never need gas.
+- **Relays on-chain actions** — builds and submits Smart Agent deploys, batched executes, and paymaster-sponsored UserOps so users never need gas.
 - **Holds session state in a Durable Object** — per-user sessions live in `SessionStoreDO`; signing keys are handled through the KMS abstraction, not ambient environment access.
 - **Mints `DelegationToken` envelopes** — the bridge from a user-signed EIP-712 delegation to a bounded, JTI-tracked token a downstream MCP server can verify independently.
 - **Proxies MCP vault and tool calls** — the same Worker fronts [`impact-mcp`](../impact-mcp) for the browser apps, so every tool call arrives delegation-first.
 
-Every browser demo in this repo — [`demo-web`](../demo-web), [`demo-web-pro`](../demo-web-pro), [`demo-sso`](../demo-sso), [`demo-org`](../demo-org), [`demo-gs`](../demo-gs) — routes its `/a2a/*` traffic here. One boundary, one authority model.
+Browser clients (e.g. [`impact`](../impact)) route their `/a2a/*` traffic here. One boundary, one authority model.
 
 ## Packages composed
 
@@ -38,10 +38,10 @@ pnpm dev
 pnpm dev:a2a    # wrangler dev on http://127.0.0.1:8787
 ```
 
-Local secrets and contract addresses come from `.dev.vars` (wrangler convention). Deploy with `pnpm --filter @agenticprimitives-demo/a2a deploy`.
+Local secrets and contract addresses come from `.dev.vars` (wrangler convention). Deploy with `pnpm deploy:impact` (or `pnpm --filter @verifiable-content-demo/impact-a2a deploy`).
 
 ## Status
 
-Reference implementation, not a product. Runs live against Base Sepolia (chain 84532) and local Anvil. The relayer and demo session secrets are development-grade by design — production custody is the job of [`key-custody`](../../packages/key-custody)'s KMS backends. Production launch of the substrate is gated on the public checklist in the [root README](../../README.md); findings are tracked live in [`docs/audits/findings.yaml`](../../docs/audits/findings.yaml).
+Reference implementation, not a product. Runs live against Base Sepolia (chain 84532) and local Anvil. The relayer and session secrets are development-grade by design — production custody is the job of [`key-custody`](../../packages/key-custody)'s KMS backends. Production launch of the substrate is gated on the public checklist in the [root README](../../README.md); findings are tracked live in [`docs/audits/findings.yaml`](../../docs/audits/findings.yaml).
 
 Validate: `pnpm check:impact-a2a`.

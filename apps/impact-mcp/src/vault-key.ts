@@ -30,7 +30,7 @@ import {
 } from '@agenticprimitives/delegation';
 import { selectVaultKeyProvider } from '@agenticprimitives/key-custody';
 import { canonicalize, sha256Hex, type Sha256 } from '@agenticprimitives/key-authorization';
-import { createDemoVault } from './vault.js';
+import { createVault } from './vault.js';
 import { getVaultKeyBindingRow, putVaultKeyBindingRow, type VaultKeyBindingRow } from './db.js';
 
 /** The host id a person SA authorizes in its VaultKeyBinding. */
@@ -118,7 +118,7 @@ export async function resolvePersonVault(env: VaultKeyEnv, owner: string): Promi
   return {
     binding: bindingFromRow(row),
     authorization: delegationFromWire(row.authorization_json), // salt → bigint for hashDelegation
-    vault: createDemoVault(env.DB, wrapper),
+    vault: createVault(env.DB, wrapper),
   };
 }
 

@@ -1,4 +1,4 @@
-// HMAC envelope VERIFIER for the demo-sso-next ↔ impact-a2a custody bridge (SEC-010).
+// HMAC envelope VERIFIER for the impact ↔ impact-a2a custody bridge (SEC-010).
 //
 // Expects the request to carry:
 //   X-Bridge-Timestamp: <unix-ms>

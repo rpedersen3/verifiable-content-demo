@@ -1,7 +1,7 @@
 // GET /me/profile      → basic profile (any valid AgentSession; login-grade OK)
 // GET /me/sensitive    → sensitive PII (custody-grade only; else 403 step-up)
 //
-// The demo's "person MCP": served from the Connect origin, it verifies the
+// The "person MCP": served from the Connect origin, it verifies the
 // SAME-origin AgentSession against the broker's published JWKS (connect's
 // importJwks + verifyAgentSession — app-layer verify per spec 227 §7/U1), then
 // gates on the session's assurance (P1-E). Token via `Authorization: Bearer` or
@@ -64,7 +64,7 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
     return json({ error: 'invalid AgentSession: issuer not trusted' }, 401);
   }
 
-  // Best-effort .demo.agent name for the basic profile (on-chain reverse-resolve).
+  // Best-effort .impact name for the basic profile (on-chain reverse-resolve).
   let name: string | null = null;
   try {
     const view = await directory.agent(session.sub);

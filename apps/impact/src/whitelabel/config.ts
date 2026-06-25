@@ -1,6 +1,6 @@
 // Whitelabel config — the "Impact" faith vertical. Branding + member-facing
 // vocabulary live here so the substrate stays vertical-agnostic (same pattern as
-// demo-sso-next's src/whitelabel). Tone: warm, unhurried, stewardship language.
+// impact's src/whitelabel). Tone: warm, unhurried, stewardship language.
 
 import type { Via } from "@/context/session";
 

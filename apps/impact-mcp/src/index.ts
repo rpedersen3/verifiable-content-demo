@@ -37,7 +37,7 @@ import {
 import { resolvePersonVault, buildVaultKeyVerifier, verifyAndStoreBinding, isVaultKeyBound, VAULT_SERVER_ID, type PersonVault } from './vault-key';
 import { verifyVaultKeyAuthorization } from '@agenticprimitives/key-authorization';
 import type { Delegation } from '@agenticprimitives/delegation';
-import { demoEntitlementResolver } from './entitlements';
+import { entitlementResolver } from './entitlements';
 import type { EntitlementClassification } from '@agenticprimitives/entitlements';
 import { authorizeDecrypt } from './kas';
 import { resolveAgentName } from './naming';
@@ -51,7 +51,7 @@ import {
   buildInsufficientScopeResponse,
   MCP_OAUTH_SCOPES,
 } from '@agenticprimitives/mcp-oauth';
-import { createHs256Verify, createVaultGrantBundleStore, mintDemoMcpToken } from './oauth';
+import { createHs256Verify, createVaultGrantBundleStore, mintMcpToken } from './oauth';
 
 // Per-request audit sink (audit C3 pass 3b). composeSinks fans out to:
 //   - console (surfaces in `wrangler tail` for live ops debugging)
@@ -171,7 +171,7 @@ async function readSensitive(
   if (!pv) return { ok: false, error: 'vault_key_unauthorized', served_by: spec.servedBy };
 
   // Phase 3: resolve the entitlement BEFORE decrypting; allowedFields scopes the projection.
-  const decision = await demoEntitlementResolver().resolve({
+  const decision = await entitlementResolver().resolve({
     actor: principal,
     principal,
     audience: ctx.audience,
@@ -287,28 +287,28 @@ export interface Env {
   GCP_KEK_LOCATION?: string;
   GCP_KEK_KEYRING?: string;
   /** Gates POST /custody/vault-key/provision (on-demand KEK creation — wields the admin credential).
-   *  Fail-closed: the route 404s unless this is 'true'. The demo sets it; production leaves it unset
+   *  Fail-closed: the route 404s unless this is 'true'. Testnet sets it; production leaves it unset
    *  and provisions out of band. */
-  DEMO_VAULT_PROVISION_ENABLED?: string;
+  VAULT_PROVISION_ENABLED?: string;
   /** This server's authorized delegate, advertised by GET /custody/vault-key/server-info so the
    *  ceremony auto-fills it. Default is a placeholder (the read verifier doesn't pin it yet). */
   VAULT_KEY_SERVER_DELEGATE?: string;
 
   // ─── OAuth ingress (spec 277 Phase 6) ─────────────────────────────────
   /**
-   * HS256 signing secret for the demo MCP authorization endpoint. Stands in for a real
-   * authorization server + JWKS (demo-grade): the OAuth `/mcp` route is ONLY a public-client
+   * HS256 signing secret for the MCP authorization endpoint. Stands in for a real
+   * authorization server + JWKS (testnet-grade): the OAuth `/mcp` route is ONLY a public-client
    * ingress adapter — the real authority chain (entitlement → KAS → required audit → decrypt)
    * re-runs server-side off the grant bundle's principal, so the token is never trusted as
    * authority. Required for `/oauth/token` + `/mcp`; when unset those routes fail closed.
    */
   OAUTH_SIGNING_SECRET?: string;
   /**
-   * Enables the OPEN demo authorization endpoint (`/oauth/token`). Fail-closed: the route
-   * 404s unless this is exactly 'true'. The testnet demo sets it (mock seed data only); a
+   * Enables the OPEN authorization endpoint (`/oauth/token`). Fail-closed: the route
+   * 404s unless this is exactly 'true'. Testnet sets it (mock seed data only); a
    * real production leaves it unset and wires a real authorization server + JWKS instead.
    */
-  DEMO_OAUTH_MINT_ENABLED?: string;
+  OAUTH_MINT_ENABLED?: string;
 }
 
 function baseConfig(env: Env): McpResourceVerifyConfig {
@@ -331,13 +331,13 @@ function baseConfig(env: Env): McpResourceVerifyConfig {
     // AND off-chain read calls.
     enforceOnChain: true,
     jtiStore: createD1JtiStore(env.DB),
-    // requireDeployed defaults to true (fail-closed). The demo deploys smart
+    // requireDeployed defaults to true (fail-closed). It deploys smart
     // accounts via paymaster-sponsored UserOp in Step 1.5 before any
     // delegation is issued, so ERC-1271 verification against the live
     // on-chain contract is the production-grade behavior.
     //
     // DEL-001 (ADR-0036): the delegation library now ENFORCES the session-delegate binding by default.
-    // This base (persona / non-client-minted) path issues UNBOUND tokens (the demo's deterministic
+    // This base (persona / non-client-minted) path issues UNBOUND tokens (the deterministic
     // operator-key story — accepted testnet hole C-1), so it EXPLICITLY opts out. Client-minted vault
     // calls use `vaultConfig`, which keeps the default (binding enforced). The opt-out is greppable.
     allowUnboundSessionToken: true,
@@ -594,7 +594,7 @@ app.post('/tools/get_pii', async (c) => {
 // delegation, `principal` resolves to the Org address, MCP returns
 // Org-internal data (revenue, EIN, banking, …).
 
-// Same rationale as get_pii — kept at T1 for the demo. Bumping to T3
+// Same rationale as get_pii — kept at T1 on testnet. Bumping to T3
 // (`high`) would require Act 5 to attach a QuorumCaveat naming the
 // Org's 2-of-N custodian set to every Org-sensitive delegation.
 const GET_ORG_SENSITIVE_CLASSIFICATION = {
@@ -792,7 +792,7 @@ app.post('/tools/list_vault_record', async (c) => {
 // never reused downstream (spec 277 §6–§8, §15).
 //
 //   GET  /.well-known/oauth-protected-resource[/mcp]   discovery (RFC 9728)
-//   POST /oauth/token                                  demo authorization (mint; dev-only)
+//   POST /oauth/token                                  authorization (mint; dev-only)
 //   POST /mcp                                          bearer-gated tool call
 
 // The OAuth-exposed tools and their sensitive-read specs (same chain as the
@@ -804,7 +804,7 @@ const OAUTH_TOOL_SPECS: Record<string, SensitiveReadSpec> = {
 };
 
 // CORS for the OAuth ingress — public HTTP MCP clients (incl. browsers, e.g.
-// demo-web-pro) call these routes cross-origin. Auth is by Bearer header, NOT
+// web clients) call these routes cross-origin. Auth is by Bearer header, NOT
 // cookies, so we echo the request Origin and DON'T allow credentials (no
 // ambient-authority surface). Applies ONLY to the OAuth routes; the service-MAC
 // /tools/* worker-to-worker path is unaffected. Short-circuits the OPTIONS
@@ -937,13 +937,13 @@ app.get('/custody/vault-key/server-info', (c) =>
 // GCP_SERVICE_ACCOUNT_JSON impact-mcp wields KEKs with (it holds roles/cloudkms.admin); location +
 // key ring are config (GCP_KEK_LOCATION / GCP_KEK_KEYRING).
 //
-// FAIL-CLOSED behind DEMO_VAULT_PROVISION_ENABLED (mirrors DEMO_OAUTH_MINT_ENABLED): this endpoint
+// FAIL-CLOSED behind VAULT_PROVISION_ENABLED (mirrors OAUTH_MINT_ENABLED): this endpoint
 // wields an ADMIN credential and creates a real (cost-bearing) GCP key per distinct owner — an open
-// mint is a testnet-only convenience. The demo sets the flag so the one-click ceremony can
+// mint is a testnet-only convenience. Testnet sets the flag so the one-click ceremony can
 // auto-provision; a real deployment leaves it UNSET (route 404s) and provisions out of band
 // (operator-side `provision-vault-kek.ts`, ideally with a least-privilege/separate admin credential).
 app.post('/custody/vault-key/provision', async (c) => {
-  if (c.env.DEMO_VAULT_PROVISION_ENABLED !== 'true') return c.json({ error: 'not_found' }, 404);
+  if (c.env.VAULT_PROVISION_ENABLED !== 'true') return c.json({ error: 'not_found' }, 404);
   if (!c.env.GCP_SERVICE_ACCOUNT_JSON) {
     return c.json({ error: 'unsupported', error_description: 'GCP_SERVICE_ACCOUNT_JSON unset (provisioning unavailable)' }, 501);
   }
@@ -978,30 +978,30 @@ app.post('/custody/vault-key/provision', async (c) => {
   }
 });
 
-// Demo authorization endpoint. Stands in for a real authorization server: it
+// Authorization endpoint. Stands in for a real authorization server: it
 // authenticates NOTHING and mints a token for the requested principal, so it is
 // an OPEN mint and MUST stay off in any real deployment. It is gated FAIL-CLOSED
-// on the explicit `DEMO_OAUTH_MINT_ENABLED` flag (not NODE_ENV — `wrangler deploy`
+// on the explicit `OAUTH_MINT_ENABLED` flag (not NODE_ENV — `wrangler deploy`
 // defines NODE_ENV='production', which would tree-shake a registration-time guard
-// and 404 the route on the demo Worker too). The route always registers (Workers
+// and 404 the route on the Worker too). The route always registers (Workers
 // can't read `c.env` at module load), but the handler returns 404 unless the flag
-// is 'true'. The demo sets it; a real production leaves it unset (mint disabled)
+// is 'true'. Testnet sets it; a real production leaves it unset (mint disabled)
 // and wires a real AS + JWKS — nothing in @agenticprimitives/mcp-oauth changes.
-// SAFE for the demo: all vault data is deterministic MOCK seed data derived from
-// the address (no real PII), consistent with the demo's other accepted testnet holes.
+// SAFE on testnet: all vault data is deterministic MOCK seed data derived from
+// the address (no real PII), consistent with the other accepted testnet holes.
 app.post('/oauth/token', async (c) => {
-  if (c.env.DEMO_OAUTH_MINT_ENABLED !== 'true') return c.json({ error: 'not_found' }, 404);
+  if (c.env.OAUTH_MINT_ENABLED !== 'true') return c.json({ error: 'not_found' }, 404);
   if (!c.env.OAUTH_SIGNING_SECRET) return c.json({ error: 'unsupported', error_description: 'OAuth ingress not configured (OAUTH_SIGNING_SECRET unset)' }, 501);
   let body: Record<string, unknown> = {};
   try { body = (await c.req.json()) as Record<string, unknown>; } catch { body = {}; }
   const principal = typeof body.principal === 'string' ? body.principal : undefined;
-  if (!principal) return c.json({ error: 'invalid_request', error_description: 'principal required (demo authorization endpoint)' }, 400);
+  if (!principal) return c.json({ error: 'invalid_request', error_description: 'principal required (authorization endpoint)' }, 400);
   const scopeRaw = body.scope;
   const scopes = Array.isArray(scopeRaw)
     ? (scopeRaw.filter((s): s is string => typeof s === 'string'))
     : (typeof scopeRaw === 'string' ? scopeRaw.split(/\s+/).filter(Boolean) : undefined);
   try {
-    const result = await mintDemoMcpToken(c.env, {
+    const result = await mintMcpToken(c.env, {
       principal,
       audience: c.env.MCP_AUDIENCE,
       issuer: new URL(c.req.url).origin,
@@ -1087,7 +1087,7 @@ app.post('/mcp', async (c) => {
 
 // R7.4: pre-declare update_profile so the preflight (N10.2) doesn't flag
 // the route as unclassified. The handler itself is still a 501 stub for
-// the demo; when it gets implemented, the classification is already in
+// not yet; when it gets implemented, the classification is already in
 // place so withDelegation's production-strict default won't block the
 // first real request.
 const UPDATE_PROFILE_CLASSIFICATION = {
@@ -1097,7 +1097,7 @@ const UPDATE_PROFILE_CLASSIFICATION = {
 } as const;
 declareTool({ name: 'update_profile' }, UPDATE_PROFILE_CLASSIFICATION);
 
-app.post('/tools/update_profile', (c) => c.json({ error: 'not implemented in demo step 3' }, 501));
+app.post('/tools/update_profile', (c) => c.json({ error: 'not implemented yet' }, 501));
 
 // Dev-only seeder. Audit M3: must not exist in production.
 // Guard wraps the route REGISTRATION (not just the handler body) so:

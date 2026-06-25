@@ -43,7 +43,7 @@ export function makeEnv(): Env {
     A2A_CUSTODY_BRIDGE_SECRET: t(process.env.A2A_CUSTODY_BRIDGE_SECRET),
     // Impact's personal-home audience. Google/YouVersion mint a CUSTODY-grade session
     // only when the sign-in aud matches this — defaults to 'impact' (= connect.ts AUD).
-    DEMO_SSO_AUD: t(process.env.DEMO_SSO_AUD) ?? "impact",
+    SSO_AUD: t(process.env.SSO_AUD) ?? "impact",
     ALLOWED_ISSUER_HOSTS: t(process.env.ALLOWED_ISSUER_HOSTS),
   };
 }

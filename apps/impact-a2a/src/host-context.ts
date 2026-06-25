@@ -1,10 +1,10 @@
 // A2A-by-subdomain host context (spec 231; pattern ported from agentic-trust
 // `apps/atp-agent/src/worker.ts`). A request to `<handle>.churchcore.me`
-// identifies an A2A request for the agent named `<handle>.demo.agent`. The
+// identifies an A2A request for the agent named `<handle>.impact`. The
 // personal subdomain is the agent's single canonical endpoint — humans get the
 // Connect SSO home, machines get this A2A endpoint.
 //
-// In production the subdomain origin is served by demo-sso (Pages), which owns
+// In production the subdomain origin is served by impact (Pages), which owns
 // the `*.churchcore.me` custom domain and proxies the A2A paths here while
 // injecting `X-Agent-Subdomain` (the resolved label) + `X-Public-Origin` (the
 // public `https://<handle>.churchcore.me`). For direct workers.dev / local
@@ -37,7 +37,7 @@ export function parseAgentSubdomain(hostname: string | undefined, baseDomain: st
   return label;
 }
 
-/** The `.agent` name for a subdomain label (`alice` → `alice.demo.agent`). */
+/** The `.agent` name for a subdomain label (`alice` → `alice.impact`). */
 export function agentNameForLabel(label: string): string {
   return `${label}.${AGENT_NAME_PARENT}`;
 }
@@ -63,7 +63,7 @@ interface HostEnv {
 
 /**
  * Resolve the A2A agent for a request. Label source priority (ONE mechanism per
- * source — ADR-0013): the `X-Agent-Subdomain` header injected by the demo-sso
+ * source — ADR-0013): the `X-Agent-Subdomain` header injected by the impact
  * Pages proxy, else the request Host parsed against `A2A_PUBLIC_BASE_DOMAIN`.
  * Returns a context whose `agent` is null when there is no subdomain (generic
  * endpoint) or the name resolves to no agent.

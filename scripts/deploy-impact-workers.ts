@@ -30,7 +30,7 @@
  *   IMPACT_ALLOWED_ORIGINS=https://a,https://b   (browser origins cleared for CORS/CSRF)
  *   IMPACT_BROKER_ORIGIN=https://www.churchcore.me   (custody-gate iss; social sign-in)
  *   IMPACT_A2A_PUBLIC_BASE_DOMAIN=churchcore.me
- *   DEMO_SSO_AUD=impact                       (must equal the impact home's connect AUD)
+ *   SSO_AUD=impact                       (must equal the impact home's connect AUD)
  *   A2A_KMS_BACKEND=gcp-kms GCP_KMS_KEY_NAME=projects/…/cryptoKeyVersions/N  (no-held-key signer)
  *   GCP_KMS_ENCRYPT_KEY_NAME=projects/…       (envelope-encrypt key, gcp-kms only)
  *   SKIP_MIGRATIONS=1                          (skip step 2)
@@ -57,7 +57,7 @@ const ALLOWED_ORIGINS =
 // Custody-gate issuer (only matters for Google/YouVersion KMS-custody sign-in). Must be the
 // impact home origin whose broker mints the session. Override per deployment.
 const BROKER_ORIGIN = process.env.IMPACT_BROKER_ORIGIN ?? 'https://www.churchcore.me';
-const DEMO_SSO_AUD = process.env.DEMO_SSO_AUD ?? 'impact';
+const SSO_AUD = process.env.SSO_AUD ?? 'impact';
 const A2A_PUBLIC_BASE_DOMAIN = process.env.IMPACT_A2A_PUBLIC_BASE_DOMAIN ?? 'churchcore.me';
 
 const TOTAL = 5;
@@ -161,7 +161,7 @@ const a2aVars: Record<string, string> = {
   // Custody gate (Google/YouVersion → KMS SA). A2A_CUSTODY_BRIDGE_SECRET is a SECRET, not a --var.
   BROKER_ISS: BROKER_ORIGIN,
   BROKER_JWKS_URL: `${BROKER_ORIGIN}/jwks`,
-  DEMO_SSO_AUD,
+  SSO_AUD,
 };
 if (opt.smartAgentPaymaster) {
   a2aVars.PAYMASTER = opt.smartAgentPaymaster;
@@ -188,7 +188,7 @@ if (process.env.A2A_KMS_BACKEND === 'gcp-kms') {
     console.log(`  using GCP_KMS_ENCRYPT_KEY_NAME=${process.env.GCP_KMS_ENCRYPT_KEY_NAME}`);
   }
 }
-console.log(`  BROKER_ISS ${BROKER_ORIGIN} · DEMO_SSO_AUD ${DEMO_SSO_AUD}`);
+console.log(`  BROKER_ISS ${BROKER_ORIGIN} · SSO_AUD ${SSO_AUD}`);
 const a2aOut = runCapture(`wrangler deploy --env production ${buildVarFlags(a2aVars)}`, A2A_DIR);
 process.stdout.write(a2aOut);
 const impactA2aUrl = extractWorkerUrl(a2aOut);

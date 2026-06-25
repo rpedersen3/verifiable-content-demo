@@ -158,7 +158,7 @@ export interface Env {
    * R5.10 / PKG-CONNECT-AUTH-003 — canonical origin of THIS broker.
    * Used as `iss` (and currently `aud`, until spec 227 splits them)
    * when minting session JWTs. Falls back to `https://impact-a2a.local`
-   * when unset for the testnet demo path.
+   * when unset for the testnet path.
    */
   CONNECT_BROKER_ORIGIN?: string;
   /** Service binding to impact-mcp (production only; not set in local dev).
@@ -187,14 +187,14 @@ export interface Env {
   /** AgentProfileResolver — read `atl:skills` to surface publicly-asserted skills on the A2A card (spec 282). */
   PROFILE_RESOLVER?: string;
   /** Permissionless `.agent` subregistry (spec 234 W2). Address is consumed by
-   *  clients (`apps/demo-sso-next/src/connect-client.ts::buildClaimCallData`) to
+   *  clients (`apps/impact/src/connect-client.ts::buildClaimCallData`) to
    *  build the `register + setPrimary` `executeBatch` inside the deploy userOp —
    *  one signature, atomic deploy + claim. (The standalone relayer-paid
    *  `/session/register-name` was removed 2026-06-01: it allowed orphan name
    *  registrations against undeployed SAs.) */
   PERMISSIONLESS_SUBREGISTRY?: string;
   /** Public registrable base domain for personal A2A endpoints (spec 231).
-   *  `<handle>.<A2A_PUBLIC_BASE_DOMAIN>` → agent `<handle>.demo.agent`.
+   *  `<handle>.<A2A_PUBLIC_BASE_DOMAIN>` → agent `<handle>.impact`.
    *  Defaults to `churchcore.me`. */
   A2A_PUBLIC_BASE_DOMAIN?: string;
   /**
@@ -211,7 +211,7 @@ export interface Env {
   /**
    * Optional. When set, /session/deploy + /session/deploy/submit are
    * enabled — users can deploy their smart accounts via UserOp sponsored
-   * by this paymaster. When unset, lazy deploy is disabled and the demo
+   * by this paymaster. When unset, lazy deploy is disabled and lazy deploy
    * falls back to counterfactual mode (requireDeployed:false in impact-mcp).
    */
   PAYMASTER?: string;
@@ -248,7 +248,7 @@ export interface Env {
   /**
    * Opt-in flag to allow LocalSecp256k1Signer (the in-memory secp256k1
    * signer backed by A2A_MASTER_PRIVATE_KEY) under NODE_ENV=production.
-   * Set to "true" in [env.production.vars] so the demo's lazy
+   * Set to "true" in [env.production.vars] so the lazy
    * smart-account deploy + relayer paths work without standing up a
    * managed KMS. The signer logs a loud one-time warning when this
    * flag is in use. Must be removed before real-value keys land.
@@ -257,7 +257,7 @@ export interface Env {
   /**
    * Opt-in flag to allow LocalAesProvider envelope encryption
    * (generateSessionDataKey + decryptSessionDataKey) under
-   * NODE_ENV=production. Required for the demo's SessionManager to
+   * NODE_ENV=production. Required on testnet's SessionManager to
    * wrap session keypairs at rest. Stricter threat model than the
    * signer opt-in — compromise leaks every session key. MUST be
    * replaced by A2A_KMS_BACKEND=gcp-kms + GCP_KMS_ENCRYPT_KEY_NAME
@@ -290,9 +290,9 @@ export interface Env {
   /** Expected `iss` of broker-minted sessions — the Connect origin. Pinned by
    *  the gate (rejects alien issuers). */
   BROKER_ISS?: string;
-  /** Expected `aud` of custody sessions — demo-sso's own client_id (the
+  /** Expected `aud` of custody sessions — impact's own client_id (the
    *  Personal Trust Home). Pinned by the gate. */
-  DEMO_SSO_AUD?: string;
+  SSO_AUD?: string;
   /** Shared secret authenticating the broker → /custody/google/resolve
    *  server-to-server call (the broker can't hold the master, so it asks
    *  impact-a2a to derive SA_expected during the OIDC callback). Constant-time
@@ -578,7 +578,7 @@ app.use('*', async (c, next) => {
       // Optional method/path/sessionSid bindings are intentionally not
       // wired here — spec 227 (Real-Connect) will add per-route binding
       // for high-risk endpoints once the route taxonomy is locked.
-      developmentMode: true, // testnet demo; spec 227 replaces with real prod gate
+      developmentMode: true, // testnet; spec 227 replaces with real prod gate
     })
   ) {
     console.log(JSON.stringify({
@@ -604,12 +604,12 @@ app.get('/auth/csrf', (c) => {
   } catch {
     return c.json({ error: 'malformed origin' }, 400);
   }
-  // R5.11 — csrfTokenFor now takes an opts object. Demo-a2a doesn't
+  // R5.11 — csrfTokenFor now takes an opts object. impact-a2a doesn't
   // bind to method/path/sessionSid yet; spec 227 (Real-Connect) will
   // tighten that for high-risk endpoints.
   const token = csrfTokenFor({ origin: parsedOrigin });
-  // SameSite=None is required for cross-origin clients (demo-web-pro
-  // hits impact-a2a directly cross-site; demo-web proxies same-origin
+  // SameSite=None is required for cross-origin clients (web
+  // hit impact-a2a directly cross-site; same-origin clients proxy
   // via Pages Functions). 'None' requires Secure=true, which we get on
   // any https origin.
   const isHttps = parsedOrigin.startsWith('https://');
@@ -634,7 +634,7 @@ app.get('/health', (c) =>
 );
 
 // ─── A2A by personal subdomain (spec 231) ─────────────────────────────
-// `<handle>.churchcore.me` is one agent's unified endpoint. demo-sso (Pages)
+// `<handle>.churchcore.me` is one agent's unified endpoint. impact (Pages)
 // owns the subdomain origin and proxies these paths here, injecting
 // `X-Agent-Subdomain` (the label) + `X-Public-Origin`. Pattern ported from
 // agentic-trust atp-agent (`.well-known/agent-card.json` + `/api/a2a`).
@@ -827,7 +827,7 @@ function tryUint256(s: string): bigint | null {
   return n;
 }
 
-// Simple per-IP token bucket. Sized for demo traffic; production
+// Simple per-IP token bucket. Sized for testnet traffic; production
 // should swap for a Durable Object or Cloudflare WAF rule.
 const RATE_LIMIT_PER_MIN = 30;
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -1037,10 +1037,10 @@ function smartAccountFromCookie(c: { req: { raw: Request }; env?: unknown }): Ad
   // R5.10 (PKG-CONNECT-AUTH-003 / external audit P1-1) — connect-auth's
   // verifySession now REQUIRES expectedIss + expectedAud in production
   // and ALSO checks them when supplied in any mode. impact-a2a is the
-  // testnet demo broker; the move to a proper iss/aud binding here is
+  // testnet broker; the move to a proper iss/aud binding here is
   // tracked separately under the Real-Connect experience work (spec 227 /
   // memory project_real_connect_experience). For now, opt out of the
-  // strict gate so the testnet demo keeps booting.
+  // strict gate so the testnet build keeps booting.
   const claims = verifySession(cookieValue, { developmentMode: true });
   return (claims?.smartAccountAddress as Address | undefined) ?? null;
 }
@@ -1179,13 +1179,13 @@ app.post('/auth/siwe-verify', async (c) => {
 
   const isDeployed = await accountClient(c.env).isDeployed(smartAccountAddress).catch(() => false);
 
-  const name = typeof body.name === 'string' && body.name.length > 0 ? body.name : 'Demo User';
+  const name = typeof body.name === 'string' && body.name.length > 0 ? body.name : 'Sample User';
   // R5.10 (PKG-CONNECT-AUTH-003 / external audit P1-1) — connect-auth's
   // mintSession now requires `iss` (issuer URI) and `aud` (relying app
   // audience id) so verifiers can bind both. For the impact-a2a testnet
   // broker we derive both from the worker's CONNECT_BROKER_ORIGIN env
   // (set in wrangler.toml / dev.vars) and fall back to a clearly-marked
-  // demo string when unset. The Real-Connect experience work (spec 227)
+  // fallback string when unset. The Real-Connect experience work (spec 227)
   // will replace these with bound origin values.
   const brokerOrigin =
     typeof c.env.CONNECT_BROKER_ORIGIN === 'string' && c.env.CONNECT_BROKER_ORIGIN.length > 0
@@ -1200,7 +1200,7 @@ app.post('/auth/siwe-verify', async (c) => {
     via: 'siwe',
     kind: 'session',
     iss: brokerOrigin,
-    aud: brokerOrigin, // same-origin demo; spec 227 will split iss != aud
+    aud: brokerOrigin, // same-origin testnet; spec 227 will split iss != aud
   });
 
   setCookie(c, SESSION_COOKIE, cookie, {
@@ -1481,7 +1481,7 @@ app.post('/session/deploy/submit', async (c) => {
 // AgentAccounts. The user signs the userOpHash; impact-a2a bundles + the
 // paymaster sponsors gas. Together with the SDK's `buildCallUserOp` /
 // `submitCallUserOp` helpers (packages/agent-account/src/client.ts) this
-// is the foundation every gasless demo-web-pro flow runs on.
+// is the foundation every gasless client flow runs on.
 
 /**
  * POST /account/build-call-userop
@@ -1909,7 +1909,7 @@ app.post('/session/direct-deploy', async (c) => {
 //
 // Pre-`af17ea8` clients called this endpoint. Post-`af17ea8` clients bundle the
 // `register + setPrimary` into the same `executeBatch` callData inside the deploy
-// userOp itself (see `apps/demo-sso-next/src/connect-client.ts::buildClaimCallData`
+// userOp itself (see `apps/impact/src/connect-client.ts::buildClaimCallData`
 // + `bootstrapWithPasskey`) — register and deploy are now atomic: if the deploy
 // reverts, the register reverts with it, no orphan possible.
 //
@@ -1936,8 +1936,8 @@ app.post('/session/direct-deploy', async (c) => {
 
 /** Gate config for the client-facing custody endpoints (JWKS + pinned iss/aud). */
 function custodyGateConfig(env: Env): { jwksUrl: string; expectedIss: string; expectedAud: string } | null {
-  if (!env.BROKER_JWKS_URL || !env.BROKER_ISS || !env.DEMO_SSO_AUD) return null;
-  return { jwksUrl: env.BROKER_JWKS_URL, expectedIss: env.BROKER_ISS, expectedAud: env.DEMO_SSO_AUD };
+  if (!env.BROKER_JWKS_URL || !env.BROKER_ISS || !env.SSO_AUD) return null;
+  return { jwksUrl: env.BROKER_JWKS_URL, expectedIss: env.BROKER_ISS, expectedAud: env.SSO_AUD };
 }
 
 /**
@@ -2172,7 +2172,7 @@ const ORG_APPROVE_HASH_ABI = [
   { type: 'function', name: 'approveHash', stateMutability: 'nonpayable', inputs: [{ name: 'hash', type: 'bytes32' }], outputs: [] },
 ] as const;
 
-/** Server-side port of demo-sso-next `buildApprovedSiteDelegation` (spec 253): build an
+/** Server-side port of impact `buildApprovedSiteDelegation` (spec 253): build an
  *  `org → delegate` least-privilege site delegation, compute its canonical `hashDelegation` digest,
  *  and stamp the 0x03 sentinel as the wire signature. The org `approveHash`es `digest` inside its own
  *  deploy op; the relying app validates via the org SA's ERC-1271 approved-hash branch. Caveats match
@@ -2189,7 +2189,7 @@ function buildOrgGrant(
 }
 
 /** Least-privilege site-delegation caveats (timestamp + value 0 + allowed-targets {relationship, naming,
- *  subregistry}) — IDENTICAL to demo-sso-next `siteCaveats` so the org-sentinel, person-KMS, and ROOT
+ *  subregistry}) — IDENTICAL to impact `siteCaveats` so the org-sentinel, person-KMS, and ROOT
  *  passkey grant paths all produce a delegation the relying app validates the same way. */
 function siteGrantCaveats(env: Env, validUntil: number): Caveat[] {
   return [
@@ -2769,7 +2769,7 @@ app.post('/custody/google/sign-site-delegation', async (c) => {
 
 // YouVersion highlights are per Bible CHAPTER (GET /v1/highlights requires bible_id + passage_id, where
 // passage_id is a chapter USFM like "JHN.3" — confirmed against the official Swift/Kotlin SDKs). There is
-// NO "list all highlights" endpoint. These are the demo defaults; the UI lets the member pick a chapter.
+// NO "list all highlights" endpoint. These are the testnet defaults; the UI lets the member pick a chapter.
 // 111 = NIV.
 const DEFAULT_YV_VERSION = '111';
 const DEFAULT_YV_PASSAGE = 'JHN.3';
@@ -3149,7 +3149,7 @@ app.post('/session/custody-apply', async (c) => {
 //
 // Anything fancier (full DelegationToken envelopes, on-chain enforcer
 // invocation, multi-step delegation chains) is out of scope for this
-// pass; the simpler shape here is what the demo needs to be honest.
+// pass; the simpler shape here is what the flow needs to be honest.
 
 
 const ERC1271_ABI = [
@@ -3721,7 +3721,7 @@ app.post('/mcp/vault/list', async (c) => {
 // ─── Paymaster top-up (operator-only) ─────────────────────────────────────
 //
 // One-click "send ETH from the KMS-backed top-up signer to the paymaster's
-// EntryPoint deposit." Used by the demo's top-bar gas readout: when the
+// EntryPoint deposit." Used by the top-bar gas readout: when the
 // paymaster runs low, clicking the ⛽ pill calls this endpoint instead of
 // forcing the operator to shell into the deploy env to run `cast send`.
 //

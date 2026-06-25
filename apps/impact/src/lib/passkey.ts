@@ -1,16 +1,16 @@
-// Passkey (WebAuthn) flow — ported from demo-web. Registration ceremony
+// Passkey (WebAuthn) flow. Registration ceremony
 // (navigator.credentials.create → P-256 (x,y) + credentialIdDigest), signing
 // ceremony (navigator.credentials.get → on-chain WebAuthn sig blob), localStorage
 // persistence. Ceremony helpers from connect-auth/passkey; wire encoder from
-// agent-account. Demo-only storage.
+// agent-account. Device-local storage.
 import { keccak256 } from 'viem';
 import { parseAttestationObject, buildWebAuthnAssertion } from '@agenticprimitives/connect-auth/passkey';
 import { encodeWebAuthnSignature } from '@agenticprimitives/agent-account';
 import type { Hex } from '@agenticprimitives/types';
 
-const STORAGE_KEY = 'agenticprimitives:demo-sso:passkey';
+const STORAGE_KEY = 'agenticprimitives:impact:passkey';
 
-export interface DemoPasskey {
+export interface Passkey {
   credentialIdDigest: Hex; // keccak256(credentialId)
   credentialIdB64: string;
   pubKeyX: bigint;
@@ -26,14 +26,14 @@ interface StoredPasskey {
   label: string;
 }
 
-const toStored = (p: DemoPasskey): StoredPasskey => ({
+const toStored = (p: Passkey): StoredPasskey => ({
   credentialIdDigest: p.credentialIdDigest,
   credentialIdB64: p.credentialIdB64,
   pubKeyX: p.pubKeyX.toString(),
   pubKeyY: p.pubKeyY.toString(),
   label: p.label,
 });
-const fromStored = (s: StoredPasskey): DemoPasskey => ({
+const fromStored = (s: StoredPasskey): Passkey => ({
   credentialIdDigest: s.credentialIdDigest,
   credentialIdB64: s.credentialIdB64,
   pubKeyX: BigInt(s.pubKeyX ?? '0'),
@@ -41,7 +41,7 @@ const fromStored = (s: StoredPasskey): DemoPasskey => ({
   label: s.label,
 });
 
-export function loadPasskey(): DemoPasskey | null {
+export function loadPasskey(): Passkey | null {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   try {
@@ -94,7 +94,7 @@ function bytesToHex(bytes: Uint8Array): Hex {
 }
 
 /** Register a new passkey (TouchID/FaceID/etc.) + persist (x,y) + digest. */
-export async function registerPasskey(label: string): Promise<DemoPasskey> {
+export async function registerPasskey(label: string): Promise<Passkey> {
   if (typeof navigator === 'undefined' || !navigator.credentials) {
     throw new Error('WebAuthn unavailable — this browser does not support passkeys.');
   }
@@ -135,7 +135,7 @@ export async function registerPasskey(label: string): Promise<DemoPasskey> {
 
   const response = credential.response as AuthenticatorAttestationResponse;
   const parsed = parseAttestationObject(new Uint8Array(response.attestationObject));
-  const passkey: DemoPasskey = {
+  const passkey: Passkey = {
     credentialIdDigest: keccak256(bytesToHex(parsed.credentialId)),
     credentialIdB64: parsed.credentialIdBase64Url,
     pubKeyX: parsed.pubKeyX,

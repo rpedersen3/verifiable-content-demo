@@ -2,14 +2,14 @@
 
 ## What this app is
 
-Cloudflare Worker that acts as the demo A2A boundary. It verifies browser
+Cloudflare Worker that acts as the A2A boundary. It verifies browser
 sessions, handles gasless smart-account calls, mints delegation tokens, and
-proxies selected MCP requests during local demos.
+proxies selected MCP requests during local development.
 
 ## What this app owns
 
-- HTTP routes for SIWE/passkey demo auth and session bootstrap.
-- Demo relayer behavior for contract calls and UserOps.
+- HTTP routes for SIWE/passkey auth and session bootstrap.
+- Relayer behavior for contract calls and UserOps.
 - Delegation-token minting for MCP calls.
 - Local Worker bindings and CSRF/CORS enforcement.
 
@@ -18,7 +18,7 @@ proxies selected MCP requests during local demos.
 - Package delegation semantics → `packages/delegation`.
 - MCP middleware primitives → `packages/mcp-runtime`.
 - MCP tool implementation → `apps/impact-mcp`.
-- Browser UX → `apps/demo-web*`.
+- Browser UX → the web client.
 - Contract source → `packages/contracts`.
 
 ## Read These First

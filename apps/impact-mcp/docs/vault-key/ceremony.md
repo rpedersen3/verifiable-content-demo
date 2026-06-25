@@ -44,7 +44,7 @@ echo, fail-closed; values come from env/stdin, never argv):
 # GCP creds → impact-mcp (Cloudflare Worker secret, via wrangler stdin):
 GCP_SA=... ; printf '%s' "$GCP_SA" | pnpm deploy:secret cloudflare --worker impact-mcp --env production --name GCP_SERVICE_ACCOUNT_JSON
 # impact-mcp URL → the home (Vercel project env, via REST API — NOT `vercel env add`):
-VERCEL_TOKEN=... printf '%s' "$DEMO_MCP_URL" | pnpm deploy:secret vercel --project demo-sso-next --name DEMO_MCP_URL --target production
+VERCEL_TOKEN=... printf '%s' "$IMPACT_MCP_URL" | pnpm deploy:secret vercel --project impact --name IMPACT_MCP_URL --target production
 ```
 
 ## 2. Person — sign the `VaultKeyAuthorization` (connected custodian)
@@ -61,7 +61,7 @@ const { authorization, digest } = buildVaultKeyAuthorization(
     owner: personSA,
     vaultId: 'impact-mcp',
     kmsKeyRef,                              // from step 1
-    serverKey: DEMO_MCP_DELEGATE_KEY,       // the host's authorized delegate
+    serverKey: MCP_DELEGATE_KEY,       // the host's authorized delegate
     allowedResources: ['person-pii', 'org-sensitive', 'profile'],
     classificationCeiling: 'regulated.high',
     ops: ['read', 'write'],

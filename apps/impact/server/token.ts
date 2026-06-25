@@ -3,7 +3,7 @@
 // Impact (personal home) uses only the legacy code-exchange: the OIDC callback stashes
 // the minted AgentSession under a single-use `code:<id>` and redirects back with `?code`;
 // the client exchanges { code, aud } here for { agentSession }. (The relying-app
-// authorization_code + delegation grants from demo-sso-next are omitted — impact is a
+// authorization_code + delegation grants from impact are omitted — impact is a
 // home, not an SSO broker for other apps.)
 import { jsonCors, preflight, type FnContext } from "./_lib/server-broker";
 

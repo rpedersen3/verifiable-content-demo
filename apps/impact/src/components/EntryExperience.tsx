@@ -238,7 +238,7 @@ export default function EntryExperience() {
 }
 
 // The guided "secure → register → sign-in" value steps shown while the ceremony runs
-// (ported from demo-sso-next OnboardingJourney's ValueStepList).
+// (ported from impact OnboardingJourney's ValueStepList).
 function SecuringView({ mode, name, step }: { mode: Mode; name: string; step: string | null }) {
   const named = mode === "named";
   const base = name.trim().toLowerCase().replace(/\.impact$/, "").replace(/[^a-z0-9-]/g, "") || "your-home";

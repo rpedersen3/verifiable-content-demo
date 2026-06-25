@@ -11,7 +11,7 @@ Vercel project** plus a **redirect URI registered in Google Cloud Console**. (Pa
 sign-in work without any of this; only social sign-in needs it.)
 
 Impact is a Next.js app on **Vercel** — so the values are **Vercel Environment Variables** (the
-agenticprimitives `demo-sso-next/OIDC-SETUP.md` is the same flow but for Cloudflare Pages).
+agenticprimitives `impact/OIDC-SETUP.md` is the same flow but for Cloudflare Pages).
 
 ---
 
@@ -28,7 +28,7 @@ create one. On that client set:
 
 Copy the **Client ID** and **Client secret**.
 
-> Reusing the existing demo client is fine — just **add** impact's `/oidc/google/callback` to that
+> Reusing the existing OAuth client is fine — just **add** impact's `/oidc/google/callback` to that
 > client's Authorized redirect URIs. Google rejects any `redirect_uri` not registered exactly.
 
 ---
@@ -70,7 +70,7 @@ enable it, also set on Vercel:
 - `A2A_CUSTODY_URL` = your impact-a2a URL (defaults to `IMPACT_A2A_URL`)
 - `A2A_CUSTODY_BRIDGE_SECRET` = a shared secret that **matches** the same secret set on
   **impact-a2a** (`wrangler secret put A2A_CUSTODY_BRIDGE_SECRET --env production`).
-- `DEMO_SSO_AUD` (default `impact`) must equal impact-a2a's `DEMO_SSO_AUD`.
+- `SSO_AUD` (default `impact`) must equal impact-a2a's `SSO_AUD`.
 
 Until set, social sign-in works for an **existing** linked identity but a brand-new one can't get a
 home (the entry screen surfaces this clearly).

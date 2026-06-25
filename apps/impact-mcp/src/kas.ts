@@ -6,7 +6,7 @@
 // DecryptGrant the enforcement boundary (binding principal / tool / argsHash /
 // resource / fields / purpose / classification / one-time JTI), per spec 277.
 //
-// Demo note: the grant is created AND verified in-process within the same
+// Note: the grant is created AND verified in-process within the same
 // request (it never leaves the server), so the one-time JTI is satisfied by a
 // fresh per-call replay store. A real cross-request flow (client requests a
 // grant, presents it later) needs a durable replay ledger (D1 / Durable Object)

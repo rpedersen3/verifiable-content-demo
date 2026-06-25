@@ -42,7 +42,7 @@ export async function connectWalletAccounts(forceSelect = false, restrictTo?: Ad
 // multi-credential custodian SET — only count + isCustodian(addr)), so we can't read the custodian address
 // FROM the chain; instead the home remembers the EOA it used on a successful by-name sign-in, and defaults
 // the picker to it next time. Survives the wallet-disconnect revoke (this is the home's own localStorage).
-const EOA_KEY = (name: string): string => `agenticprimitives:demo-sso:home-eoa:${name.toLowerCase()}`;
+const EOA_KEY = (name: string): string => `agenticprimitives:impact:home-eoa:${name.toLowerCase()}`;
 
 export function rememberHomeEoa(name: string, address: Address): void {
   try { localStorage.setItem(EOA_KEY(name), address); } catch { /* storage blocked — fine */ }

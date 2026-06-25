@@ -1,6 +1,6 @@
 // Real connect — passkey (WebAuthn) + SIWE (wallet) sign-in/bootstrap against the
 // live impact-a2a relayer + the ported broker routes (/connect/*, /me). Ported from
-// agenticprimitives/demo-sso-next/src/connect-client.ts, trimmed to the sign-in
+// agenticprimitives/impact/src/connect-client.ts, trimmed to the sign-in
 // substrate (no org/delegation/treasury/payment surface). Social (Google/YouVersion)
 // is wired separately and needs the custody-bridge env.
 import { buildMessage } from "@agenticprimitives/connect-auth/siwe";
@@ -23,7 +23,7 @@ import {
   registerPasskey,
   signWithPasskey,
   loadPasskey,
-  type DemoPasskey,
+  type Passkey,
 } from "./passkey";
 import { ensureCsrfToken, csrfHeaders } from "../csrf";
 import { CONTRACTS, DEFAULT_RPC_URL } from "./chain";
@@ -95,7 +95,7 @@ async function derivePasskeyRpIdHash(): Promise<Hex> {
   return ("0x" + arr.map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;
 }
 
-async function derivePasskeySa(passkey: DemoPasskey, salt: bigint): Promise<Address> {
+async function derivePasskeySa(passkey: Passkey, salt: bigint): Promise<Address> {
   const rpIdHash = await derivePasskeyRpIdHash();
   return agentAccountClient().getAddressForAgentAccount({
     custodians: [],
@@ -162,9 +162,9 @@ async function executeCall(
 export const passkeySignHash: SignHash = (hash) => signWithPasskey(hash);
 
 type PasskeyOutcome =
-  | { status: "issued"; token: string; passkey: DemoPasskey }
-  | { status: "bootstrap"; passkey: DemoPasskey }
-  | { status: "rejected"; passkey?: DemoPasskey; reason?: string };
+  | { status: "issued"; token: string; passkey: Passkey }
+  | { status: "bootstrap"; passkey: Passkey }
+  | { status: "rejected"; passkey?: Passkey; reason?: string };
 
 type Step = (s: string) => void;
 
@@ -199,7 +199,7 @@ async function passkeyLogin(registerIfMissing = true, onStep?: Step): Promise<Pa
 }
 
 /** Deploy a passkey-direct SA via the relayer; `callData` (name claim) rides in the deploy op. */
-async function bootstrapWithPasskey(passkey: DemoPasskey, callData?: Hex, onStep?: Step): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
+async function bootstrapWithPasskey(passkey: Passkey, callData?: Hex, onStep?: Step): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
   onStep?.("Preparing your home…");
   await ensureCsrfToken();
   const rpIdHash = await derivePasskeyRpIdHash();
@@ -231,7 +231,7 @@ async function bootstrapWithPasskey(passkey: DemoPasskey, callData?: Hex, onStep
   return { ok: true, agent: submitted.deployedAddress };
 }
 
-async function deployAndClaimPasskey(passkey: DemoPasskey, base: string, onStep?: Step): Promise<{ ok: true; agent: Address; name: string } | { ok: false; error: string }> {
+async function deployAndClaimPasskey(passkey: Passkey, base: string, onStep?: Step): Promise<{ ok: true; agent: Address; name: string } | { ok: false; error: string }> {
   onStep?.("Finding a free name…");
   const sa = await derivePasskeySa(passkey, 0n);
   const claim = await buildClaimCallData(base, sa);
@@ -325,7 +325,7 @@ async function finish(token: string, via: ConnectVia, fresh: boolean): Promise<C
 }
 
 function sanitizeBase(nameHint?: string): string {
-  const b = (nameHint || "").toLowerCase().replace(/\.(impact|demo\.agent)$/, "").replace(/[^a-z0-9-]/g, "");
+  const b = (nameHint || "").toLowerCase().replace(/\.impact$/, "").replace(/[^a-z0-9-]/g, "");
   return b || "friend";
 }
 
