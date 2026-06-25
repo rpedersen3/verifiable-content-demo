@@ -85,3 +85,38 @@ export function usePersonTreasury(token?: string | null, refreshKey = 0): Treasu
 
   return state;
 }
+
+export interface LiveOrg {
+  agent: Address;
+  name: string | null;
+  createdAt: number | null;
+}
+
+export interface LiveOrgs {
+  orgs: LiveOrg[];
+  loading: boolean;
+}
+
+/** The organizations the person governs, read from the home vault (related-orgs, kind 'org') —
+ *  the same source the Vault Delegations tab uses. Live, not seeded. */
+export function usePersonOrgs(token?: string | null, refreshKey = 0): LiveOrgs {
+  const [state, setState] = useState<LiveOrgs>({ orgs: [], loading: true });
+
+  useEffect(() => {
+    let alive = true;
+    if (!token) { setState({ orgs: [], loading: false }); return; }
+    setState((s) => ({ ...s, loading: true }));
+    listMyOrgs(token)
+      .then((all) => {
+        if (!alive) return;
+        const orgs = all
+          .filter((o) => o.kind === "org")
+          .map((o) => ({ agent: o.orgAgent as Address, name: o.orgName?.trim() || null, createdAt: o.createdAt }));
+        setState({ orgs, loading: false });
+      })
+      .catch(() => { if (alive) setState({ orgs: [], loading: false }); });
+    return () => { alive = false; };
+  }, [token, refreshKey]);
+
+  return state;
+}

@@ -3,7 +3,7 @@
 // agenticprimitives/impact/src/connect-client.ts, trimmed to the sign-in
 // substrate (no org/delegation/treasury/payment surface). Social (Google/YouVersion)
 // is wired separately and needs the custody-bridge env.
-import { encodeFunctionData, parseUnits } from "viem";
+import { encodeFunctionData, parseUnits, keccak256, toBytes } from "viem";
 import { buildMessage } from "@agenticprimitives/connect-auth/siwe";
 import {
   buildSubregistryRegisterCall,
@@ -530,79 +530,106 @@ async function signHashForVia(via: ConnectVia, sender: Address, token?: string):
   return passkeySignHash;
 }
 
-/** Deploy the person's money agent (gas-sponsored). NAME-AWARE: a NAMED home gets a
- *  `<label>-treasury.impact` (true to its handle); a NAMELESS home (true name-deferral, ADR-0010)
- *  gets a NAMELESS treasury — the SA address is its canonical id, the name is an optional facet it
- *  can claim later. Either way the treasury is recorded in the home vault (kind:'person-treasury')
- *  with a stewardship grant treasury→person, so it's detected from the vault, not the name. */
-export async function createPersonTreasury(
-  opts: { name: string | null; personSA: Address; via: ConnectVia; token?: string },
+export type ManagedKind = "person-treasury" | "org" | "org-treasury";
+
+/** Deterministic passkey salt for a named managed agent, so distinct names get distinct SAs
+ *  (the person SA is salt 0, the treasury salt 1; orgs derive from their name). */
+function saltFromName(kind: ManagedKind, name: string): bigint {
+  if (kind === "person-treasury") return 1n;
+  return BigInt(keccak256(toBytes(`impact:${kind}:${name.toLowerCase()}`)));
+}
+
+/** Deploy a person-governed managed agent (gas-sponsored) — a treasury, an organization, or an
+ *  org treasury. NAME-AWARE (ADR-0010): a NAMED agent claims `<label>.impact`; a nameless one
+ *  deploys with the SA as its canonical id. Either way it's recorded in the home vault under its
+ *  `kind` with a stewardship grant agent→parent, so it's detected from the vault, not the name. */
+export async function createManagedAgent(
+  opts: { name: string | null; kind: ManagedKind; nameSuffix?: string; purpose?: string; parent?: Address; personSA: Address; via: ConnectVia; token?: string },
   onStep?: Step,
 ): Promise<{ ok: true; agent: Address; name: string } | { ok: false; error: string }> {
+  const suffix = opts.nameSuffix ?? "";
   const label = opts.name && opts.name.trim() ? nameLabel(opts.name) : null;
-  const base = label ? `${label}-treasury` : null;
+  const base = label ? `${label}${suffix}` : null;
+  const parent = opts.parent ?? opts.personSA;
+  const purpose = opts.purpose ?? opts.kind;
+  const noun = opts.kind === "org" ? "organization" : "treasury";
 
   if (opts.via === "google" || opts.via === "youversion") {
     if (!opts.token) return { ok: false, error: "needs a live custody session — sign in again." };
-    // Reserve a free treasury name ONLY when the home itself is named; otherwise deploy nameless.
+    // Reserve a free name ONLY when the agent is named; otherwise deploy nameless.
     let pick: { label?: string; name?: string; node?: Hex } = {};
     if (base) {
-      onStep?.("Reserving your treasury name…");
+      onStep?.(`Reserving your ${noun} name…`);
       const p = (await (await fetch(`/connect/name?base=${encodeURIComponent(base)}`)).json()) as { label?: string; name?: string; node?: Hex; error?: string };
       if (!p.label || !p.node || !p.name) return { ok: false, error: p.error ?? "no free name" };
       pick = p;
     }
     await ensureCsrfToken();
-    onStep?.("Deploying your treasury (gas-free)…");
+    onStep?.(`Deploying your ${noun} (gas-free)…`);
     const res = await fetch("/a2a/custody/google/bootstrap-agent", {
       method: "POST", credentials: "include",
       headers: { "content-type": "application/json", ...csrfHeaders() },
-      body: JSON.stringify({ session: opts.token, kind: "person-treasury", parent: opts.personSA, ...(pick.label && pick.node ? { label: pick.label, node: pick.node } : {}) }),
+      body: JSON.stringify({ session: opts.token, kind: opts.kind, parent, ...(pick.label && pick.node ? { label: pick.label, node: pick.node } : {}) }),
     });
     const b = (await res.json().catch(() => ({}))) as { ok?: boolean; agent?: Address; stewardshipDelegation?: DelegationWire; error?: string; detail?: string };
-    if (!res.ok || !b.ok || !b.agent) return { ok: false, error: [b.error, b.detail].filter(Boolean).join(" — ") || `treasury deploy failed (HTTP ${res.status})` };
-    // Record the treasury (+ its stewardship grant treasury→person) in the home vault so it
-    // surfaces live in the Vault Delegations tab AND is how the treasury is detected. The
-    // endpoint mints the grant at deploy.
-    onStep?.("Saving your treasury to your vault…");
+    if (!res.ok || !b.ok || !b.agent) return { ok: false, error: [b.error, b.detail].filter(Boolean).join(" — ") || `${noun} deploy failed (HTTP ${res.status})` };
+    // Record the agent (+ its stewardship grant agent→parent) in the home vault so it surfaces live
+    // (Organizations / Vault Delegations) AND is how it's detected. The endpoint mints the grant.
+    onStep?.(`Saving your ${noun} to your vault…`);
     await saveRelatedAgent({
-      person: opts.personSA, orgAgent: b.agent, orgName: pick.name ?? "", purpose: "treasury",
-      kind: "person-treasury", parent: opts.personSA, stewardshipDelegation: b.stewardshipDelegation, token: opts.token,
+      person: opts.personSA, orgAgent: b.agent, orgName: pick.name ?? "", purpose,
+      kind: opts.kind, parent, stewardshipDelegation: b.stewardshipDelegation, token: opts.token,
     });
     return { ok: true, agent: b.agent, name: pick.name ?? "" };
   }
   if (opts.via === "passkey") {
     const passkey = loadPasskey();
-    if (!passkey) return { ok: false, error: "Your passkey isn't on this device. Reconnect, then create your treasury." };
-    onStep?.(base ? "Reserving your treasury name…" : "Preparing your treasury…");
-    const sa = await derivePasskeySa(passkey, 1n);
-    // Stewardship grant treasury→person, pre-approved (0x03 sentinel) INSIDE the deploy batch so
-    // the person can read/oversee the treasury — no second signature (spec 246/253).
-    const stewardship = buildApprovedSiteDelegation(sa, opts.personSA);
+    if (!passkey) return { ok: false, error: "Your passkey isn't on this device. Reconnect, then try again." };
+    onStep?.(base ? `Reserving your ${noun} name…` : `Preparing your ${noun}…`);
+    const salt = saltFromName(opts.kind, opts.name ?? opts.kind);
+    const sa = await derivePasskeySa(passkey, salt);
+    // Stewardship grant agent→parent, pre-approved (0x03 sentinel) INSIDE the deploy batch so the
+    // parent can read/oversee the agent — no second signature (spec 246/253).
+    const stewardship = buildApprovedSiteDelegation(sa, parent);
     const approve = buildApproveHashCall(stewardship.digest);
     let callData: Hex;
-    let treasuryName = "";
+    let agentName = "";
     if (base) {
       const claim = await buildClaimCallData(base, sa, [approve]);
       if (!claim.ok) return { ok: false, error: claim.error };
-      callData = claim.callData; treasuryName = claim.name;
+      callData = claim.callData; agentName = claim.name;
     } else {
-      // Nameless: deploy with JUST the stewardship approve-hash (no name claim).
       callData = buildExecuteBatchCallData([approve as ContractCall]);
     }
-    onStep?.("Deploying your treasury (gas-free)…");
-    const dep = await bootstrapWithPasskey(passkey, callData, onStep, 1n);
+    onStep?.(`Deploying your ${noun} (gas-free)…`);
+    const dep = await bootstrapWithPasskey(passkey, callData, onStep, salt);
     if (!dep.ok) return dep;
     if (opts.token) {
-      onStep?.("Saving your treasury to your vault…");
+      onStep?.(`Saving your ${noun} to your vault…`);
       await saveRelatedAgent({
-        person: opts.personSA, orgAgent: dep.agent, orgName: treasuryName, purpose: "treasury",
-        kind: "person-treasury", parent: opts.personSA, stewardshipDelegation: toWire(stewardship.delegation), token: opts.token,
+        person: opts.personSA, orgAgent: dep.agent, orgName: agentName, purpose,
+        kind: opts.kind, parent, stewardshipDelegation: toWire(stewardship.delegation), token: opts.token,
       });
     }
-    return { ok: true, agent: dep.agent, name: treasuryName };
+    return { ok: true, agent: dep.agent, name: agentName };
   }
-  return { ok: false, error: "Creating a treasury from a wallet home isn't wired yet — use a passkey or social home." };
+  return { ok: false, error: `Creating a ${noun} from a wallet home isn't wired yet — use a passkey or social home.` };
+}
+
+/** The person's money agent: `<home-label>-treasury.impact`, kind person-treasury. */
+export function createPersonTreasury(
+  opts: { name: string | null; personSA: Address; via: ConnectVia; token?: string },
+  onStep?: Step,
+) {
+  return createManagedAgent({ ...opts, kind: "person-treasury", nameSuffix: "-treasury", purpose: "treasury" }, onStep);
+}
+
+/** A person-governed organization: `<org-label>.impact`, kind org, stewarded by the person. */
+export function createOrg(
+  opts: { name: string; personSA: Address; via: ConnectVia; token?: string },
+  onStep?: Step,
+) {
+  return createManagedAgent({ ...opts, kind: "org", purpose: "org" }, onStep);
 }
 
 /** Mint mock USDC into a treasury (testnet faucet) via the person SA's relayer-sponsored call. */
