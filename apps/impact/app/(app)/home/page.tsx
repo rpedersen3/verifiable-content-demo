@@ -5,7 +5,7 @@ import { useSession } from "@/context/session";
 import { ACTIVITY, orgById, servicesForOrg } from "@/lib/seed";
 import { Glyph, SectionHead, StatTile, TrustMeter, DimensionBadges, Pill, EmptyNote } from "@/components/ui";
 import { IconVault, IconWallet, IconShield, IconGraph, IconBot, IconOrg, IconPlus } from "@/components/Icons";
-import { useAgentBalances } from "@/lib/use-live";
+import { useAgentBalances, usePersonTreasury } from "@/lib/use-live";
 
 export default function HomePage() {
   const { person, active } = useSession();
@@ -14,9 +14,14 @@ export default function HomePage() {
 }
 
 function PersonDashboard() {
-  const { person, identity } = useSession();
+  const { person, identity, token } = useSession();
   const bal = useAgentBalances(identity?.address);
+  // The "Treasury USDC" tile reflects the person's MONEY agent (their treasury), detected from
+  // the home vault — same source as /treasury — falling back to the person SA before one exists.
+  const treas = usePersonTreasury(token);
   if (!person) return null;
+  const treasuryUsdc = treas.exists ? treas.usdc : bal.usdc;
+  const treasuryLoading = treas.loading || bal.loading;
   const orgs = person.custodyOf.map(orgById).filter(Boolean);
   const memberships = person.membershipIds.map(orgById).filter(Boolean);
   const hasOrgs = orgs.length + memberships.length > 0;
@@ -56,7 +61,7 @@ function PersonDashboard() {
 
       {/* Stats — treasury balance is read LIVE on-chain for the connected agent */}
       <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: "1.4rem" }}>
-        <StatTile num={bal.loading ? "…" : `$${bal.usdc ?? "0.00"}`} label="Treasury USDC (live)" accent="var(--amber-700)" />
+        <StatTile num={treasuryLoading ? "…" : `$${treasuryUsdc ?? "0.00"}`} label="Treasury USDC (live)" accent="var(--amber-700)" />
         <StatTile num={bal.loading ? "…" : `${bal.eth ?? "0"}`} label="ETH (live)" />
         <StatTile num={person.entitlements.length} label="Entitlements" />
         <StatTile num={orgs.length + memberships.length} label="Organizations" />
