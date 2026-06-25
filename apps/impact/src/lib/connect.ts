@@ -3,6 +3,7 @@
 // agenticprimitives/impact/src/connect-client.ts, trimmed to the sign-in
 // substrate (no org/delegation/treasury/payment surface). Social (Google/YouVersion)
 // is wired separately and needs the custody-bridge env.
+import { encodeFunctionData, parseUnits } from "viem";
 import { buildMessage } from "@agenticprimitives/connect-auth/siwe";
 import {
   buildSubregistryRegisterCall,
@@ -199,7 +200,7 @@ async function passkeyLogin(registerIfMissing = true, onStep?: Step): Promise<Pa
 }
 
 /** Deploy a passkey-direct SA via the relayer; `callData` (name claim) rides in the deploy op. */
-async function bootstrapWithPasskey(passkey: Passkey, callData?: Hex, onStep?: Step): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
+async function bootstrapWithPasskey(passkey: Passkey, callData?: Hex, onStep?: Step, salt?: bigint): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
   onStep?.("Preparing your home…");
   await ensureCsrfToken();
   const rpIdHash = await derivePasskeyRpIdHash();
@@ -210,7 +211,7 @@ async function bootstrapWithPasskey(passkey: Passkey, callData?: Hex, onStep?: S
       initMethod: "passkey",
       credentialIdDigest: passkey.credentialIdDigest,
       pubKeyX: passkey.pubKeyX.toString(), pubKeyY: passkey.pubKeyY.toString(),
-      rpIdHash, ...(callData ? { callData } : {}),
+      rpIdHash, ...(salt !== undefined ? { salt: salt.toString() } : {}), ...(callData ? { callData } : {}),
     }),
   });
   if (buildRes.status === 409) return { ok: false, error: "Gas sponsorship is not enabled on the backend (paymaster)." };
@@ -423,4 +424,88 @@ export async function connectWalletSiwe(nameHint?: string, onStep?: Step): Promi
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "wallet connect failed" };
   }
+}
+
+// ── Personal treasury (spec 283/284) ────────────────────────────────────────────
+// A person's "money agent" is a SEPARATE Smart Agent named `<handle>-treasury.impact`, so funds
+// live apart from the identity SA. Passkey homes deploy it at salt 1 under the same passkey; social
+// (Google/YouVersion) homes deploy it server-side custodied by the per-(iss,sub) C_sub, parented to
+// the person SA. Detection + live balance is `usePersonTreasury` (src/lib/use-live.ts).
+
+const MINT_ABI = [{ type: "function", name: "mint", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] }] as const;
+
+/** A SignHash for the home's credential — passkey/wallet sign on device; social homes sign via the
+ *  per-(iss,sub) custody session (no device gesture). */
+async function signHashForVia(via: ConnectVia, sender: Address, token?: string): Promise<SignHash> {
+  if (via === "wallet") {
+    const addr = await connectWallet(true);
+    return (h) => personalSign(addr, h);
+  }
+  if (via === "google" || via === "youversion") {
+    if (!token) throw new Error("Signing from a social home needs a live custody session — sign in again.");
+    return async (hash: Hex): Promise<Hex> => {
+      await ensureCsrfToken();
+      const r = await fetch("/a2a/custody/google/sign", {
+        method: "POST", credentials: "include",
+        headers: { "content-type": "application/json", ...csrfHeaders() },
+        body: JSON.stringify({ session: token, hash, sender }),
+      });
+      const b = (await r.json().catch(() => ({}))) as { ok?: boolean; signature?: Hex; error?: string; detail?: string };
+      if (!r.ok || !b.ok || !b.signature) throw new Error([b.error, b.detail].filter(Boolean).join(" — ") || `custody sign failed (HTTP ${r.status})`);
+      return b.signature;
+    };
+  }
+  return passkeySignHash;
+}
+
+/** Deploy the person's `<handle>-treasury.impact` money agent (gas-sponsored). */
+export async function createPersonTreasury(
+  opts: { handle: string; personSA: Address; via: ConnectVia; token?: string },
+  onStep?: Step,
+): Promise<{ ok: true; agent: Address; name: string } | { ok: false; error: string }> {
+  const base = `${opts.handle}-treasury`;
+  if (opts.via === "google" || opts.via === "youversion") {
+    if (!opts.token) return { ok: false, error: "needs a live custody session — sign in again." };
+    onStep?.("Reserving your treasury name…");
+    const pick = (await (await fetch(`/connect/name?base=${encodeURIComponent(base)}`)).json()) as { label?: string; name?: string; node?: Hex; error?: string };
+    if (!pick.label || !pick.node || !pick.name) return { ok: false, error: pick.error ?? "no free name" };
+    await ensureCsrfToken();
+    onStep?.("Deploying your treasury (gas-free)…");
+    const res = await fetch("/a2a/custody/google/bootstrap-agent", {
+      method: "POST", credentials: "include",
+      headers: { "content-type": "application/json", ...csrfHeaders() },
+      body: JSON.stringify({ session: opts.token, kind: "person-treasury", parent: opts.personSA, label: pick.label, node: pick.node }),
+    });
+    const b = (await res.json().catch(() => ({}))) as { ok?: boolean; agent?: Address; error?: string; detail?: string };
+    if (!res.ok || !b.ok || !b.agent) return { ok: false, error: [b.error, b.detail].filter(Boolean).join(" — ") || `treasury deploy failed (HTTP ${res.status})` };
+    return { ok: true, agent: b.agent, name: pick.name };
+  }
+  if (opts.via === "passkey") {
+    const passkey = loadPasskey();
+    if (!passkey) return { ok: false, error: "Your passkey isn't on this device. Reconnect, then create your treasury." };
+    onStep?.("Reserving your treasury name…");
+    const sa = await derivePasskeySa(passkey, 1n);
+    const claim = await buildClaimCallData(base, sa);
+    if (!claim.ok) return { ok: false, error: claim.error };
+    onStep?.("Deploying your treasury (gas-free)…");
+    const dep = await bootstrapWithPasskey(passkey, claim.callData, onStep, 1n);
+    return dep.ok ? { ok: true, agent: dep.agent, name: claim.name } : dep;
+  }
+  return { ok: false, error: "Creating a treasury from a wallet home isn't wired yet — use a passkey or social home." };
+}
+
+/** Mint mock USDC into a treasury (testnet faucet) via the person SA's relayer-sponsored call. */
+export async function fundTreasury(
+  opts: { treasury: Address; usdc: number; personSA: Address; via: ConnectVia; token?: string },
+  onStep?: Step,
+): Promise<{ ok: true; txHash?: Hex } | { ok: false; error: string }> {
+  if (!(opts.usdc > 0)) return { ok: false, error: "Enter an amount greater than 0." };
+  const amount = parseUnits(String(opts.usdc), 6);
+  let signHash: SignHash;
+  try { signHash = await signHashForVia(opts.via, opts.personSA, opts.token); }
+  catch (e) { return { ok: false, error: e instanceof Error ? e.message : "could not set up signing" }; }
+  onStep?.(`Funding ${opts.usdc} USDC…`);
+  const mintData = encodeFunctionData({ abi: MINT_ABI, functionName: "mint", args: [opts.treasury, amount] });
+  const callData = buildExecuteBatchCallData([{ to: CONTRACTS.mockUsdc as Address, value: 0n, data: mintData } as ContractCall]);
+  return executeCall(opts.personSA, signHash, callData, { attempts: 6 });
 }

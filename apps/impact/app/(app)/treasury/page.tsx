@@ -1,20 +1,29 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import { useSession } from "@/context/session";
 import { orgById } from "@/lib/seed";
 import { SectionHead, StatTile, Pill, EmptyNote } from "@/components/ui";
 import { IconWallet, IconGift } from "@/components/Icons";
 import { useAgentBalances, usePersonTreasury } from "@/lib/use-live";
+import { createPersonTreasury, fundTreasury } from "@/lib/connect";
 import type { Treasury } from "@/lib/types";
 
 const EXPLORER = "https://sepolia.basescan.org/address/";
 
 export default function TreasuryPage() {
-  const { person, active } = useSession();
+  const { person, active, identity, token } = useSession();
   const isOrg = active.mode === "org";
+  const via = identity?.via ?? "passkey";
+  const deployed = !!identity?.deployed;
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [actErr, setActErr] = useState<string | null>(null);
+  const [fundAmt, setFundAmt] = useState("25");
   // The person's money agent is `<handle>-treasury.impact` — detected live via the
   // naming service (same convention impact uses), with its on-chain balance.
-  const treas = usePersonTreasury(isOrg ? null : person?.handle);
+  const treas = usePersonTreasury(isOrg ? null : person?.handle, refreshKey);
   // Fallback: the person SA's own balance, used only if there's no treasury agent yet.
   const selfBal = useAgentBalances(isOrg ? undefined : person?.address);
   if (!person) return null;
@@ -37,21 +46,71 @@ export default function TreasuryPage() {
   const subscriptions = mandates.filter((m) => m.kind === "subscription");
   const payg = mandates.filter((m) => m.kind === "pay-as-you-go");
 
+  async function onCreate() {
+    if (!person) return;
+    setActErr(null);
+    const out = await createPersonTreasury({ handle: person.handle, personSA: person.address, via, token: token ?? undefined }, setBusy);
+    setBusy(null);
+    if (out.ok) setRefreshKey((k) => k + 1); else setActErr(out.error);
+  }
+  async function onFund() {
+    if (!person) return;
+    const target = treas.exists && treas.address ? treas.address : person.address;
+    const amt = Number(fundAmt);
+    if (!(amt > 0)) { setActErr("Enter an amount greater than 0."); return; }
+    setActErr(null);
+    const out = await fundTreasury({ treasury: target, usdc: amt, personSA: person.address, via, token: token ?? undefined }, setBusy);
+    setBusy(null);
+    if (out.ok) setRefreshKey((k) => k + 1); else setActErr(out.error);
+  }
+
+  const canAct = !isOrg && deployed && !busy;
+  const fundControl = !isOrg ? (
+    deployed ? (
+      <div className="row" style={{ gap: ".4rem" }}>
+        <input
+          value={fundAmt} onChange={(e) => setFundAmt(e.target.value)} inputMode="decimal" aria-label="USDC amount"
+          style={{ width: 72, padding: ".4rem .55rem", borderRadius: "var(--r-sm)", border: "1px solid var(--border-strong)", background: "var(--surface)", color: "var(--ink)", fontFamily: "inherit" }}
+        />
+        <button className="btn btn-primary btn-sm" onClick={onFund} disabled={!canAct}>
+          <IconGift width={15} height={15} /> {busy ? "…" : "Fund USDC"}
+        </button>
+      </div>
+    ) : undefined
+  ) : undefined;
+
   return (
     <>
       <SectionHead
         eyebrow={isOrg ? "Organization treasury" : "Your treasury"}
         title="Treasury"
         sub={`Funds and giving ${ownerName ? `for ${ownerName}` : ""} — stewarded transparently, on your terms. No service holds your key.`}
-        action={<button className="btn btn-primary btn-sm"><IconGift width={15} height={15} /> Fund with USDC</button>}
+        action={fundControl}
       />
+
+      {(busy || actErr) && (
+        <div className="muted" style={{ marginBottom: "1rem", color: actErr ? "var(--danger)" : undefined }}>
+          {actErr ?? busy}
+        </div>
+      )}
 
       {/* Personal treasury detection */}
       {!isOrg && !treas.loading && !treas.exists ? (
-        <EmptyNote>
-          No personal treasury yet. Your money agent is a separate Smart Agent
-          (<code className="mono">{person.handle}-treasury.impact</code>) — fund or create it to start giving and paying on your terms.
-        </EmptyNote>
+        <div className="card card-pad" style={{ marginBottom: "1.4rem" }}>
+          <EmptyNote>
+            No personal treasury yet. Your money agent is a separate Smart Agent
+            (<code className="mono">{person.handle}-treasury.impact</code>) — create it to start giving and paying on your terms.
+          </EmptyNote>
+          {!deployed ? (
+            <p className="muted" style={{ marginTop: ".8rem" }}>
+              First secure your home on-chain — go to <Link href="/account">Account → Secure my home</Link>, then create your treasury.
+            </p>
+          ) : (
+            <button className="btn btn-primary btn-sm" style={{ marginTop: ".9rem" }} onClick={onCreate} disabled={!canAct}>
+              <IconWallet width={15} height={15} /> {busy ? busy : "Create my treasury"}
+            </button>
+          )}
+        </div>
       ) : (
         <>
           <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1.4rem" }}>
