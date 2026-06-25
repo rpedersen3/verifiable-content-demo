@@ -3,7 +3,7 @@
 // agenticprimitives/impact/src/connect-client.ts, trimmed to the sign-in
 // substrate (no org/delegation/treasury/payment surface). Social (Google/YouVersion)
 // is wired separately and needs the custody-bridge env.
-import { encodeFunctionData, parseUnits, keccak256, toBytes } from "viem";
+import { encodeFunctionData, parseUnits } from "viem";
 import { buildMessage } from "@agenticprimitives/connect-auth/siwe";
 import {
   buildSubregistryRegisterCall,
@@ -532,11 +532,15 @@ async function signHashForVia(via: ConnectVia, sender: Address, token?: string):
 
 export type ManagedKind = "person-treasury" | "org" | "org-treasury";
 
-/** Deterministic passkey salt for a named managed agent, so distinct names get distinct SAs
- *  (the person SA is salt 0, the treasury salt 1; orgs derive from their name). */
-function saltFromName(kind: ManagedKind, name: string): bigint {
+/** Passkey deploy salt for a managed agent (ADR-0010: a DISTINCT non-zero salt, NEVER name-derived).
+ *  The person SA is salt 0 and the treasury its singleton salt 1; an org/org-treasury (many per home)
+ *  gets a fresh RANDOM salt so distinct agents get distinct SAs — same as a2a's server-side bootstrap. */
+function managedSalt(kind: ManagedKind): bigint {
   if (kind === "person-treasury") return 1n;
-  return BigInt(keccak256(toBytes(`impact:${kind}:${name.toLowerCase()}`)));
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  let salt = 0n;
+  for (const b of bytes) salt = (salt << 8n) | BigInt(b);
+  return salt === 0n ? 1n : salt;
 }
 
 /** Deploy a person-governed managed agent (gas-sponsored) — a treasury, an organization, or an
@@ -586,7 +590,7 @@ export async function createManagedAgent(
     const passkey = loadPasskey();
     if (!passkey) return { ok: false, error: "Your passkey isn't on this device. Reconnect, then try again." };
     onStep?.(base ? `Reserving your ${noun} name…` : `Preparing your ${noun}…`);
-    const salt = saltFromName(opts.kind, opts.name ?? opts.kind);
+    const salt = managedSalt(opts.kind);
     const sa = await derivePasskeySa(passkey, salt);
     // Stewardship grant agent→parent, pre-approved (0x03 sentinel) INSIDE the deploy batch so the
     // parent can read/oversee the agent — no second signature (spec 246/253).
