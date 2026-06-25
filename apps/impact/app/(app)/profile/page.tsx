@@ -15,6 +15,7 @@ import {
   loadImpactProfile, saveImpactProfile, PROFILE_FIELDS, VaultKeyUnauthorizedError,
   type ImpactStoredProfile, type ImpactContactProfile, type ImpactProfileFieldKey,
 } from "@/lib/profile-store";
+import { setCachedProfileName, displayNameFromContact } from "@/lib/profile-name";
 
 const inputStyle: React.CSSProperties = {
   width: "100%", padding: ".6rem .75rem", fontSize: ".92rem", borderRadius: "var(--r-sm)",
@@ -37,7 +38,7 @@ export default function ProfilePage() {
     let cancelled = false;
     setLoading(true); setNeedsVaultKey(false); setError(null);
     loadImpactProfile(address as `0x${string}`)
-      .then((p) => { if (!cancelled) { setStored(p); setContact(p.contact ?? {}); } })
+      .then((p) => { if (!cancelled) { setStored(p); setContact(p.contact ?? {}); setCachedProfileName(address, displayNameFromContact(p.contact)); } })
       .catch((err) => {
         if (cancelled) return;
         if (err instanceof VaultKeyUnauthorizedError) setNeedsVaultKey(true);
@@ -60,6 +61,7 @@ export default function ProfilePage() {
       const next: ImpactStoredProfile = { v: 1, contact, attestations: stored?.attestations };
       await saveImpactProfile(address as `0x${string}`, next);
       setStored(next);
+      setCachedProfileName(address, displayNameFromContact(contact));
       setSaved(true);
     } catch (err) {
       if (err instanceof VaultKeyUnauthorizedError) setNeedsVaultKey(true);
