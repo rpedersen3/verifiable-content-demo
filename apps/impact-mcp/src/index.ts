@@ -1026,6 +1026,9 @@ app.post('/mcp', async (c) => {
   const metaUrl = new URL('/.well-known/oauth-protected-resource', c.req.url).toString();
   if (!c.env.OAUTH_SIGNING_SECRET) return c.json({ error: 'unsupported', error_description: 'OAuth ingress not configured' }, 501);
 
+  // Never let an exception become an opaque 500 — surface the reason so the browser/UI can
+  // distinguish a config problem (e.g. missing chain vars) from a policy denial.
+  try {
   const validation = await validateMcpBearerToken(parseBearer(c.req.header('authorization')), {
     verify: createHs256Verify(c.env.OAUTH_SIGNING_SECRET),
     audience: c.env.MCP_AUDIENCE,
@@ -1084,10 +1087,18 @@ app.post('/mcp', async (c) => {
       await gate.pv.vault.write({ owner: principal, resource, data });
       return c.json({ ok: true, tool, principal, served_by: 'impact-mcp:set_impact_entitlements' });
     }
-    const gate = await authorizePersonVaultOp(c.env, principal, resource, 'read', 'internal');
+    const gate = await authorizePersonVaultOp(c.env, principal, resource, 'read', 'pii.low');
     if (!gate.ok) return c.json({ ok: false, error: gate.error, served_by: 'impact-mcp:get_impact_entitlements' });
-    const obj = await gate.pv.vault.read({ owner: principal, resource });
-    return c.json({ ok: true, tool, principal, record: obj?.data ?? null, served_by: 'impact-mcp:get_impact_entitlements' });
+    // A never-written entitlements record must read back as EMPTY, never an error — the member
+    // simply holds no credentials yet. Tolerate a missing/undecryptable object as null.
+    let data: unknown = null;
+    try {
+      const obj = await gate.pv.vault.read({ owner: principal, resource });
+      data = obj?.data ?? null;
+    } catch (e) {
+      console.warn('[impact-mcp] get_impact_entitlements read treated as empty:', e instanceof Error ? e.message : String(e));
+    }
+    return c.json({ ok: true, tool, principal, record: data, served_by: 'impact-mcp:get_impact_entitlements' });
   }
 
   const spec = OAUTH_TOOL_SPECS[tool];
@@ -1103,6 +1114,10 @@ app.post('/mcp', async (c) => {
   // matching the service-MAC tool routes — they are policy outcomes, not transport errors.
   if (!r.ok) return c.json(r);
   return c.json({ ok: true, tool, principal, name: r.subject_name, record: r.record, served_by: spec.servedBy, grant_ref: resolved.bundle.id });
+  } catch (e) {
+    console.error('[impact-mcp] /mcp handler error:', e);
+    return c.json({ ok: false, error: 'mcp_internal_error', detail: e instanceof Error ? e.message : String(e) }, 500);
+  }
 });
 
 // R7.4: pre-declare update_profile so the preflight (N10.2) doesn't flag
