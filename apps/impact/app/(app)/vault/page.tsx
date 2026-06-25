@@ -1,16 +1,53 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useSession } from "@/context/session";
 import { SectionHead, Pill, classBadge, EmptyNote } from "@/components/ui";
 import { IconVault, IconLink, IconCheck } from "@/components/Icons";
+import {
+  loadImpactProfile, PROFILE_FIELDS, VaultKeyUnauthorizedError, type ImpactContactProfile,
+} from "@/lib/profile-store";
+import { displayNameFromContact } from "@/lib/profile-name";
 
 type Tab = "records" | "entitlements" | "delegations";
 
 export default function VaultPage() {
-  const { person } = useSession();
+  const { person, identity } = useSession();
   const [tab, setTab] = useState<Tab>("records");
+
+  const address = identity?.address;
+  const [contact, setContact] = useState<ImpactContactProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [needsVaultKey, setNeedsVaultKey] = useState(false);
+
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
+    setLoading(true); setNeedsVaultKey(false);
+    loadImpactProfile(address as `0x${string}`)
+      .then((p) => { if (!cancelled) setContact(p.contact ?? {}); })
+      .catch((err) => { if (!cancelled && err instanceof VaultKeyUnauthorizedError) setNeedsVaultKey(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [address]);
+
   if (!person) return null;
+
+  // Build the real records list: the encrypted community-profile record (if it holds anything) +
+  // any seeded records. The profile is the member's PII vault record (spec 278 `vault:impact-profile`).
+  const filled = contact ? PROFILE_FIELDS.filter((f) => ((contact[f.key] ?? "") as string).trim()) : [];
+  const records: { type: string; label: string; class: string; summary: string; href?: string }[] = [];
+  if (filled.length > 0) {
+    records.push({
+      type: "vault:impact-profile",
+      label: "Community profile",
+      class: "sensitive",
+      summary: `${displayNameFromContact(contact ?? undefined) ?? "Your contact details"} · ${filled.length} field${filled.length === 1 ? "" : "s"} (${filled.map((f) => f.label.toLowerCase()).join(", ")})`,
+      href: "/profile",
+    });
+  }
+  records.push(...person.vaultRecords.map((r) => ({ type: r.type, label: r.label, class: r.class, summary: r.summary })));
 
   return (
     <>
@@ -21,41 +58,48 @@ export default function VaultPage() {
       />
 
       <div className="row wrap" style={{ gap: ".5rem", marginBottom: "1.2rem" }}>
-        <TabBtn active={tab === "records"} onClick={() => setTab("records")}>
-          Records ({person.vaultRecords.length})
-        </TabBtn>
-        <TabBtn active={tab === "entitlements"} onClick={() => setTab("entitlements")}>
-          Entitlements ({person.entitlements.length})
-        </TabBtn>
-        <TabBtn active={tab === "delegations"} onClick={() => setTab("delegations")}>
-          Delegations ({person.delegations.length})
-        </TabBtn>
+        <TabBtn active={tab === "records"} onClick={() => setTab("records")}>Records ({records.length})</TabBtn>
+        <TabBtn active={tab === "entitlements"} onClick={() => setTab("entitlements")}>Entitlements ({person.entitlements.length})</TabBtn>
+        <TabBtn active={tab === "delegations"} onClick={() => setTab("delegations")}>Delegations ({person.delegations.length})</TabBtn>
       </div>
 
-      {tab === "records" && person.vaultRecords.length === 0 && (
-        <EmptyNote>Your vault is empty so far — your encrypted PII profile and other records appear here once you add them. Activate your vault from Security to store sensitive data.</EmptyNote>
-      )}
-      {tab === "records" && person.vaultRecords.length > 0 && (
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
-          {person.vaultRecords.map((r) => (
-            <div key={r.type} className="card card-pad card-hover">
-              <div className="row-between">
-                <div className="row" style={{ gap: ".6rem" }}>
-                  <div className="glyph glyph-sm" style={{ background: "var(--surface-sunken)", color: "var(--amber-700)" }}>
-                    <IconVault width={16} height={16} />
+      {tab === "records" && (
+        needsVaultKey ? (
+          <EmptyNote>
+            Your vault isn&apos;t activated yet. Go to <Link href="/account">Account → Activate vault key</Link> to
+            store and read your encrypted PII profile and records.
+          </EmptyNote>
+        ) : loading && records.length === 0 ? (
+          <div className="muted">Reading your encrypted vault…</div>
+        ) : records.length === 0 ? (
+          <EmptyNote>Your vault is empty so far — fill in your <Link href="/profile">profile</Link> and it&apos;s sealed here under your own key.</EmptyNote>
+        ) : (
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
+            {records.map((r) => {
+              const inner = (
+                <div className="card card-pad card-hover" style={{ height: "100%" }}>
+                  <div className="row-between">
+                    <div className="row" style={{ gap: ".6rem" }}>
+                      <div className="glyph glyph-sm" style={{ background: "var(--surface-sunken)", color: "var(--amber-700)" }}>
+                        <IconVault width={16} height={16} />
+                      </div>
+                      <strong style={{ fontSize: ".92rem" }}>{r.label}</strong>
+                    </div>
+                    {classBadge(r.class)}
                   </div>
-                  <strong style={{ fontSize: ".92rem" }}>{r.label}</strong>
+                  <div className="muted" style={{ fontSize: ".82rem", marginTop: ".6rem" }}>{r.summary}</div>
+                  <div className="row-between" style={{ marginTop: ".7rem" }}>
+                    <code className="mono faint" style={{ fontSize: ".72rem" }}>{r.type}</code>
+                    <span className="faint" style={{ fontSize: ".72rem" }}>{r.href ? "edit →" : "encrypted"}</span>
+                  </div>
                 </div>
-                {classBadge(r.class)}
-              </div>
-              <div className="muted" style={{ fontSize: ".82rem", marginTop: ".6rem" }}>{r.summary}</div>
-              <div className="row-between" style={{ marginTop: ".7rem" }}>
-                <code className="mono faint" style={{ fontSize: ".72rem" }}>{r.type}</code>
-                <span className="faint" style={{ fontSize: ".72rem" }}>updated {r.updatedAt}</span>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+              return r.href
+                ? <Link key={r.type} href={r.href} style={{ textDecoration: "none", color: "inherit" }}>{inner}</Link>
+                : <div key={r.type}>{inner}</div>;
+            })}
+          </div>
+        )
       )}
 
       {tab === "entitlements" && (
