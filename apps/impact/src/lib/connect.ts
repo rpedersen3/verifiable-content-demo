@@ -180,12 +180,16 @@ async function passkeyLogin(registerIfMissing = true, onStep?: Step): Promise<Pa
   const { challenge } = (await (await fetch("/connect/passkey-challenge")).json()) as { challenge: Hex };
   const signature = await signWithPasskey(challenge);
   onStep?.("Checking your home on-chain…");
+  // rpIdHash is part of the passkey SA's CREATE2 address (the deploy bakes sha256 of THIS
+  // browser's host). Send the same value so the server resolves the exact deployed SA —
+  // server-side Host derivation can drift behind a proxy/alias and miss the account.
+  const rpIdHash = await derivePasskeyRpIdHash();
   const r = await fetch("/connect/passkey", {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({
       credentialIdDigest: passkey.credentialIdDigest,
       pubKeyX: passkey.pubKeyX.toString(), pubKeyY: passkey.pubKeyY.toString(),
-      challenge, signature, aud: AUD,
+      rpIdHash, challenge, signature, aud: AUD,
     }),
   });
   const body = await readJson<{ status?: string; token?: string }>(r);
@@ -331,16 +335,24 @@ export async function connectPasskey(nameHint?: string, onStep?: Step): Promise<
     const login = await passkeyLogin(true, onStep);
     if (login.status === "issued") { onStep?.("Opening your home…"); return finish(login.token, "passkey", false); }
     if (login.status === "bootstrap") {
-      const base = nameHint && nameHint.trim() ? sanitizeBase(nameHint) : null;
-      if (base) {
-        const dep = await deployAndClaimPasskey(login.passkey, base, onStep);
-        if (!dep.ok) return { ok: false, error: dep.error };
-      } else {
-        // No name given → secure a NAMELESS home (deploy with no name claim). The member
-        // can claim a public name later. (spec 257 name-deferral.)
-        onStep?.("Securing your home (no name yet)…");
-        const dep = await bootstrapWithPasskey(login.passkey, undefined, onStep);
-        if (!dep.ok) return { ok: false, error: dep.error };
+      // Guard: only deploy if the SA truly isn't on-chain yet. If it IS deployed, the
+      // bootstrap was a false negative (e.g. a stale reconnect) — re-deploying the same SA
+      // reverts with EntryPoint AA25. Skip straight to sign-in instead. The derived address
+      // includes rpIdHash, so it matches what the deploy created.
+      const sa = await derivePasskeySa(login.passkey, 0n);
+      const alreadyDeployed = await agentAccountClient().isDeployed(sa).catch(() => false);
+      if (!alreadyDeployed) {
+        const base = nameHint && nameHint.trim() ? sanitizeBase(nameHint) : null;
+        if (base) {
+          const dep = await deployAndClaimPasskey(login.passkey, base, onStep);
+          if (!dep.ok) return { ok: false, error: dep.error };
+        } else {
+          // No name given → secure a NAMELESS home (deploy with no name claim). The member
+          // can claim a public name later. (spec 257 name-deferral.)
+          onStep?.("Securing your home (no name yet)…");
+          const dep = await bootstrapWithPasskey(login.passkey, undefined, onStep);
+          if (!dep.ok) return { ok: false, error: dep.error };
+        }
       }
       onStep?.("Signing you in…");
       const again = await passkeyLogin(false, onStep);

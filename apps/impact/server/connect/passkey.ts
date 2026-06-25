@@ -3,8 +3,12 @@
 // then issue an AgentSession (or signal bootstrap).
 //
 // Like /connect/siwe, resolution is deterministic: the SA address is the CREATE2 of
-// `{ custodians:[], passkey:{credentialIdDigest,x,y}, salt:0 }` (the spec demo-a2a's
-// passkey-direct deploy uses). Confirm on-chain (isDeployed + hasPasskey, with a short
+// `{ custodians:[], passkey:{credentialIdDigest,x,y,rpIdHash}, salt:0 }` (the shape the
+// passkey-direct deploy uses). The factory commits `initialPasskeyRpIdHash` into the
+// CREATE2, so rpIdHash (sha256 of the WebAuthn rp host) is PART of the address — the client
+// sends the SAME rpIdHash it baked at deploy, or we'd compute a different (never-deployed)
+// address and wrongly return bootstrap forever (which then makes the next attempt re-deploy
+// an already-existing SA → EntryPoint AA25). Confirm on-chain (isDeployed + hasPasskey, with a short
 // poll for post-deploy RPC lag), prove possession (isValidSignature over the single-use
 // challenge), then RECONNECT (mint a custody-grade session + record the facet). If the
 // SA doesn't exist yet → bootstrap. No KV facet needed — so an SA created in any flow is
@@ -28,10 +32,17 @@ async function isDeployedSoon(accounts: AgentAccountClient, sa: Address): Promis
 
 export const onRequestPost = async ({ request, env }: FnContext): Promise<Response> => {
   const body = (await request.json().catch(() => null)) as
-    | { credentialIdDigest?: string; pubKeyX?: string; pubKeyY?: string; challenge?: string; signature?: string; aud?: string }
+    | { credentialIdDigest?: string; pubKeyX?: string; pubKeyY?: string; rpIdHash?: string; challenge?: string; signature?: string; aud?: string }
     | null;
-  if (!body?.credentialIdDigest || !body.pubKeyX || !body.pubKeyY || !body.challenge || !body.signature || !body.aud) {
-    return json({ error: 'credentialIdDigest, pubKeyX, pubKeyY, challenge, signature, aud required' }, 400);
+  if (!body?.credentialIdDigest || !body.pubKeyX || !body.pubKeyY || !body.rpIdHash || !body.challenge || !body.signature || !body.aud) {
+    return json({ error: 'credentialIdDigest, pubKeyX, pubKeyY, rpIdHash, challenge, signature, aud required' }, 400);
+  }
+  // rpIdHash is part of the passkey SA's CREATE2 address; the client sends the same value
+  // it baked at deploy (sha256 of the browser host). It only LOCATES the account — trust is
+  // gated below by hasPasskey + proof-of-possession (isValidSignature), so a forged rpIdHash
+  // can only ever resolve to an SA the caller already controls. Validate it's a bytes32.
+  if (!/^0x[0-9a-fA-F]{64}$/.test(body.rpIdHash)) {
+    return json({ error: 'rpIdHash must be a 32-byte hex string' }, 400);
   }
   // SEC-024: gate iss through the Host allowlist (closes the gap SEC-006 left on the
   // Connect-auth code path; the broker must NEVER sign sessions with a foreign Host).
@@ -57,12 +68,14 @@ export const onRequestPost = async ({ request, env }: FnContext): Promise<Respon
   });
 
   // Derive the deterministic passkey SA (mode 0, no custodians, passkey set, salt 0).
+  // rpIdHash is committed into the CREATE2 by the factory, so it MUST be included to match
+  // the deployed address — use the client-supplied value (the exact one baked at deploy).
   let sa: Address;
   try {
     sa = await accounts.getAddressForAgentAccount({
       mode: 0,
       custodians: [],
-      passkey: { credentialIdDigest: body.credentialIdDigest as Hex, x: BigInt(body.pubKeyX), y: BigInt(body.pubKeyY) },
+      passkey: { credentialIdDigest: body.credentialIdDigest as Hex, x: BigInt(body.pubKeyX), y: BigInt(body.pubKeyY), rpIdHash: body.rpIdHash as Hex },
       salt: 0n,
     });
   } catch (e) {
