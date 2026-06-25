@@ -16,6 +16,7 @@ import type { Address, Hex } from "@agenticprimitives/types";
 import { CHAIN_ID, CONTRACTS } from "./chain";
 import { passkeySignHash } from "./connect";
 import { connectWallet, personalSign } from "./wallet";
+import { ensureCsrfToken, csrfHeaders } from "../csrf";
 
 type SignHash = (hash: Hex) => Promise<Hex>;
 export type Via = "passkey" | "wallet" | "google" | "youversion";
@@ -40,15 +41,28 @@ interface CeremonyParams {
 }
 
 /** Resolve a SignHash for the member's credential. Passkey/wallet sign on device; OIDC
- *  (Google/YouVersion) homes are KMS-custodied and need the custody-session sign path
- *  (not wired here yet) — activate with a passkey or wallet credential instead. */
-async function signHashFor(via: Via): Promise<SignHash> {
+ *  (Google/YouVersion) homes are KMS-custodied — impact-a2a's per-(iss,sub) C_sub signs the
+ *  digest server-side over the custody session (no device gesture), via /a2a/custody/google/sign
+ *  (OIDC-generic: it derives the custodian from the session subject, so YouVersion works too). */
+async function signHashFor(via: Via, owner: Address, token?: string): Promise<SignHash> {
   if (via === "wallet") {
     const addr = await connectWallet(true);
     return (h: Hex) => personalSign(addr, h);
   }
   if (via === "google" || via === "youversion") {
-    throw new Error("Activating your vault key from a social (Google/YouVersion) home isn't wired yet — add a passkey credential and use that.");
+    if (!token) throw new Error("Activating a vault key for a social home needs a live custody session — sign in again.");
+    return async (hash: Hex): Promise<Hex> => {
+      await ensureCsrfToken();
+      const res = await fetch("/a2a/custody/google/sign", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json", ...csrfHeaders() },
+        body: JSON.stringify({ session: token, hash, sender: owner }),
+      });
+      const b = (await res.json().catch(() => ({}))) as { ok?: boolean; signature?: Hex; error?: string; detail?: string };
+      if (!res.ok || !b.ok || !b.signature) throw new Error([b.error, b.detail].filter(Boolean).join(" — ") || `custody sign failed (HTTP ${res.status})`);
+      return b.signature;
+    };
   }
   return passkeySignHash;
 }
@@ -105,10 +119,11 @@ export async function bindVaultKey(
   owner: Address,
   params: CeremonyParams,
   via: Via = "passkey",
+  token?: string,
 ): Promise<{ ok: true; kmsKeyRef: string } | { ok: false; error: string }> {
   try {
     const { delegation, digest, expiresAt } = buildVaultKeyAuthorization(owner, params);
-    const signHash = await signHashFor(via);
+    const signHash = await signHashFor(via, owner, token);
     delegation.signature = await signHash(digest);
     const res = await fetch(`${MCP_BIND}/custody/vault-key/bind`, {
       method: "POST",
@@ -132,8 +147,9 @@ export async function bindVaultKey(
   }
 }
 
-/** One-call activation: provision (idempotent) → discover scope → bind. */
-export async function activateVaultKey(owner: Address, via: Via): Promise<{ ok: true; kmsKeyRef: string } | { ok: false; error: string }> {
+/** One-call activation: provision (idempotent) → discover scope → bind. Pass the AgentSession
+ *  `token` for social (Google/YouVersion) homes — it authorizes the custody-session signature. */
+export async function activateVaultKey(owner: Address, via: Via, token?: string): Promise<{ ok: true; kmsKeyRef: string } | { ok: false; error: string }> {
   const prov = await provisionVaultKey(owner);
   if (!prov.ok) return prov;
   const info = await fetchVaultServerInfo();
@@ -141,5 +157,6 @@ export async function activateVaultKey(owner: Address, via: Via): Promise<{ ok: 
     owner,
     { vaultId: "impact-mcp", kmsKeyRef: prov.kmsKeyRef, serverKey: info.serverKey, allowedResources: info.defaultResources, classificationCeiling: info.classificationCeiling, ops: info.ops },
     via,
+    token,
   );
 }

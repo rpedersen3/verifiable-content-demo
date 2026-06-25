@@ -15,7 +15,7 @@ const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const VIA_LABEL: Record<string, string> = { passkey: "Passkey", wallet: "Wallet", google: "Google", youversion: "YouVersion" };
 
 export default function AccountPage() {
-  const { identity, signOut } = useSession();
+  const { identity, token, signOut } = useSession();
   const address = identity?.address;
   const via = identity?.via ?? "passkey";
 
@@ -36,7 +36,7 @@ export default function AccountPage() {
   async function onActivate() {
     if (!address) return;
     setActivating(true); setActivateError(null);
-    const out = await activateVaultKey(address as `0x${string}`, via);
+    const out = await activateVaultKey(address as `0x${string}`, via, token ?? undefined);
     if (out.ok) setVaultStatus("active");
     else setActivateError(out.error);
     setActivating(false);
