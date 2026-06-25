@@ -114,7 +114,7 @@ export async function fetchVaultServerInfo(): Promise<VaultKeyServerInfo> {
   const info = (await (await fetch(`${MCP_BIND}/custody/vault-key/server-info`)).json()) as Partial<VaultKeyServerInfo>;
   return {
     serverKey: info.serverKey as Address,
-    defaultResources: info.defaultResources ?? ["person-pii", "org-sensitive", "profile", "vault:impact-profile"],
+    defaultResources: info.defaultResources ?? ["person-pii", "org-sensitive", "profile", "vault:impact-profile", "vault:impact-entitlements"],
     classificationCeiling: info.classificationCeiling ?? "regulated.high",
     ops: info.ops ?? ["read", "write"],
   };

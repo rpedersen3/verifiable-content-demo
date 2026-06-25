@@ -70,14 +70,18 @@ export default function VaultPage() {
   const [entBusy, setEntBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ title: "", issuer: "", scope: "" });
+  // Entitlements live under a SEPARATE vault resource (`vault:impact-entitlements`). A vault key
+  // activated before that resource existed authorizes the profile but not entitlements — so its
+  // own gate, NOT the records gate, must reflect that (a profile-only key shouldn't hide records).
+  const [entNeedsKey, setEntNeedsKey] = useState(false);
 
   useEffect(() => {
     if (!address) return;
     let cancelled = false;
-    setEntLoading(true); setEntErr(null);
+    setEntLoading(true); setEntErr(null); setEntNeedsKey(false);
     loadImpactEntitlements(address as `0x${string}`)
       .then((list) => { if (!cancelled) setEntitlements(list); })
-      .catch((err) => { if (!cancelled && err instanceof VaultKeyUnauthorizedError) setNeedsVaultKey(true); })
+      .catch((err) => { if (!cancelled && err instanceof VaultKeyUnauthorizedError) setEntNeedsKey(true); })
       .finally(() => { if (!cancelled) setEntLoading(false); });
     return () => { cancelled = true; };
   }, [address]);
@@ -191,6 +195,12 @@ export default function VaultPage() {
           <EmptyNote>
             Your vault isn&apos;t activated yet. Go to <Link href="/account">Account → Activate vault key</Link> to
             hold and read verifiable credentials in your encrypted vault.
+          </EmptyNote>
+        ) : entNeedsKey ? (
+          <EmptyNote>
+            Your vault key is active for your profile but doesn&apos;t yet cover credentials. Re-run
+            <Link href="/account"> Account → Activate vault key</Link> once to add the credentials resource,
+            then your entitlements will read and seal here.
           </EmptyNote>
         ) : (
           <div className="col" style={{ gap: ".7rem" }}>
