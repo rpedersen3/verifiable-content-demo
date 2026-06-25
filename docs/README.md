@@ -13,6 +13,7 @@ agent-to-agent flows, entitlement lifecycle, and payment plans.
 - [System Architecture](./system-architecture.md) - component boundaries, trust boundaries, data flow, and entitlement flow.
 - [Technical Architecture](./technical-architecture.md) - implementation details, package layout, APIs, domain types, and extension points.
 - [Corpus Ownership and Entitlements](./corpus-ownership-and-entitlements.md) - corpus-owner onboarding, KMS/delegation trust chain, request/grant/deliver entitlement flow, and security audit.
+- [Social Connect Hardening](./social-connect-hardening.md) - future production hardening for OAuth/OIDC token custody, KMS envelope encryption, recovery wrapping, and Smart Account custody.
 
 ## A2A, Entitlements, And Payments
 
