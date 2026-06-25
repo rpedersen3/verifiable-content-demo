@@ -89,5 +89,5 @@ pnpm --filter @verifiable-content-demo/impact typecheck
 pnpm --filter @verifiable-content-demo/impact build
 ```
 
-Copy `.env.example` → `.env.local` to point at specific `DEMO_A2A_URL` / `DEMO_MCP_URL`
-deployments; the defaults target the live workers used by `demo-sso-next`.
+Copy `.env.example` → `.env.local` to point at specific `IMPACT_A2A_URL` / `IMPACT_MCP_URL`
+deployments; the defaults target impact's own `apps/impact-a2a` / `apps/impact-mcp` workers.

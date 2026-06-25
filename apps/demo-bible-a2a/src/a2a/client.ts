@@ -5,7 +5,7 @@
 // the reader supplies a buildA2aGrantCaveats-scoped grant — the BSB auth gate rejects otherwise.
 
 import { keccak256, toHex, type Address, type Hex } from 'viem';
-import { A2aWireAdapter, hashA2aMessage, buildA2aGrantCaveats, skillSelector, type A2aTransport, type A2aMessage } from '@agenticprimitives/a2a';
+import { A2aWireAdapter, hashA2aMessage, hashA2aTaskRequest, buildA2aGrantCaveats, skillSelector, type A2aTransport, type A2aMessage } from '@agenticprimitives/a2a';
 import type { Delegation } from '@agenticprimitives/delegation';
 import { agentIdentity } from '../lib/trust.js';
 
@@ -99,5 +99,10 @@ export async function resolveOnBehalf(
  *  then read the verse artifact + verify the Scripture Agent's CitationAssertion). */
 export async function pollTask(env: BsbTargetEnv, taskId: Hex): Promise<unknown> {
   const adapter = new A2aWireAdapter(makeTransport(env));
-  return adapter.getTask((env.BSB_AGENT_SA ?? ZERO) as Address, taskId, agentIdentity(env).agentSa);
+  const targetAgent = (env.BSB_AGENT_SA ?? ZERO) as Address;
+  const caller = agentIdentity(env).agentSa;
+  // AUDIT NEW-A2A-2: the read caller must sign the task-request digest (the client holds no keys).
+  const chainId = Number(env.A2A_CHAIN_ID ?? '84532');
+  const signature = await mcpSignDigest(env, hashA2aTaskRequest({ method: 'tasks/get', taskId, agentSA: targetAgent, chainId }));
+  return adapter.getTask(targetAgent, taskId, caller, signature);
 }

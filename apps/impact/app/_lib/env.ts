@@ -32,14 +32,14 @@ export function makeEnv(): Env {
     // app; override with the YOUVERSION_CLIENT_ID env var if it ever changes.
     YOUVERSION_CLIENT_ID: t(process.env.YOUVERSION_CLIENT_ID) ?? "cZGdGdSgytOfEmpW05EOaSsD5aApv5SQp16QnuMh57AqbErG",
     YOUVERSION_REDIRECT_URI: t(process.env.YOUVERSION_REDIRECT_URI),
-    // Google/YouVersion × KMS custody: the callback asks demo-a2a to derive the member's
-    // KMS-custodied SA. A2A_CUSTODY_URL defaults to demo-a2a (same as DEMO_A2A_URL); you
-    // only need to set A2A_CUSTODY_BRIDGE_SECRET to MATCH your demo-a2a's value. Without
+    // Google/YouVersion × KMS custody: the callback asks impact-a2a to derive the member's
+    // KMS-custodied SA. A2A_CUSTODY_URL defaults to impact-a2a (same as IMPACT_A2A_URL); you
+    // only need to set A2A_CUSTODY_BRIDGE_SECRET to MATCH your impact-a2a's value. Without
     // the secret, a NEW social identity can't get a home → the callback returns bootstrap.
     A2A_CUSTODY_URL:
       t(process.env.A2A_CUSTODY_URL) ??
-      t(process.env.DEMO_A2A_URL) ??
-      "https://demo-a2a-production.richardpedersen3.workers.dev",
+      t(process.env.IMPACT_A2A_URL) ??
+      "https://impact-a2a-production.richardpedersen3.workers.dev",
     A2A_CUSTODY_BRIDGE_SECRET: t(process.env.A2A_CUSTODY_BRIDGE_SECRET),
     // Impact's personal-home audience. Google/YouVersion mint a CUSTODY-grade session
     // only when the sign-in aud matches this — defaults to 'impact' (= connect.ts AUD).

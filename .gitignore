@@ -4,6 +4,7 @@ dist/
 .next/
 *.tsbuildinfo
 .dev.vars
+impact-cloudflare-urls.json
 .DS_Store
 apps/*/onchain.json
 packages/*/dist/
@@ -13,3 +14,4 @@ packages/zk-membership/build/*
 !packages/zk-membership/build/merkle.wasm
 .data/
 apps/demo-bible-mcp/.faucet-mock.json
+.vercel

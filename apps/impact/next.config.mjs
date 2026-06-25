@@ -1,11 +1,11 @@
 /** @type {import('next').NextConfig} */
 
-// Impact talks to the LIVE agenticprimitives backend deployments for all real
-// ceremonies (delegation signing, vault read/write, KMS custody, x402). These are
-// the same Workers demo-sso-next points at. Production deployments SHOULD set these
-// env vars explicitly; the fallbacks are solo-dev convenience only.
-const DEMO_A2A_URL = process.env.DEMO_A2A_URL || 'https://demo-a2a-production.richardpedersen3.workers.dev';
-const DEMO_MCP_URL = process.env.DEMO_MCP_URL || 'https://demo-mcp-production.richardpedersen3.workers.dev';
+// Impact talks to its OWN backend workers (apps/impact-a2a + apps/impact-mcp — copies of
+// the agenticprimitives demo-a2a/demo-mcp) for all real ceremonies (delegation signing,
+// vault read/write, KMS custody, x402). Production deployments SHOULD set these env vars
+// explicitly; the fallbacks are solo-dev convenience only.
+const IMPACT_A2A_URL = process.env.IMPACT_A2A_URL || 'https://impact-a2a-production.richardpedersen3.workers.dev';
+const IMPACT_MCP_URL = process.env.IMPACT_MCP_URL || 'https://impact-mcp-production.richardpedersen3.workers.dev';
 
 // Security headers baseline (mirrors demo-sso-next). A strict CSP lands once the
 // ceremony wiring is in place.
@@ -37,10 +37,10 @@ const nextConfig = {
   outputFileTracingRoot: new URL("../../", import.meta.url).pathname,
   async rewrites() {
     return [
-      // Relayer / A2A ceremonies → live demo-a2a (strip the /a2a prefix).
-      { source: '/a2a/:path*', destination: `${DEMO_A2A_URL}/:path*` },
-      // Vault-key bind ceremony → live demo-mcp (server-side proxy; dodges CORS on /bind).
-      { source: '/mcp-bind/:path*', destination: `${DEMO_MCP_URL}/:path*` },
+      // Relayer / A2A ceremonies → impact-a2a (strip the /a2a prefix).
+      { source: '/a2a/:path*', destination: `${IMPACT_A2A_URL}/:path*` },
+      // Vault-key bind ceremony → impact-mcp (server-side proxy; dodges CORS on /bind).
+      { source: '/mcp-bind/:path*', destination: `${IMPACT_MCP_URL}/:path*` },
     ];
   },
   async headers() {

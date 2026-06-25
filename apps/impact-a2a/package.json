@@ -1,0 +1,34 @@
+{
+  "name": "@verifiable-content-demo/impact-a2a",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Impact a2a-agent: Cloudflare Worker with Durable Object for sessions. SIWE verify, session lifecycle, mints delegation tokens for MCP. Identical to agenticprimitives demo-a2a.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev --port 8797 --inspector-port 9232 --persist-to ../../.wrangler/state-impact-a2a",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agenticprimitives/a2a": "0.0.0-alpha.9",
+    "@agenticprimitives/agent-account": "^1.0.0-alpha.13",
+    "@agenticprimitives/agent-naming": "^1.0.0-alpha.13",
+    "@agenticprimitives/audit": "^1.0.0-alpha.13",
+    "@agenticprimitives/connect": "^1.0.0-alpha.13",
+    "@agenticprimitives/connect-auth": "^1.0.0-alpha.13",
+    "@agenticprimitives/delegation": "^1.0.0-alpha.13",
+    "@agenticprimitives/key-custody": "^1.0.0-alpha.13",
+    "@agenticprimitives/mcp-runtime": "^1.0.0-alpha.13",
+    "@agenticprimitives/related-agents": "0.0.0-alpha.9",
+    "@agenticprimitives/types": "^1.0.0-alpha.13",
+    "hono": "^4.12.23",
+    "viem": "^2.52.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260604.1",
+    "@types/node": "^22.7.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.0.0"
+  }
+}

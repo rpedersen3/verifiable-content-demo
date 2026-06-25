@@ -1,0 +1,68 @@
+# Cloudflare Worker config for impact-mcp (identical to agenticprimitives demo-mcp).
+#
+# Local dev:  wrangler dev (uses local D1 SQLite at .wrangler/state-impact-mcp/v3/d1/)
+# Production: wrangler deploy + wrangler d1 migrations apply impact-mcp
+#
+# D1 holds profiles + token_usage (JTI replay tracking).
+
+name = "impact-mcp"
+main = "src/index.ts"
+compatibility_date = "2026-05-19"
+compatibility_flags = ["nodejs_compat"]
+
+[dev]
+port = 8798
+local_protocol = "http"
+
+# impact-mcp's OWN D1 database (provisioned 2026-06-25 via `wrangler d1 create impact-mcp`).
+[[d1_databases]]
+binding = "DB"
+database_name = "impact-mcp"
+database_id = "03074fec-e82d-4c05-a95b-5110e147a64e"
+migrations_dir = "migrations"
+
+[vars]
+RPC_URL = "http://127.0.0.1:8545"
+CHAIN_ID = "31337"
+MCP_AUDIENCE = "urn:mcp:server:person"
+# spec 278 P4: the vault is per-person-keyed (no global VAULT_MASTER_KEY / local-aes).
+# Each person's KEK lives in GCP Cloud KMS, resolved from their VaultKeyBinding;
+# GCP_SERVICE_ACCOUNT_JSON is a wrangler SECRET (set by set-cloudflare-secrets.sh).
+# spec 277 Phase 6: enable the OPEN demo authorization endpoint (/oauth/token).
+# Fail-closed — the route 404s unless this is 'true'. Testnet demo only (mock
+# seed data); a real production leaves it unset and wires a real AS + JWKS.
+DEMO_OAUTH_MINT_ENABLED = "true"
+# spec 278: enable the on-demand KEK provisioning endpoint (/custody/vault-key/provision).
+# Fail-closed — 404s unless 'true'. Testnet-only convenience (wields the admin credential +
+# creates a cost-bearing GCP key per owner); production leaves it unset + provisions out of band.
+DEMO_VAULT_PROVISION_ENABLED = "true"
+
+# ──────────────────────────────────────────────────────────────────────────
+# Production environment — Worker name: "impact-mcp-production"
+#
+# Deploy via `pnpm deploy:cloudflare`. Contract addresses are injected via
+# `--var` flags from deployments-base-sepolia.json at deploy time.
+#
+# REQUIRED ONE-TIME SETUP — paste the production D1 database_id below after:
+#   wrangler d1 create impact-mcp
+#   wrangler d1 migrations apply impact-mcp --remote --env production
+# The deploy script re-runs `migrations apply` on every deploy (idempotent).
+# ──────────────────────────────────────────────────────────────────────────
+
+[env.production.vars]
+# RPC_URL intentionally omitted — see apps/demo-a2a/wrangler.toml for
+# the rationale. Set as a wrangler secret instead.
+CHAIN_ID = "84532"
+MCP_AUDIENCE = "urn:mcp:server:person"
+# Testnet demo: enable the open /oauth/token demo authorization endpoint (mock
+# seed data only). A real production deployment removes this + wires a real AS.
+DEMO_OAUTH_MINT_ENABLED = "true"
+# Testnet demo: enable on-demand KEK provisioning (the one-click ceremony auto-provisions).
+# A real production deployment OMITS this — provisioning is operator-only, out of band.
+DEMO_VAULT_PROVISION_ENABLED = "true"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "impact-mcp"
+database_id = "03074fec-e82d-4c05-a95b-5110e147a64e"
+migrations_dir = "migrations"

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    // Workers runtime types + Node types (nodejs_compat). Order matters:
+    // workers-types must be first so DurableObjectNamespace etc. resolve.
+    "types": ["@cloudflare/workers-types", "node"],
+    // Consume built packages — see apps/demo-web/tsconfig.json for rationale.
+    "paths": {}
+  },
+  "include": ["src/**/*"]
+}

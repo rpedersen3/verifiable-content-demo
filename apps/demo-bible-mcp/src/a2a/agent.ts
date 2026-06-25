@@ -41,7 +41,7 @@ const addr = (v: string | undefined): Address => (v && v.startsWith('0x') ? (v a
 function makeChecks(env: A2aEnv, chainId: number, delegationManager: Address, universalValidator: Address): OnChainChecks {
   if (!env.A2A_RPC_URL) {
     // INERT: no RPC ⇒ fail closed on every check (deny all tasks) until activated.
-    return { isRevoked: async () => true, verifyDelegationSignature: async () => false, verifyMessageSignature: async () => false };
+    return { isRevoked: async () => true, verifyDelegationSignature: async () => false, verifyMessageSignature: async () => false, verifyCallerSignature: async () => false };
   }
   const client = createPublicClient({ chain: baseSepolia, transport: http(env.A2A_RPC_URL) });
   return {
@@ -54,6 +54,11 @@ function makeChecks(env: A2aEnv, chainId: number, delegationManager: Address, un
     },
     async verifyMessageSignature(m: A2aMessage, digest: Hex): Promise<boolean> {
       const r = await verifyUserSignatureView({ universalValidator, signer: m.sender, hash: digest, signature: m.signature, client } as never);
+      return (r as { ok?: boolean }).ok === true;
+    },
+    // AUDIT NEW-A2A-2: ERC-1271 proof that `caller` controls the address it claims for a task read/control op.
+    async verifyCallerSignature(caller: Address, digest: Hex, signature: Hex): Promise<boolean> {
+      const r = await verifyUserSignatureView({ universalValidator, signer: caller, hash: digest, signature, client } as never);
       return (r as { ok?: boolean }).ok === true;
     },
   };
