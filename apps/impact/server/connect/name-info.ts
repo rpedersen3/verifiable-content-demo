@@ -24,7 +24,15 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
     registry: CONTRACTS.agentNameRegistry,
     universalResolver: CONTRACTS.agentNameUniversalResolver,
   });
-  const agent = await naming.resolveName(name);
+  // A malformed name (e.g. a not-yet-named home whose "handle" is a short address with a unicode
+  // ellipsis) makes ENS-style normalization THROW. That is a clean "doesn't resolve", not a 500 —
+  // catch it and report non-existence so callers (treasury detection) degrade gracefully.
+  let agent: Awaited<ReturnType<typeof naming.resolveName>> = null;
+  try {
+    agent = await naming.resolveName(name);
+  } catch {
+    return json({ exists: false, name });
+  }
   if (!agent) return json({ exists: false, name });
 
   const accounts = new AgentAccountClient({

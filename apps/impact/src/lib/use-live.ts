@@ -3,8 +3,9 @@
 // Live on-chain reads for the connected agent, through the same /a2a proxy the rest of
 // the app uses. No vault/delegation infra needed — just real balances from Base Sepolia.
 import { useEffect, useState } from "react";
-import { erc20BalanceOf, getEthBalance, formatUnits, getNameInfo } from "./backend";
+import { erc20BalanceOf, getEthBalance, formatUnits } from "./backend";
 import { CONTRACTS } from "./chain";
+import { listMyOrgs } from "./related";
 import type { Address } from "./types";
 
 export interface AgentBalances {
@@ -51,33 +52,36 @@ export interface TreasuryInfo {
   loading: boolean;
 }
 
-/** Detect the person's treasury by the naming convention `<handle>-treasury.impact`
- *  (the same money-agent impact shows), resolve it via the naming service, and
- *  read its live USDC balance. Returns exists:false when the person has no treasury yet. */
-export function usePersonTreasury(handle?: string | null, refreshKey = 0): TreasuryInfo {
+/** Detect the person's treasury from their HOME VAULT — the canonical record written at create
+ *  time (related-orgs, kind:'person-treasury'), NOT a naming convention. This works for NAMELESS
+ *  homes/treasuries too (the SA address is the canonical id; a name is an optional facet). Reads
+ *  the treasury SA's live USDC balance. Returns exists:false when the person has no treasury yet. */
+export function usePersonTreasury(token?: string | null, refreshKey = 0): TreasuryInfo {
   const [state, setState] = useState<TreasuryInfo>({ exists: false, name: null, address: null, usdc: null, loading: true });
 
   useEffect(() => {
     let alive = true;
-    if (!handle) { setState({ exists: false, name: null, address: null, usdc: null, loading: false }); return; }
+    if (!token) { setState({ exists: false, name: null, address: null, usdc: null, loading: false }); return; }
     setState((s) => ({ ...s, loading: true }));
     (async () => {
       try {
-        const info = await getNameInfo(`${handle}-treasury`);
+        const orgs = await listMyOrgs(token);
         if (!alive) return;
-        if (!info.exists || !info.agent) {
+        const treasury = orgs.find((o) => o.kind === "person-treasury");
+        if (!treasury) {
           setState({ exists: false, name: null, address: null, usdc: null, loading: false });
           return;
         }
-        const bal = await erc20BalanceOf(CONTRACTS.mockUsdc as Address, info.agent);
+        const addr = treasury.orgAgent as Address;
+        const bal = await erc20BalanceOf(CONTRACTS.mockUsdc as Address, addr);
         if (!alive) return;
-        setState({ exists: true, name: `${handle}-treasury.impact`, address: info.agent, usdc: formatUnits(bal, 6, 2), loading: false });
+        setState({ exists: true, name: treasury.orgName?.trim() || null, address: addr, usdc: formatUnits(bal, 6, 2), loading: false });
       } catch {
         if (alive) setState({ exists: false, name: null, address: null, usdc: null, loading: false });
       }
     })();
     return () => { alive = false; };
-  }, [handle, refreshKey]);
+  }, [token, refreshKey]);
 
   return state;
 }

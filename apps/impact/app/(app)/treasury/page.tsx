@@ -21,9 +21,9 @@ export default function TreasuryPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [actErr, setActErr] = useState<string | null>(null);
   const [fundAmt, setFundAmt] = useState("25");
-  // The person's money agent is `<handle>-treasury.impact` — detected live via the
-  // naming service (same convention impact uses), with its on-chain balance.
-  const treas = usePersonTreasury(isOrg ? null : person?.handle, refreshKey);
+  // The person's money agent — detected live from the home vault (the canonical
+  // person-treasury record written at create time), with its on-chain balance.
+  const treas = usePersonTreasury(isOrg ? null : token, refreshKey);
   // Fallback: the person SA's own balance, used only if there's no treasury agent yet.
   const selfBal = useAgentBalances(isOrg ? undefined : person?.address);
   if (!person) return null;
@@ -35,7 +35,7 @@ export default function TreasuryPage() {
 
   // Resolve the displayed treasury (address, balance, label) for the active context.
   const treasuryAddr = isOrg ? orgTreasury?.address : treas.exists ? treas.address : person.address;
-  const treasuryName = isOrg ? org?.agentName : treas.exists ? treas.name : person.agentName;
+  const treasuryName = isOrg ? org?.agentName : treas.exists ? (treas.name ?? "Your money agent") : person.agentName;
   const balanceLabel = isOrg
     ? `$${(orgTreasury?.balanceUsdc ?? 0).toLocaleString()}`
     : treas.loading || selfBal.loading
@@ -49,7 +49,7 @@ export default function TreasuryPage() {
   async function onCreate() {
     if (!person) return;
     setActErr(null);
-    const out = await createPersonTreasury({ handle: person.handle, personSA: person.address, via, token: token ?? undefined }, setBusy);
+    const out = await createPersonTreasury({ name: identity?.name ?? null, personSA: person.address, via, token: token ?? undefined }, setBusy);
     setBusy(null);
     if (out.ok) setRefreshKey((k) => k + 1); else setActErr(out.error);
   }
@@ -99,7 +99,10 @@ export default function TreasuryPage() {
         <div className="card card-pad" style={{ marginBottom: "1.4rem" }}>
           <EmptyNote>
             No personal treasury yet. Your money agent is a separate Smart Agent
-            (<code className="mono">{person.handle}-treasury.impact</code>) — create it to start giving and paying on your terms.
+            {identity?.name
+              ? <> (<code className="mono">{person.handle}-treasury.impact</code>)</>
+              : <> — created nameless (its address is its id; you can name it later)</>}
+            {" "}— create it to start giving and paying on your terms.
           </EmptyNote>
           {!deployed ? (
             <p className="muted" style={{ marginTop: ".8rem" }}>
