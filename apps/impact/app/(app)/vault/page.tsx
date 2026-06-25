@@ -9,17 +9,27 @@ import {
   loadImpactProfile, PROFILE_FIELDS, VaultKeyUnauthorizedError, type ImpactContactProfile,
 } from "@/lib/profile-store";
 import { displayNameFromContact } from "@/lib/profile-name";
+import { listMyOrgs, listMyReceivedDelegations, flattenDelegations, type LiveDelegation } from "@/lib/related";
+import { revokeDelegation } from "@/lib/connect";
 
 type Tab = "records" | "entitlements" | "delegations";
 
 export default function VaultPage() {
-  const { person, identity } = useSession();
+  const { person, identity, token } = useSession();
   const [tab, setTab] = useState<Tab>("records");
 
   const address = identity?.address;
+  const via = identity?.via ?? "passkey";
   const [contact, setContact] = useState<ImpactContactProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [needsVaultKey, setNeedsVaultKey] = useState(false);
+
+  // Live delegations (spec 246/247) — the person's home-managed grants + inbound grants.
+  const [delegations, setDelegations] = useState<LiveDelegation[]>([]);
+  const [delLoading, setDelLoading] = useState(true);
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [delErr, setDelErr] = useState<string | null>(null);
+  const [delRefresh, setDelRefresh] = useState(0);
 
   useEffect(() => {
     if (!address) return;
@@ -31,6 +41,26 @@ export default function VaultPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [address]);
+
+  useEffect(() => {
+    if (!token) { setDelLoading(false); return; }
+    let cancelled = false;
+    setDelLoading(true);
+    Promise.all([listMyOrgs(token), listMyReceivedDelegations(token)])
+      .then(([orgs, received]) => { if (!cancelled) setDelegations(flattenDelegations(orgs, received)); })
+      .catch(() => { if (!cancelled) setDelegations([]); })
+      .finally(() => { if (!cancelled) setDelLoading(false); });
+    return () => { cancelled = true; };
+  }, [token, delRefresh]);
+
+  async function onRevoke(d: LiveDelegation) {
+    if (!d.wire) return;
+    setDelErr(null); setRevoking(d.id);
+    const out = await revokeDelegation({ wire: d.wire, via, token: token ?? undefined });
+    setRevoking(null);
+    if (out.ok) setDelRefresh((k) => k + 1);
+    else setDelErr(out.error);
+  }
 
   if (!person) return null;
 
@@ -60,7 +90,7 @@ export default function VaultPage() {
       <div className="row wrap" style={{ gap: ".5rem", marginBottom: "1.2rem" }}>
         <TabBtn active={tab === "records"} onClick={() => setTab("records")}>Records ({records.length})</TabBtn>
         <TabBtn active={tab === "entitlements"} onClick={() => setTab("entitlements")}>Entitlements ({person.entitlements.length})</TabBtn>
-        <TabBtn active={tab === "delegations"} onClick={() => setTab("delegations")}>Delegations ({person.delegations.length})</TabBtn>
+        <TabBtn active={tab === "delegations"} onClick={() => setTab("delegations")}>Delegations ({delegations.length})</TabBtn>
       </div>
 
       {tab === "records" && (
@@ -125,41 +155,37 @@ export default function VaultPage() {
 
       {tab === "delegations" && (
         <div className="col" style={{ gap: ".7rem" }}>
-          {person.delegations.length === 0 && <EmptyNote>No delegations yet — authority you grant to (or receive from) other agents will appear here.</EmptyNote>}
-          {person.delegations.map((d) => (
-            <div key={d.id} className="card card-pad">
-              <div className="row-between">
-                <div className="row" style={{ gap: ".5rem" }}>
-                  <IconLink width={16} height={16} style={{ color: "var(--plum-600)" }} />
-                  <strong>{d.counterparty}</strong>
-                  <Pill tone={d.direction === "given" ? "amber" : "plum"}>{d.direction === "given" ? "you → them" : "them → you"}</Pill>
+          {delErr && <div className="muted" style={{ color: "var(--danger)" }}>{delErr}</div>}
+          {delLoading && delegations.length === 0 ? (
+            <div className="muted">Reading your live delegations…</div>
+          ) : delegations.length === 0 ? (
+            <EmptyNote>No delegations yet — authority you grant to (or receive from) other agents appears here. Create your <Link href="/treasury">treasury</Link> and you&apos;ll oversee it through a stewardship delegation listed here.</EmptyNote>
+          ) : (
+            delegations.map((d) => (
+              <div key={d.id} className="card card-pad">
+                <div className="row-between">
+                  <div className="row" style={{ gap: ".5rem" }}>
+                    <IconLink width={16} height={16} style={{ color: "var(--plum-600)" }} />
+                    <strong>{d.counterparty}</strong>
+                    <Pill tone={d.direction === "given" ? "amber" : "plum"}>{d.direction === "given" ? "you → them" : "them → you"}</Pill>
+                    <Pill tone="plum">{d.role}</Pill>
+                  </div>
                 </div>
-                {d.valueCapUsdc > 0 && <Pill tone="emerald">cap ${d.valueCapUsdc}</Pill>}
-              </div>
-              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: ".6rem", marginTop: ".7rem" }}>
-                <div>
-                  <div className="eyebrow" style={{ color: "var(--emerald-700)" }}>Can do</div>
-                  <ul style={{ margin: ".3rem 0 0", paddingLeft: "1.1rem", fontSize: ".84rem" }}>
-                    {d.canDo.map((c) => <li key={c}>{c}</li>)}
-                  </ul>
-                </div>
-                <div>
-                  <div className="eyebrow" style={{ color: "var(--danger)" }}>Cannot do</div>
-                  <ul style={{ margin: ".3rem 0 0", paddingLeft: "1.1rem", fontSize: ".84rem" }}>
-                    {d.cannotDo.map((c) => <li key={c}>{c}</li>)}
-                  </ul>
+                <div className="muted" style={{ fontSize: ".84rem", marginTop: ".55rem" }}>{d.scope}</div>
+                <div className="row-between" style={{ marginTop: ".7rem" }}>
+                  <span className="faint" style={{ fontSize: ".74rem" }}>
+                    <code className="mono">{d.counterpartyAddr.slice(0, 10)}…{d.counterpartyAddr.slice(-6)}</code>
+                    {d.grantedAt ? ` · granted ${new Date(d.grantedAt).toLocaleDateString()}` : ""}
+                  </span>
+                  {d.revocable && d.wire && (
+                    <button className="btn btn-danger btn-sm" onClick={() => onRevoke(d)} disabled={revoking === d.id}>
+                      {revoking === d.id ? "Revoking…" : "Revoke"}
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="row-between" style={{ marginTop: ".7rem" }}>
-                <span className="faint" style={{ fontSize: ".74rem" }}>
-                  Granted {d.grantedAt}{d.expiresAt ? ` · expires ${d.expiresAt}` : ""}
-                </span>
-                {d.revocable && d.direction === "given" && (
-                  <button className="btn btn-danger btn-sm">Revoke</button>
-                )}
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
     </>

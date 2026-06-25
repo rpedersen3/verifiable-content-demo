@@ -28,6 +28,7 @@ import {
 } from "./passkey";
 import { ensureCsrfToken, csrfHeaders } from "../csrf";
 import { CONTRACTS, DEFAULT_RPC_URL } from "./chain";
+import { buildApprovedSiteDelegation, toWire, type DelegationWire } from "./delegation";
 
 export type SignHash = (hash: Hex) => Promise<Hex>;
 export const AUD = "impact";
@@ -109,6 +110,7 @@ async function derivePasskeySa(passkey: Passkey, salt: bigint): Promise<Address>
 async function buildClaimCallData(
   base: string,
   sa: Address,
+  extraCalls: ContractCall[] = [],
 ): Promise<{ ok: true; callData: Hex; name: string } | { ok: false; error: string }> {
   const picked = (await (await fetch(`/connect/name?base=${encodeURIComponent(base)}`)).json()) as {
     label?: string; name?: string; node?: Hex; error?: string;
@@ -116,7 +118,7 @@ async function buildClaimCallData(
   if (!picked.name || !picked.node || !picked.label) return { ok: false, error: picked.error ?? "no free name" };
   const register = buildSubregistryRegisterCall({ subregistry: CONTRACTS.permissionlessSubregistry, label: picked.label, newOwner: sa });
   const setPrimary = buildSetPrimaryNameCall({ registry: CONTRACTS.agentNameRegistry, node: picked.node });
-  const calls: ContractCall[] = [register, setPrimary];
+  const calls: ContractCall[] = [register, setPrimary, ...extraCalls];
   return { ok: true, callData: buildExecuteBatchCallData(calls), name: picked.name };
 }
 
@@ -434,6 +436,75 @@ export async function connectWalletSiwe(nameHint?: string, onStep?: Step): Promi
 
 const MINT_ABI = [{ type: "function", name: "mint", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] }] as const;
 
+/** spec 253 — `ApprovedHashRegistry.approveHash(digest)`. Batched into the delegator agent's deploy
+ *  userOp so it pre-approves its own outbound grant's digest; the grant then validates via the
+ *  agent SA's ERC-1271 `0x03` approved-hash branch (no second signature). */
+const APPROVE_HASH_ABI = [{ type: "function", name: "approveHash", stateMutability: "nonpayable", inputs: [{ name: "hash", type: "bytes32" }], outputs: [] }] as const;
+function buildApproveHashCall(digest: Hex): ContractCall {
+  return { to: CONTRACTS.approvedHashRegistry as Address, value: 0n, data: encodeFunctionData({ abi: APPROVE_HASH_ABI, functionName: "approveHash", args: [digest] }) };
+}
+
+const REVOKE_DELEGATION_ABI = [
+  {
+    type: "function", name: "revokeDelegationByOwner", stateMutability: "nonpayable", outputs: [],
+    inputs: [{
+      name: "delegation", type: "tuple", components: [
+        { name: "delegator", type: "address" },
+        { name: "delegate", type: "address" },
+        { name: "authority", type: "bytes32" },
+        { name: "caveats", type: "tuple[]", components: [{ name: "enforcer", type: "address" }, { name: "terms", type: "bytes" }, { name: "args", type: "bytes" }] },
+        { name: "salt", type: "uint256" },
+        { name: "signature", type: "bytes" },
+      ],
+    }],
+  },
+] as const;
+
+/** Persist a person→agent link (+ its read delegations) into the home vault via the
+ *  session-authorized POST /connect/related-orgs. Best-effort: the agent is already deployed,
+ *  so a save failure is surfaced but non-fatal to the deploy. */
+async function saveRelatedAgent(input: {
+  person: Address; orgAgent: Address; orgName: string; purpose: string; kind: string; parent: Address;
+  stewardshipDelegation?: DelegationWire; token: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const r = await fetch("/connect/related-orgs", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${input.token}` },
+    body: JSON.stringify({
+      person: input.person, orgAgent: input.orgAgent, orgName: input.orgName,
+      purpose: input.purpose, kind: input.kind, parent: input.parent,
+      ...(input.stewardshipDelegation ? { stewardshipDelegation: input.stewardshipDelegation } : {}),
+    }),
+  });
+  if (r.ok) return { ok: true };
+  const e = (await r.json().catch(() => ({}))) as { error?: string };
+  return { ok: false, error: e.error ?? `save failed (HTTP ${r.status})` };
+}
+
+/** Revoke a delegation the person granted (ADR-0019: a grant is a revocable scoped delegation).
+ *  The DELEGATOR SA — an agent the person controls (their treasury / the person SA) — signs
+ *  `execute(DelegationManager, revokeDelegationByOwner(d))`, so `msg.sender` is the delegator and
+ *  the authenticated gate passes. After it lands, the delegation is revoked and the grantee's
+ *  access is gone. The home credential (`via` + custody `token`) custodies the delegator SA. */
+export async function revokeDelegation(
+  opts: { wire: DelegationWire; via: ConnectVia; token?: string },
+  onStep?: Step,
+): Promise<{ ok: true; txHash?: Hex } | { ok: false; error: string }> {
+  const d = opts.wire;
+  let signHash: SignHash;
+  try { signHash = await signHashForVia(opts.via, d.delegator, opts.token); }
+  catch (e) { return { ok: false, error: e instanceof Error ? e.message : "could not set up signing" }; }
+  const onchain = {
+    delegator: d.delegator, delegate: d.delegate, authority: d.authority,
+    caveats: d.caveats.map((c) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args ?? "0x" })),
+    salt: BigInt(d.salt), signature: d.signature,
+  } as const;
+  const inner = encodeFunctionData({ abi: REVOKE_DELEGATION_ABI, functionName: "revokeDelegationByOwner", args: [onchain] });
+  const callData = buildExecuteBatchCallData([{ to: CONTRACTS.delegationManager as Address, value: 0n, data: inner } as ContractCall]);
+  onStep?.("Revoking — confirm with your home credential…");
+  return executeCall(d.delegator, signHash, callData, { attempts: 5 });
+}
+
 /** A SignHash for the home's credential — passkey/wallet sign on device; social homes sign via the
  *  per-(iss,sub) custody session (no device gesture). */
 async function signHashForVia(via: ConnectVia, sender: Address, token?: string): Promise<SignHash> {
@@ -476,8 +547,15 @@ export async function createPersonTreasury(
       headers: { "content-type": "application/json", ...csrfHeaders() },
       body: JSON.stringify({ session: opts.token, kind: "person-treasury", parent: opts.personSA, label: pick.label, node: pick.node }),
     });
-    const b = (await res.json().catch(() => ({}))) as { ok?: boolean; agent?: Address; error?: string; detail?: string };
+    const b = (await res.json().catch(() => ({}))) as { ok?: boolean; agent?: Address; stewardshipDelegation?: DelegationWire; error?: string; detail?: string };
     if (!res.ok || !b.ok || !b.agent) return { ok: false, error: [b.error, b.detail].filter(Boolean).join(" — ") || `treasury deploy failed (HTTP ${res.status})` };
+    // Record the treasury (+ its stewardship grant treasury→person) in the home vault so it
+    // surfaces live in the Vault Delegations tab. The endpoint mints the grant at deploy.
+    onStep?.("Saving your treasury to your vault…");
+    await saveRelatedAgent({
+      person: opts.personSA, orgAgent: b.agent, orgName: pick.name, purpose: "treasury",
+      kind: "person-treasury", parent: opts.personSA, stewardshipDelegation: b.stewardshipDelegation, token: opts.token,
+    });
     return { ok: true, agent: b.agent, name: pick.name };
   }
   if (opts.via === "passkey") {
@@ -485,11 +563,22 @@ export async function createPersonTreasury(
     if (!passkey) return { ok: false, error: "Your passkey isn't on this device. Reconnect, then create your treasury." };
     onStep?.("Reserving your treasury name…");
     const sa = await derivePasskeySa(passkey, 1n);
-    const claim = await buildClaimCallData(base, sa);
+    // Stewardship grant treasury→person, pre-approved (0x03 sentinel) INSIDE the deploy batch so
+    // the person can read/oversee the treasury — no second signature (spec 246/253).
+    const stewardship = buildApprovedSiteDelegation(sa, opts.personSA);
+    const claim = await buildClaimCallData(base, sa, [buildApproveHashCall(stewardship.digest)]);
     if (!claim.ok) return { ok: false, error: claim.error };
     onStep?.("Deploying your treasury (gas-free)…");
     const dep = await bootstrapWithPasskey(passkey, claim.callData, onStep, 1n);
-    return dep.ok ? { ok: true, agent: dep.agent, name: claim.name } : dep;
+    if (!dep.ok) return dep;
+    if (opts.token) {
+      onStep?.("Saving your treasury to your vault…");
+      await saveRelatedAgent({
+        person: opts.personSA, orgAgent: dep.agent, orgName: claim.name, purpose: "treasury",
+        kind: "person-treasury", parent: opts.personSA, stewardshipDelegation: toWire(stewardship.delegation), token: opts.token,
+      });
+    }
+    return { ok: true, agent: dep.agent, name: claim.name };
   }
   return { ok: false, error: "Creating a treasury from a wallet home isn't wired yet — use a passkey or social home." };
 }
