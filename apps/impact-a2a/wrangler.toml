@@ -89,13 +89,12 @@ MCP_URL = ""
 # inside @agenticprimitives/key-custody (ADR-0013 / feedback_no_silent_fallbacks),
 # so an empty string here means "misconfigured" and the topup / relayer /
 # custody routes WILL throw `[key-custody] No backend specified for production`
-# at first signing op. `local-aes` is the testnet default (reads the
-# A2A_MASTER_PRIVATE_KEY secret); production stacks override per-deploy with
-#   A2A_KMS_BACKEND=gcp-kms GCP_KMS_KEY_NAME=projects/... pnpm deploy:cloudflare
-# (the deploy script passes both via --var; GCP_SERVICE_ACCOUNT_JSON is set
-# via `wrangler secret put`).
-A2A_KMS_BACKEND = "local-aes"
-GCP_KMS_KEY_NAME = ""
+# impact-a2a signs via Cloud KMS (NO held key — [[no-held-keys-rule]]). The signer is the
+# secp256k1 key `smart-agent-2` (address 0x3C7B58062f1c472f16eD843808fd95DA4697b702);
+# GCP_SERVICE_ACCOUNT_JSON (content-signer SA) is a wrangler secret. `pnpm deploy:impact`
+# also accepts A2A_KMS_BACKEND/GCP_KMS_KEY_NAME via env to override these.
+A2A_KMS_BACKEND = "gcp-kms"
+GCP_KMS_KEY_NAME = "projects/churchcore2/locations/us-central1/keyRings/agenticprimitives-demo/cryptoKeys/smart-agent-2/cryptoKeyVersions/1"
 # A2A_ALLOW_LOCAL_MASTER_KEY: opt-in for the dev-only LocalSecp256k1Signer
 # (which loads A2A_MASTER_PRIVATE_KEY into worker memory) to run in
 # NODE_ENV=production. Required for the demo because esbuild's --define
@@ -135,7 +134,10 @@ PAYMASTER = ""
 # is built without a signature (acceptable only if paymaster is in
 # allowlist/dev mode). Realigned on-chain 2026-05-20 to the demo-a2a
 # master signer's address; tracked under audit C2.
-PAYMASTER_VERIFYING_SIGNER = "0x89D13c596c45E4eE80Af5ae06C727FE9A820ffD0"
+# impact-a2a's own gcp-kms signer address (smart-agent-2). Self-consistent so the appended
+# verifying-paymaster signature is signed by the same address it claims. Moot while the
+# on-chain smartAgentPaymaster is devMode=true (no signer check), but correct going forward.
+PAYMASTER_VERIFYING_SIGNER = "0x3C7B58062f1c472f16eD843808fd95DA4697b702"
 # UNIVERSAL_SIGNATURE_VALIDATOR: address of the on-chain ECDSA/ERC-1271/
 # ERC-6492 verifier deployed by Deploy.s.sol. When set, /auth/siwe-verify
 # uses the validator (required for the passkey path — spec 130). When
