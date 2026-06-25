@@ -31,6 +31,7 @@ const nextConfig = {
     "@agenticprimitives/agent-naming",
     "@agenticprimitives/identity-directory",
     "@agenticprimitives/identity-directory-adapters",
+    "@agenticprimitives/delegation",
   ],
   // Pin the monorepo root for file-tracing (a stray ~/package-lock.json otherwise
   // confuses Next's workspace-root inference).

@@ -1,7 +1,6 @@
 import type { ComponentType, SVGProps } from "react";
 import {
   IconHome,
-  IconUser,
   IconVault,
   IconWallet,
   IconShield,
@@ -52,10 +51,8 @@ export function buildNav(active: ActiveContext, orgName?: string): NavGroup[] {
       label: "Your home",
       items: [
         { href: "/home", label: "Home", icon: IconHome },
-        { href: "/you", label: "You", icon: IconUser },
         { href: "/vault", label: "Vault", icon: IconVault },
         { href: "/treasury", label: "Treasury", icon: IconWallet },
-        { href: "/security", label: "Security", icon: IconShield },
       ],
     },
     {
@@ -83,8 +80,8 @@ export function mobileNav(active: ActiveContext): NavItem[] {
   }
   return [
     { href: "/home", label: "Home", icon: IconHome },
-    { href: "/you", label: "You", icon: IconUser },
     { href: "/vault", label: "Vault", icon: IconVault },
+    { href: "/treasury", label: "Treasury", icon: IconWallet },
     { href: "/trust-graph", label: "Trust", icon: IconGraph },
     { href: "/organizations", label: "Orgs", icon: IconOrg },
   ];

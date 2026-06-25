@@ -309,6 +309,9 @@ importers:
       '@agenticprimitives/contracts':
         specifier: 1.0.0-alpha.13
         version: 1.0.0-alpha.13
+      '@agenticprimitives/delegation':
+        specifier: 1.0.0-alpha.13
+        version: 1.0.0-alpha.13(@agenticprimitives/agent-account@1.0.0-alpha.13(@agenticprimitives/connect-auth@1.0.0-alpha.13(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(@agenticprimitives/audit@1.0.0-alpha.13(@agenticprimitives/types@1.0.0-alpha.13))(@agenticprimitives/connect-auth@1.0.0-alpha.13(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(@agenticprimitives/key-custody@1.0.0-alpha.13(@agenticprimitives/audit@1.0.0-alpha.13(@agenticprimitives/types@1.0.0-alpha.13))(@agenticprimitives/connect-auth@1.0.0-alpha.13(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3))
       '@agenticprimitives/identity-directory':
         specifier: 1.0.0-alpha.13
         version: 1.0.0-alpha.13(@agenticprimitives/audit@1.0.0-alpha.13(@agenticprimitives/types@1.0.0-alpha.13))(@agenticprimitives/ontology@1.0.0-alpha.13)(@agenticprimitives/types@1.0.0-alpha.13)

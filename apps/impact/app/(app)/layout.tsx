@@ -8,11 +8,12 @@ import { buildNav, mobileNav } from "@/components/nav";
 import ContextSwitcher from "@/components/ContextSwitcher";
 import { brand } from "@/whitelabel/config";
 import { orgById } from "@/lib/seed";
-import { IconShield, IconSignOut } from "@/components/Icons";
+import { IconShield } from "@/components/Icons";
 import LiveStatus from "@/components/LiveStatus";
+import AccountMenu from "@/components/AccountMenu";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { phase, person, identity, active, signOut } = useSession();
+  const { phase, person, active } = useSession();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -72,10 +73,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="spacer" />
-        <button className="nav-item" onClick={signOut} style={{ width: "100%" }}>
-          <IconSignOut className="nav-icon" />
-          <span>Sign out</span>
-        </button>
       </aside>
 
       {/* ── Main ── */}
@@ -83,16 +80,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <header className="topbar">
           <div className="spacer" />
           <LiveStatus />
-          {identity && (
-            <span className="addr" title={identity.address}>
-              {identity.name
-                ? (identity.name.endsWith(".impact") ? identity.name : `${identity.name}.impact`)
-                : `${identity.address.slice(0, 6)}…${identity.address.slice(-4)}`}
-            </span>
-          )}
-          <button className="btn btn-ghost btn-sm" onClick={signOut} title="Disconnect this home (clears your session)">
-            <IconSignOut width={15} height={15} /> Sign out
-          </button>
+          <AccountMenu />
         </header>
         <main className="content anim-in" key={pathname}>
           {children}
