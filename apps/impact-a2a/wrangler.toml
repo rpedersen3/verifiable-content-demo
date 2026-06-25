@@ -1,4 +1,4 @@
-# Cloudflare Worker config for impact-a2a (identical to agenticprimitives impact-a2a).
+# Cloudflare Worker config for impact-a2a (copied from agenticprimitives demo-a2a).
 #
 # Local dev:  wrangler dev (reads .dev.vars for secrets + Anvil contract addrs)
 # Production: wrangler deploy (uses [vars] + secrets set via `wrangler secret put`)

@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 
 // Impact talks to its OWN backend workers (apps/impact-a2a + apps/impact-mcp — copies of
-// the agenticprimitives impact-a2a/impact-mcp) for all real ceremonies (delegation signing,
+// the agenticprimitives demo-a2a/demo-mcp) for all real ceremonies (delegation signing,
 // vault read/write, KMS custody, x402). Production deployments SHOULD set these env vars
 // explicitly; the fallbacks are solo-dev convenience only.
 const IMPACT_A2A_URL = process.env.IMPACT_A2A_URL || 'https://impact-a2a-production.richardpedersen3.workers.dev';

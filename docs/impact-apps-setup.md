@@ -1,317 +1,333 @@
-# Impact apps — setup & configuration guide
+# Building an Impact-style agent home — full setup & deployment guide
 
-How to create and configure the three **Impact** apps from a blank repository, on top of the
-published `@agenticprimitives/*` packages. Written for anyone building a faith-vertical
-"agent home" (or any vertical) the same way Impact does.
-
-The three apps:
+How to stand up the three apps from a **blank repo**, on the published `@agenticprimitives/*`
+packages. This is the generalized version of the live **Impact** deployment (home `churchcore.me`,
+workers `impact-a2a` / `impact-mcp`). Substitute your own names everywhere — see
+[Naming](#naming-pick-these-first).
 
 | App | Runtime | Role |
 |-----|---------|------|
-| **impact** | Next.js (Vercel) | The browser **home** + auth **broker**. Passkey/SIWE/social sign-in, mints `AgentSession` JWTs, proxies `/a2a/*` and `/mcp-bind/*` to the workers. |
-| **impact-a2a** | Cloudflare Worker + Durable Objects | A2A boundary: SIWE/passkey verify, **relayer** (gasless Smart-Account deploys + UserOps), delegation-token minting, custody bridge. A byte-faithful copy of `agenticprimitives/apps/impact-a2a`. |
-| **impact-mcp** | Cloudflare Worker + D1 | MCP server: delegation-verified tools, OAuth ingress, per-person **vault** (KMS-keyed). A byte-faithful copy of `agenticprimitives/apps/impact-mcp`. |
+| **`<home>`** (Impact) | Next.js (Vercel) | Browser **home** + auth **broker**: passkey/SIWE/social sign-in, mints `AgentSession` JWTs, proxies `/a2a/*` + `/mcp-bind/*` to the workers. |
+| **`<home>-a2a`** (impact-a2a) | Cloudflare Worker + Durable Objects | A2A boundary: SIWE/passkey verify, **relayer** (gasless Smart-Account deploys + UserOps), delegation-token minting, social-custody bridge. Copied from agenticprimitives **`apps/demo-a2a`**. |
+| **`<home>-mcp`** (impact-mcp) | Cloudflare Worker + D1 | MCP server: delegation-verified tools, OAuth ingress, per-person KMS **vault**. Copied from agenticprimitives **`apps/demo-mcp`**. |
 
 ```
- browser ──▶ impact (Next.js/Vercel)
-                │  /a2a/*  (server rewrite)      ┌─────────────┐
-                ├───────────────────────────────▶│ impact-a2a  │── relayer / userOps ─▶ Base Sepolia
-                │  /mcp-bind/*                    │  (Worker)   │── service binding ─▶ impact-mcp
-                │                                 └─────────────┘
-                └─────────────────────────────────▶ impact-mcp (Worker + D1 + vault)
+ browser ─▶ <home> (Next.js / Vercel)
+              │  /a2a/*  (server rewrite)        ┌──────────┐
+              ├─────────────────────────────────▶│ <home>-a2a│─ relayer/userOps ─▶ Base Sepolia
+              │  /mcp-bind/*                      │ (Worker)  │─ service binding ─▶ <home>-mcp
+              └───────────────────────────────────▶ <home>-mcp (Worker + D1 + vault)
 ```
 
-All on-chain reads/writes target the **existing** `@agenticprimitives/contracts` deployment
-(Base Sepolia) — you do **not** deploy contracts.
+On-chain reads/writes target the **existing** `@agenticprimitives/contracts` deployment (Base
+Sepolia). **You do not deploy contracts.**
+
+---
+
+## Naming (pick these first)
+
+You will substitute three things throughout:
+
+| Placeholder | Live Impact value | What it is |
+|---|---|---|
+| `<home>` | `impact` | your app/worker base name |
+| `<domain>` | `churchcore.me` | the registrable home domain (served on `www.<domain>`) |
+| `<gcp-project>` | `churchcore2` | your Google Cloud project id |
+
+When you copy `demo-a2a`/`demo-mcp`, rename **`demo-a2a`→`<home>-a2a`** and **`demo-mcp`→`<home>-mcp`**
+across src/configs/docs. This is safe **except** verify these stay internally consistent (they're not
+cross-system, so a uniform rename is fine): the vault server id (`VAULT_SERVER_ID`, `vaultId`,
+`serverId` — only rename on a **fresh** vault, before any encrypted rows exist), the delegation-token
+`iss`, and health/`served_by` labels. The a2a↔mcp service-MAC binds `service: 'a2a-to-mcp'` +
+`MCP_AUDIENCE` (do **not** touch). Run `pnpm -r typecheck` after.
 
 ---
 
 ## 0. Prerequisites
 
-- `node` ≥ 20, `pnpm` ≥ 9, `wrangler` ≥ 4 (`pnpm add -Dw wrangler`).
-- A **Cloudflare** account (`wrangler login`).
-- A **Vercel** project for the Next.js app (or any Next host) + a **Vercel KV / Upstash Redis** store.
-- For the no-held-key signer path: a **GCP project** with **Cloud KMS** + a service-account JSON.
-- The published `@agenticprimitives/*` packages on npm (this guide pins the `alpha.13` generation).
+- `node` ≥ 20, `pnpm` ≥ 9, `wrangler` ≥ 4. `wrangler login`.
+- A **Cloudflare** account and a **Vercel** project (+ a **Vercel KV / Upstash Redis** store).
+- A **Google Cloud** project for KMS (no-held-key signer) and OAuth (social sign-in).
+- `openssl` + `node` for the secrets script.
 
 ---
 
-## 1. Repo + workspace
+## 1. Workspace + version pinning
 
 `pnpm-workspace.yaml`:
-
 ```yaml
-packages:
-  - 'apps/*'
-  - 'packages/*'
+packages: ['apps/*', 'packages/*']
 ```
 
-In the **root `package.json`**, pin the whole `@agenticprimitives` generation with
-`pnpm.overrides` so every app resolves the same versions (peer deps are pinned **exactly**, so a
-partial bump breaks — move the whole set together). The set that the impact apps compile against:
+The `@agenticprimitives` packages pin **exact** peer versions, so move the whole generation together
+in root `package.json` `pnpm.overrides` (the set the apps compile against):
 
 ```jsonc
-"pnpm": {
-  "overrides": {
-    "@agenticprimitives/a2a": "0.0.0-alpha.9",
-    "@agenticprimitives/related-agents": "0.0.0-alpha.9",
-    "@agenticprimitives/agent-account": "1.0.0-alpha.13",
-    "@agenticprimitives/agent-naming": "1.0.0-alpha.13",
-    "@agenticprimitives/audit": "1.0.0-alpha.13",
-    "@agenticprimitives/connect": "1.0.0-alpha.13",
-    "@agenticprimitives/connect-auth": "1.0.0-alpha.13",
-    "@agenticprimitives/delegation": "1.0.0-alpha.13",
-    "@agenticprimitives/key-custody": "1.0.0-alpha.13",
-    "@agenticprimitives/mcp-runtime": "1.0.0-alpha.13",
-    "@agenticprimitives/tool-policy": "1.0.0-alpha.13",
-    "@agenticprimitives/types": "1.0.0-alpha.13",
-    "@agenticprimitives/identity-directory": "1.0.0-alpha.13",
-    "@agenticprimitives/identity-directory-adapters": "1.0.0-alpha.13",
-    "@agenticprimitives/ontology": "1.0.0-alpha.13",
-    "@agenticprimitives/contracts": "1.0.0-alpha.13",
-    "@agenticprimitives/entitlements": "0.0.0-alpha.2",
-    "@agenticprimitives/key-authorization": "0.0.0-alpha.3",
-    "@agenticprimitives/mcp-oauth": "0.0.0-alpha.2",
-    "@agenticprimitives/vault": "0.0.0-alpha.2"
-  }
-}
+"pnpm": { "overrides": {
+  "@agenticprimitives/a2a": "0.0.0-alpha.9",
+  "@agenticprimitives/related-agents": "0.0.0-alpha.9",
+  "@agenticprimitives/agent-account": "1.0.0-alpha.13",
+  "@agenticprimitives/agent-naming": "1.0.0-alpha.13",
+  "@agenticprimitives/audit": "1.0.0-alpha.13",
+  "@agenticprimitives/connect": "1.0.0-alpha.13",
+  "@agenticprimitives/connect-auth": "1.0.0-alpha.13",
+  "@agenticprimitives/delegation": "1.0.0-alpha.13",
+  "@agenticprimitives/key-custody": "1.0.0-alpha.13",
+  "@agenticprimitives/mcp-runtime": "1.0.0-alpha.13",
+  "@agenticprimitives/tool-policy": "1.0.0-alpha.13",
+  "@agenticprimitives/types": "1.0.0-alpha.13",
+  "@agenticprimitives/identity-directory": "1.0.0-alpha.13",
+  "@agenticprimitives/identity-directory-adapters": "1.0.0-alpha.13",
+  "@agenticprimitives/ontology": "1.0.0-alpha.13",
+  "@agenticprimitives/contracts": "1.0.0-alpha.13",
+  "@agenticprimitives/entitlements": "0.0.0-alpha.2",
+  "@agenticprimitives/key-authorization": "0.0.0-alpha.3",
+  "@agenticprimitives/mcp-oauth": "0.0.0-alpha.2",
+  "@agenticprimitives/vault": "0.0.0-alpha.2"
+}}
 ```
-
-Also add `@agenticprimitives/contracts` (same version) to root `devDependencies` — the deploy
-script imports the contract addresses from it. A shared `tsconfig.base.json` and each app's
-`tsconfig.json` (`extends: ../../tsconfig.base.json`, `types: ["@cloudflare/workers-types", "node"]`)
-complete the workspace.
-
-> **Why this generation?** `agent-account@alpha.13` peers `types@alpha.13` + `connect-auth@alpha.13`
-> (exact); `content-primitives@alpha.14` peers `types@alpha.13`; etc. Mixing generations fails to
-> typecheck. Run `pnpm -r typecheck` after any bump.
+Also add `@agenticprimitives/contracts@1.0.0-alpha.13` to root `devDependencies` (the deploy script
+imports addresses from it). Each app `tsconfig.json` extends a shared `tsconfig.base.json` with
+`types: ["@cloudflare/workers-types", "node"]`.
 
 ---
 
-## 2. Create impact-mcp (copy of impact-mcp)
+## 2. Copy + rename the two workers
 
-Copy `agenticprimitives/apps/impact-mcp` → `apps/impact-mcp` (src + `migrations/` + `tsconfig.json`;
-**skip** `node_modules`, `.wrangler`, `.dev.vars`, `*.db`). The `src/` stays identical; change only:
+Copy `agenticprimitives/apps/demo-mcp` → `apps/<home>-mcp` and `agenticprimitives/apps/demo-a2a` →
+`apps/<home>-a2a` (src + `migrations/` + `tsconfig.json`; **exclude** `node_modules`, `.wrangler`,
+`.dev.vars`, `dist`, `*.db`). Then:
 
-- **`package.json`**: `name` → `@<your-scope>/impact-mcp`; `workspace:*` deps → the published
-  versions above; dev `--port`/`--persist-to` to unique values; D1 migrate scripts target `impact-mcp`.
-- **`wrangler.toml`**:
-  - `name = "impact-mcp"`
-  - `[[d1_databases]]` and `[[env.production.d1_databases]]`: `database_name = "impact-mcp"`,
-    `database_id` = the id you create in §4.
-  - Keep `[env.production.vars]`: `CHAIN_ID="84532"`, `MCP_AUDIENCE="urn:mcp:server:person"`,
-    `DEMO_OAUTH_MINT_ENABLED="true"`, `DEMO_VAULT_PROVISION_ENABLED="true"` (testnet demo only —
-    omit the last two in a real production OP/AS setup).
+**`<home>-mcp`** — `package.json` name → `@<scope>/<home>-mcp`, deps `workspace:*` → the pinned
+versions, unique dev port/persist-to, D1 scripts target `<home>-mcp`. `wrangler.toml`:
+`name = "<home>-mcp"`, both `[[d1_databases]]` blocks `database_name = "<home>-mcp"` + the id from §3,
+keep `[env.production.vars]` (`CHAIN_ID="84532"`, `MCP_AUDIENCE="urn:mcp:server:person"`,
+`DEMO_OAUTH_MINT_ENABLED="true"`, `DEMO_VAULT_PROVISION_ENABLED="true"` — testnet-only).
 
----
+**`<home>-a2a`** — same package rename. `wrangler.toml`: `name = "<home>-a2a"`; **drop demo-a2a's
+`routes = ["*.<domain>/*"]`** (you reach the worker via its `workers.dev` URL through the Next
+`/a2a/*` rewrite — keep `workers_dev = true`); `[[env.production.kv_namespaces]]` `BRIDGE_NONCES` +
+`FED_TOKENS` ids from §3; `[[env.production.services]]` `binding = "MCP"`,
+`service = "<home>-mcp-production"`.
 
-## 3. Create impact-a2a (copy of impact-a2a)
-
-Copy `agenticprimitives/apps/impact-a2a` → `apps/impact-a2a` (same exclusions). Change only:
-
-- **`package.json`**: `name` → `@<your-scope>/impact-a2a`; deps → published versions; unique dev port.
-- **`wrangler.toml`**:
-  - `name = "impact-a2a"`
-  - **Drop impact-a2a's `routes = ["*.<domain>/*"]`** unless you own that zone — the demo's route is
-    already claimed by `impact-a2a-production`. impact reaches the worker via its `workers.dev` URL
-    (the Next app's `/a2a/*` rewrite). Keep `workers_dev = true`.
-  - `[[env.production.kv_namespaces]]` `BRIDGE_NONCES` + `FED_TOKENS`: ids from §4.
-  - `[[env.production.services]]` `binding = "MCP"`, `service = "impact-mcp-production"`.
-  - Signer + paymaster vars: see §5 (gcp-kms) and §7 (paymaster).
-
-> The worker entrypoint reads contract addresses from **env vars** injected at deploy (§7), not from
-> `config.ts`'s `readFileSync` (that's the local/anvil path; there's no FS on Workers).
+> The worker reads contract addresses from **env vars** injected at deploy (§6) — `config.ts`'s
+> `readFileSync` is the local/anvil path only (Workers have no FS).
 
 ---
 
-## 4. Provision Cloudflare resources
+## 3. Cloudflare resources
 
 ```bash
 wrangler login
-
-# impact-a2a KV (in apps/impact-a2a)
-wrangler kv namespace create impact-a2a-BRIDGE_NONCES   # → paste id into BRIDGE_NONCES
-wrangler kv namespace create impact-a2a-FED_TOKENS      # → paste id into FED_TOKENS
-
-# impact-mcp D1 (in apps/impact-mcp)
-wrangler d1 create impact-mcp                           # → paste database_id into BOTH d1 blocks
-wrangler d1 migrations apply impact-mcp --remote --env production
+# <home>-a2a KV (run in apps/<home>-a2a) — use DISTINCT titles so you don't share state with demo-a2a:
+wrangler kv namespace create <home>-a2a-BRIDGE_NONCES   # → paste id into BRIDGE_NONCES
+wrangler kv namespace create <home>-a2a-FED_TOKENS      # → paste id into FED_TOKENS
+# <home>-mcp D1 (run in apps/<home>-mcp):
+wrangler d1 create <home>-mcp                           # → paste database_id into BOTH d1 blocks
+wrangler d1 migrations apply <home>-mcp --remote --env production
 ```
-
-> Use **distinct** namespace titles (the demo's plain `BRIDGE_NONCES`/`FED_TOKENS` already exist on
-> the account) so you don't share nonce/token state with another worker.
 
 ---
 
-## 5. GCP KMS (no-held-key signer + envelope) — optional but recommended
+## 4. Google Cloud — KMS / HSM (no-held-key signer + envelope + vault keys)
 
-The demo default (`A2A_KMS_BACKEND=local-aes`) stores a private key in the worker. To hold **no**
-keys, use Cloud KMS for both the signer and the session envelope.
+The demo default `A2A_KMS_BACKEND=local-aes` stores a private key in the worker. To hold **no keys**,
+use Cloud KMS. **Console path:** Google Cloud Console → **Security → Key Management** (search "KMS";
+service is `cloudkms.googleapis.com` — enable it if prompted).
 
-**Keys you need (project `<your-project>`, e.g. one keyring `agent-signers`):**
+### 4.1 Create a key ring + keys
 
-| Purpose | Algorithm | Used as |
+**Key Management → Create key ring** (e.g. name `agent-signers`, a region like `us-central1` — note
+it; keys are regional). Then **Create key** for each:
+
+| Key | Create-key settings | Used as |
 |---|---|---|
-| a2a relayer/master **signer** | `EC_SIGN_SECP256K1_SHA256` | `GCP_KMS_KEY_NAME` (a `cryptoKeyVersions/N` path) |
-| session-data-key **envelope** | `GOOGLE_SYMMETRIC_ENCRYPTION` | `GCP_KMS_ENCRYPT_KEY_NAME` (a `cryptoKeys/<k>` path) |
-| per-person **vault KEKs** (impact-mcp) | `GOOGLE_SYMMETRIC_ENCRYPTION`, one per person SA | resolved at runtime from each person's `VaultKeyBinding` |
+| **signer** (e.g. `a2a-master`) | Purpose **Asymmetric sign**; Algorithm **Elliptic Curve secp256k1 - SHA256** (`EC_SIGN_SECP256K1_SHA256`); Protection level **HSM** (or Software) | `GCP_KMS_KEY_NAME` — the **version** path `…/cryptoKeys/a2a-master/cryptoKeyVersions/1` |
+| **envelope** (e.g. `agent-envelope`) | Purpose **Symmetric encrypt/decrypt** | `GCP_KMS_ENCRYPT_KEY_NAME` — the **key** path `…/cryptoKeys/agent-envelope` (no version) |
+| **vault KEKs** (per-person) | Purpose **Symmetric encrypt/decrypt**; created **on demand** by `<home>-mcp` when `DEMO_VAULT_PROVISION_ENABLED=true`, named by person-SA address, in a `vault-keks` ring | resolved per-person at runtime from each `VaultKeyBinding` |
 
-The service account in `GCP_SERVICE_ACCOUNT_JSON` must have, on those keys:
-`cloudkms.cryptoKeyVersions.useToSign` (signer), `...useToEncrypt`/`...useToDecrypt` (envelope + vault
-KEKs), and — only if `DEMO_VAULT_PROVISION_ENABLED=true` — `cloudkms.cryptoKeys.create` on the
-vault-KEK ring. Roles: `roles/cloudkms.signerVerifier` + `roles/cloudkms.cryptoKeyEncrypterDecrypter`
-(+ `roles/cloudkms.admin` on the vault ring for on-demand provisioning).
+> A KMS/HSM key is **never exported to a file** — you reference it by resource path and it signs
+> inside the HSM. The signer's Ethereum address is *derived* from its public key (§4.3).
 
-**Find a key's path / its derived address** (gcloud-free — mint a token from the SA, call the KMS
-REST API, derive the secp256k1 address from the public key). A KMS key is *never* exported to a
-file; you reference it by path and it signs inside the HSM. The only file you need is the
-**service-account JSON**. A reusable discovery snippet:
+### 4.2 Service account + IAM
+
+**IAM & Admin → Service Accounts → Create service account** (e.g. `agent-signer`). **Create key →
+JSON** and download — this JSON is your **`GCP_SERVICE_ACCOUNT_JSON`** secret (the only Google file
+you need). Grant it, on the key ring (Key Management → ring → **Permissions**, or IAM):
+
+- `roles/cloudkms.signerVerifier` — sign with the secp256k1 key
+- `roles/cloudkms.cryptoKeyEncrypterDecrypter` — envelope + vault KEK encrypt/decrypt
+- `roles/cloudkms.admin` on the **vault-keks** ring **only if** `DEMO_VAULT_PROVISION_ENABLED=true`
+  (the app creates a KEK per owner on demand)
+
+### 4.3 Find a key's path + derived address (gcloud-free)
+
+You don't need `gcloud`. Mint a token from the SA and call the KMS REST API:
 
 ```js
-// token: sign a JWT (RS256) with sa.private_key, exchange at sa.token_uri for scope cloudkms;
-// then GET https://cloudkms.googleapis.com/v1/<keyVersion>/publicKey → PEM → SPKI DER →
-// last 65 bytes (0x04‖X‖Y) → '0x' + keccak256(X‖Y).slice(-40) = the signer address.
+// 1) JWT-bearer token: sign {iss:sa.client_email, scope:'https://www.googleapis.com/auth/cloudkms',
+//    aud:sa.token_uri, iat, exp} as RS256 with sa.private_key → POST sa.token_uri
+//    (grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=<jwt>) → access_token.
+// 2) List:  GET https://cloudkms.googleapis.com/v1/projects/<P>/locations/<L>/keyRings
+//           …/<ring>/cryptoKeys     …/<key>/cryptoKeyVersions?filter=state=ENABLED
+// 3) Address of a secp256k1 key version:
+//    GET …/<version>/publicKey → pem → SPKI DER → last 65 bytes (0x04‖X‖Y) →
+//    '0x' + keccak256(X‖Y).slice(-40)
+// 4) Permission probe: POST …/<version>:asymmetricSign {digest:{sha256:<b64>}} → expect a signature.
+//    Envelope key:    POST …/<key>:encrypt {plaintext:<b64>} then :decrypt → round-trip.
 ```
 
-`kms.manifest.json` (consumed by `pnpm kms:apply`) is the declarative source of truth for which
-identity maps to which key/deploy target.
+The signer **address** is what you put in `PAYMASTER_VERIFYING_SIGNER` (§6).
 
 ---
 
-## 6. Secrets
+## 5. Google Cloud — OIDC (Google sign-in)
 
-Set per worker with `wrangler secret put <NAME> --env production` (run inside the app dir). The
-repo's `scripts/set-impact-secrets.sh` (`pnpm secrets:impact`) generates + pipes them all,
-including the **shared** `A2A_MAC_SECRET` on both workers.
+**Console path:** APIs & Services → **OAuth consent screen** (configure once: User type, app name,
+support email, your domain), then **Credentials → Create credentials → OAuth client ID → Web
+application**.
 
-**impact-a2a:**
+- **Authorized JavaScript origins:** `https://www.<domain>` (and `https://<domain>` if you serve the
+  apex).
+- **Authorized redirect URIs (EXACT match, no trailing slash):** `https://www.<domain>/oidc/google/callback`
+  — one per origin you sign in on. (YouVersion: register `…/oidc/youversion/callback`.)
 
-| Secret | Notes |
-|---|---|
-| `SESSION_JWT_SECRETS` | `kid:hex64` — HS256 session signing |
-| `CSRF_SECRET`, `A2A_SESSION_SECRET` | `0x`-hex64 |
-| `RPC_URL` | Base Sepolia RPC (keyed provider recommended) |
-| `A2A_MAC_SECRET` | binds the a2a→mcp service envelope — **same value on impact-mcp** |
-| `A2A_MASTER_PRIVATE_KEY` | **local-aes only** (a held key — avoid in prod) |
-| `GCP_SERVICE_ACCOUNT_JSON` | **gcp-kms only** — the SA JSON |
-| `A2A_CUSTODY_BRIDGE_SECRET` | optional — social (Google/YouVersion) KMS-custody bridge; must match the Next app's value |
+Copy the **Client ID** + **Client secret** → the three Vercel env vars in §7.
 
-**impact-mcp:**
+> **Gotchas we hit:** (1) `redirect_uri_mismatch` = the URI isn't registered **verbatim** for that
+> client — changes can take minutes to propagate. (2) The bare **apex** (`<domain>` without `www`)
+> doesn't send a redirect — make the apex **301 → `www`**, or apex visitors fail. (3) Reusing an
+> existing OAuth client is fine; just **add** your callback to its redirect URIs.
 
-| Secret | Notes |
-|---|---|
-| `RPC_URL` | same RPC |
-| `A2A_MAC_SECRET` | **same value** as impact-a2a |
-| `OAUTH_SIGNING_SECRET` | demo OAuth ingress (never trusted as authority) |
-| `GCP_SERVICE_ACCOUNT_JSON` | per-person vault KEKs |
-
-```bash
-# local-aes (held key, quickest):
-pnpm secrets:impact
-# no-held-key signer:
-A2A_KMS_BACKEND=gcp-kms GCP_FILE=~/your-sa.json pnpm secrets:impact
-```
+Full checklist: `apps/<home>/OIDC-SETUP.md`.
 
 ---
 
-## 7. Deploy the workers
+## 6. Secrets + deploy
 
-Contract addresses are injected as `--var` from the published `@agenticprimitives/contracts`
-deployment — `ENTRY_POINT`, `DELEGATION_MANAGER`, `AGENT_ACCOUNT_FACTORY`, the enforcers,
-`UNIVERSAL_SIGNATURE_VALIDATOR`, `PAYMASTER` (=`smartAgentPaymaster`), naming registries, etc. The
-repo's `scripts/deploy-impact-workers.ts` (`pnpm deploy:impact`) mirrors agenticprimitives'
-`deploy-cloudflare.ts` (Workers only): preflight → D1 migrate → deploy **impact-mcp** → deploy
-**impact-a2a** (with `MCP_URL` + `ALLOWED_ORIGINS` + broker vars) → write `impact-cloudflare-urls.json`.
+Set secrets with `wrangler secret put <NAME> --env production` (inside each app dir);
+`scripts/set-<home>-secrets.sh` automates it and sets the **shared** `A2A_MAC_SECRET` on both.
 
+**`<home>-a2a`:** `SESSION_JWT_SECRETS` (`kid:hex64`), `CSRF_SECRET`, `A2A_SESSION_SECRET`
+(`0x`-hex64), `RPC_URL`, `A2A_MAC_SECRET` (same on mcp), `GCP_SERVICE_ACCOUNT_JSON` (gcp-kms),
+**`A2A_MASTER_PRIVATE_KEY`** and, for social sign-in, **`A2A_CUSTODY_BRIDGE_SECRET`** (see §8).
+**`<home>-mcp`:** `RPC_URL`, `A2A_MAC_SECRET` (same value), `OAUTH_SIGNING_SECRET`,
+`GCP_SERVICE_ACCOUNT_JSON`.
+
+> **Non-obvious:** `A2A_MASTER_PRIVATE_KEY` is required **even in gcp-kms mode** — the social-custody
+> bridge derives each subject's custodian by HKDF from it (the KMS key signs userOps; the master
+> secret seeds per-subject custodians). It is *not* used for signing when `A2A_KMS_BACKEND=gcp-kms`.
+
+Deploy (contract addresses injected as `--var` from `@agenticprimitives/contracts`):
 ```bash
-# local-aes:
-pnpm deploy:impact
-# gcp-kms signer + envelope (recommended) — bake these into wrangler.toml so it's reproducible:
+# gcp-kms (recommended). Bake these into <home>-a2a/wrangler.toml so a plain deploy reproduces them.
 A2A_KMS_BACKEND=gcp-kms \
-GCP_KMS_KEY_NAME=projects/<P>/locations/<L>/keyRings/<R>/cryptoKeys/<signer>/cryptoKeyVersions/1 \
-GCP_KMS_ENCRYPT_KEY_NAME=projects/<P>/locations/<L>/keyRings/<R>/cryptoKeys/<envelope> \
-PAYMASTER_VERIFYING_SIGNER=<signer-address> \
-pnpm deploy:impact
+GCP_KMS_KEY_NAME=projects/<P>/locations/<L>/keyRings/<ring>/cryptoKeys/<signer>/cryptoKeyVersions/1 \
+GCP_KMS_ENCRYPT_KEY_NAME=projects/<P>/locations/<L>/keyRings/<ring>/cryptoKeys/<envelope> \
+PAYMASTER_VERIFYING_SIGNER=<signer-address-from-4.3> \
+IMPACT_BROKER_ORIGIN=https://www.<domain> \
+pnpm deploy:<home>      # deploys <home>-mcp then <home>-a2a; writes <home>-cloudflare-urls.json
 ```
+Also set `A2A_ALLOW_LOCAL_ENVELOPE_KEY="false"` in `wrangler.toml` once the KMS envelope key is set.
 
-**impact-a2a `[env.production.vars]` worth setting** (or pass via the deploy script env):
-`ALLOWED_ORIGINS` (the home origins, CORS/CSRF), `A2A_PUBLIC_BASE_DOMAIN`, `BROKER_ISS` +
-`BROKER_JWKS_URL` (the Next broker's origin + `/jwks`, for the social-custody gate), `DEMO_SSO_AUD`
-(must equal the Next app's connect `aud`), and the signer block:
-`A2A_KMS_BACKEND="gcp-kms"`, `GCP_KMS_KEY_NAME`, `GCP_KMS_ENCRYPT_KEY_NAME`,
-`A2A_ALLOW_LOCAL_ENVELOPE_KEY="false"`, `PAYMASTER_VERIFYING_SIGNER` (your signer address).
-
-**Paymaster / gasless deploys.** The Smart-Account deploy is sponsored by `smartAgentPaymaster`. If
-the paymaster is **`devMode=true`** (testnet), it sponsors UserOps **without** checking a signer —
-any signer works, no alignment needed. For a hardened deploy (devMode off) the on-chain
-`verifyingSigner` must equal your a2a signer address; realigning it needs the paymaster `owner`.
-Set `PAYMASTER_VERIFYING_SIGNER` to your signer's address so the appended envelope is self-consistent.
+**Paymaster / gasless deploys.** Smart-Account deploys are sponsored by `smartAgentPaymaster`. On the
+shared testnet it is **`devMode=true`** (`verifyingSigner` unset) → it sponsors UserOps **without** a
+signer-match, so any signer works and **no realignment is needed**. For a hardened deploy (devMode
+off) the on-chain `verifyingSigner` must equal your signer address (`PAYMASTER_VERIFYING_SIGNER`) —
+realigning it needs the paymaster `owner`.
 
 ---
 
-## 8. The impact Next.js app
+## 7. The Next.js home (Vercel)
 
-Copy/author `apps/impact` (Next 15 / React 19). It is a **port of `agenticprimitives/apps/demo-sso-next`**
-— the broker (`server/connect/*`, `server/_lib/*`, `app/connect/*`, `app/{jwks,me}`) + client
-(`src/lib/connect.ts`, passkey/SIWE/social). It talks to the workers through two **server rewrites**
-in `next.config.mjs`:
-
+It's a port of agenticprimitives `apps/demo-sso-next` (broker + passkey/SIWE/social client). Two
+server rewrites in `next.config.mjs`:
 ```js
-const IMPACT_A2A_URL = process.env.IMPACT_A2A_URL || 'https://impact-a2a-production.<acct>.workers.dev';
-const IMPACT_MCP_URL = process.env.IMPACT_MCP_URL || 'https://impact-mcp-production.<acct>.workers.dev';
+const IMPACT_A2A_URL = process.env.IMPACT_A2A_URL || 'https://<home>-a2a-production.<acct>.workers.dev';
+const IMPACT_MCP_URL = process.env.IMPACT_MCP_URL || 'https://<home>-mcp-production.<acct>.workers.dev';
 // rewrites: '/a2a/:path*' → `${IMPACT_A2A_URL}/:path*`,  '/mcp-bind/:path*' → `${IMPACT_MCP_URL}/:path*`
-// transpilePackages: the @agenticprimitives connect/auth/account/naming/identity-directory(+adapters) set
 ```
 
-**Vercel environment variables:**
+**Vercel env (Production):**
 
-| Var | Required | Notes |
+| Var | Req | Notes |
 |---|---|---|
-| `IMPACT_A2A_URL`, `IMPACT_MCP_URL` | recommended | override the workers.dev defaults |
-| `BROKER_PRIVATE_JWK`, `BROKER_KID` | **yes** | the home mints `AgentSession` JWTs (ES256/P-256). Generate: `node apps/impact/scripts/gen-broker-key.mjs`. Mark the JWK **Sensitive**; only the public half is served at `/jwks`. |
-| `KV_REST_API_URL` + `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_URL`/`_TOKEN`) | **yes (prod)** | single-use nonces + passkey challenges. Local dev falls back to a non-persistent in-memory store (one instance only). |
+| `IMPACT_A2A_URL`, `IMPACT_MCP_URL` | rec | override the workers.dev defaults |
+| `BROKER_PRIVATE_JWK`, `BROKER_KID` | **yes** | home mints `AgentSession` JWTs (ES256). Generate: `node apps/<home>/scripts/gen-broker-key.mjs`. JWK is **Sensitive**; only the public half serves at `/jwks`. |
+| `KV_REST_API_URL` + `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_URL`/`_TOKEN`) | **yes** | OIDC `state` + nonces span isolates → must be real KV, not in-memory. |
 | `RPC_URL` | yes | Base Sepolia (keyed in prod) |
-| `DEMO_SSO_AUD` | default `impact` | must equal the a2a `DEMO_SSO_AUD` |
-| `ALLOWED_ISSUER_HOSTS` | optional | SEC-006 issuer-host allowlist; unset = accept the serving host (runs on any domain) |
-| `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_REDIRECT_URI` | optional | Google OIDC (`…/oidc/google/callback`) |
-| `YOUVERSION_CLIENT_ID`, `YOUVERSION_REDIRECT_URI` | optional | YouVersion OIDC (public PKCE client) |
-| `A2A_CUSTODY_URL` (= `IMPACT_A2A_URL`) + `A2A_CUSTODY_BRIDGE_SECRET` | optional | needed for a **new social** identity to get a KMS-custodied home; the bridge secret must match impact-a2a's |
+| `DEMO_SSO_AUD` | dflt `impact` | must equal `<home>-a2a`'s `DEMO_SSO_AUD` |
+| `ALLOWED_ISSUER_HOSTS` | opt | unset = accept the serving host (runs on any domain) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`(**sensitive**), `GOOGLE_REDIRECT_URI` | for Google | `…/oidc/google/callback` exact-match (§5) |
+| `YOUVERSION_CLIENT_ID`, `YOUVERSION_REDIRECT_URI` | for YV | YouVersion redirect auto-derives from host |
+| `A2A_CUSTODY_URL` (=`IMPACT_A2A_URL`), `A2A_CUSTODY_BRIDGE_SECRET` | for social homes | §8 |
 
-See `apps/impact/.env.example` for the canonical template.
+`apps/<home>/.env.example` is the canonical template. Single-home apps hardcode the domain in
+`src/lib/domain.ts` (`CONNECT_DOMAIN`) + `server/_lib/origin.ts` issuer-host defaults; the app also
+resolves the domain dynamically from the live host, so it runs anywhere.
+
+---
+
+## 8. Social-custody bridge (new Google/YouVersion homes)
+
+A social identity that **verifies but has no home** needs `<home>-a2a` to mint a KMS-custodied Smart
+Agent (else the callback returns `?connect_status=bootstrap`). The broker (Next) calls
+`<home>-a2a` `/custody/google/resolve`, HMAC-signed with a **shared secret**:
+
+1. Generate one secret; set it on **both** sides (same value):
+   `wrangler secret put A2A_CUSTODY_BRIDGE_SECRET --env production` (in `apps/<home>-a2a`) **and** on
+   the Vercel project.
+2. `A2A_CUSTODY_URL` defaults to `IMPACT_A2A_URL`; `DEMO_SSO_AUD` must match on both.
+3. **`BROKER_ISS`** on `<home>-a2a` must equal the home origin (`https://www.<domain>`) — the
+   `bootstrap-and-claim`/`sign` gate verifies broker-minted sessions against it. **One `<home>-a2a`
+   custody-gates exactly one issuer** — if you run multiple home domains off one worker, only one can
+   be the custody issuer (deploy a worker per home otherwise).
+4. `A2A_MASTER_PRIVATE_KEY` must be set (HKDF custodian derivation, §6).
+
+Verify configured (a valid call needs the HMAC, so unsigned → **401**, not 503):
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  https://<home>-a2a-production.<acct>.workers.dev/custody/google/resolve \
+  -H 'content-type: application/json' -d '{"iss":"x","sub":"y"}'      # 401 = configured
+```
 
 ---
 
 ## 9. Verify
 
 ```bash
-pnpm -r typecheck                       # whole repo green
-
-# workers (after deploy)
-curl -s -o /dev/null -w "%{http_code}\n" https://impact-mcp-production.<acct>.workers.dev/health   # 200
-curl -s -o /dev/null -w "%{http_code}\n" https://impact-a2a-production.<acct>.workers.dev/health   # 200
-curl -s https://impact-a2a-production.<acct>.workers.dev/deployments        # contract registry (vars wired)
-curl -s -X POST https://impact-a2a-production.<acct>.workers.dev/rpc \
-  -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'          # 0x14a34 (RPC secret wired)
-curl -s -o /dev/null -w "%{http_code}\n" \
-  https://impact-mcp-production.<acct>.workers.dev/.well-known/oauth-protected-resource   # 200
+pnpm -r typecheck
+M=https://<home>-mcp-production.<acct>.workers.dev
+A=https://<home>-a2a-production.<acct>.workers.dev
+curl -s -o /dev/null -w "%{http_code}\n" $M/health                      # 200
+curl -s -o /dev/null -w "%{http_code}\n" $A/health                      # 200
+curl -s $A/deployments                                                  # contract registry (vars wired)
+curl -s -X POST $A/rpc -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'      # 0x14a34 (RPC secret wired)
+curl -s -o /dev/null -w "%{http_code}\n" $M/.well-known/oauth-protected-resource   # 200
 ```
-
 The full WebAuthn + on-chain deploy ceremony needs a real browser authenticator (not headless).
 
 ---
 
-## Appendix — reference values from the live Impact deployment
+## Appendix — live Impact reference values
 
-Substitute your own account/project; these are the working values for the canonical deployment.
+Substitute your own; these are the canonical deployment.
 
-- Workers: `impact-a2a-production.richardpedersen3.workers.dev`, `impact-mcp-production.richardpedersen3.workers.dev`
-- Cloudflare KV: `impact-a2a-BRIDGE_NONCES`, `impact-a2a-FED_TOKENS`; D1: `impact-mcp`
-- GCP (`churchcore2`, `us-central1`):
-  - signer `…/keyRings/agenticprimitives-demo/cryptoKeys/smart-agent-2/cryptoKeyVersions/1` → `0x3C7B58062f1c472f16eD843808fd95DA4697b702`
+- Domain `churchcore.me` (served on `www.churchcore.me`); workers
+  `impact-{a2a,mcp}-production.richardpedersen3.workers.dev`.
+- Cloudflare KV `impact-a2a-BRIDGE_NONCES` / `impact-a2a-FED_TOKENS`; D1 `impact-mcp`.
+- GCP project `churchcore2`, `us-central1`:
+  - signer `…/keyRings/agenticprimitives-demo/cryptoKeys/smart-agent-2/cryptoKeyVersions/1`
+    → `0x3C7B58062f1c472f16eD843808fd95DA4697b702`
   - envelope `…/keyRings/agenticprimitives-demo/cryptoKeys/agent-envelope`
-  - vault KEKs: `us-east1/vault-keks/<personSA>` (symmetric, one per person)
-- `smartAgentPaymaster` `0x8eF92B9D62826052D8F7e6dcaB630dC3890bF540` is `devMode=true` (no signer check on testnet).
+  - per-person vault KEKs in `us-east1/vault-keks/<personSA>` (symmetric)
+  - SA `agenticprimitives-signer@churchcore2.iam.gserviceaccount.com`
+- Google OAuth client `960572345946-shkoae….apps.googleusercontent.com`; redirect
+  `https://www.churchcore.me/oidc/google/callback`.
+- `smartAgentPaymaster` `0x8eF92B9D62826052D8F7e6dcaB630dC3890bF540` is `devMode=true` (no signer
+  check on testnet).
 
-Helper scripts in this repo: `pnpm secrets:impact` (`scripts/set-impact-secrets.sh`),
-`pnpm deploy:impact` (`scripts/deploy-impact-workers.ts`), `pnpm kms:apply` (`scripts/kms-apply.ts`).
+Helper scripts: `pnpm secrets:impact` (`scripts/set-impact-secrets.sh`), `pnpm deploy:impact`
+(`scripts/deploy-impact-workers.ts`), `pnpm kms:apply` (`scripts/kms-apply.ts`). See also
+`apps/impact/OIDC-SETUP.md`.

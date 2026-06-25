@@ -2,7 +2,7 @@
   "name": "@verifiable-content-demo/impact-mcp",
   "version": "0.0.1",
   "private": true,
-  "description": "Impact MCP server: Cloudflare Worker + D1 for profiles + JTI replay. Person-repository with delegation-verified get_profile tool. Identical to agenticprimitives impact-mcp.",
+  "description": "Impact MCP server: Cloudflare Worker + D1 for profiles + JTI replay. Person-repository with delegation-verified get_profile tool. Copied from agenticprimitives demo-mcp.",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

@@ -65,7 +65,7 @@ export default function NetworkPage() {
       <SectionHead
         eyebrow="Live backend"
         title="Network"
-        sub="Impact reads live from the deployed agenticprimitives backend (impact-a2a / impact-mcp) through a same-origin proxy. Everything below is fetched on-chain in real time."
+        sub="Impact reads live from the deployed impact-a2a / impact-mcp backend through a same-origin proxy. Everything below is fetched on-chain in real time."
       />
 
       {err && <div className="card card-pad chip-danger" style={{ marginBottom: "1.2rem" }}>Backend unreachable: {err}</div>}

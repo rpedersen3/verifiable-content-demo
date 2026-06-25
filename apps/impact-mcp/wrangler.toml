@@ -1,4 +1,4 @@
-# Cloudflare Worker config for impact-mcp (identical to agenticprimitives impact-mcp).
+# Cloudflare Worker config for impact-mcp (copied from agenticprimitives demo-mcp).
 #
 # Local dev:  wrangler dev (uses local D1 SQLite at .wrangler/state-impact-mcp/v3/d1/)
 # Production: wrangler deploy + wrangler d1 migrations apply impact-mcp
