@@ -11,19 +11,29 @@ import {
 import { displayNameFromContact } from "@/lib/profile-name";
 import { listMyOrgs, listMyReceivedDelegations, flattenDelegations, type LiveDelegation } from "@/lib/related";
 import { revokeDelegation } from "@/lib/connect";
+import { activateVaultKey } from "@/lib/vault-key";
 import { loadImpactEntitlements, saveImpactEntitlements, type ImpactEntitlement } from "@/lib/entitlements-store";
 
 type Tab = "records" | "entitlements" | "delegations";
 
 export default function VaultPage() {
-  const { person, identity, token } = useSession();
+  const { person, identity, token, active } = useSession();
   const [tab, setTab] = useState<Tab>("records");
 
-  const address = identity?.address;
-  const via = identity?.via ?? "passkey";
+  // The vault SUBJECT: your own home, or — when acting as custodian of a LIVE org — that org's
+  // own vault, keyed by the org SA. The whole vault stack (provision/bind/mint/read/write) is
+  // owner-parameterized, so the same surfaces serve either principal; you sign as its custodian.
+  const liveOrg = active.mode === "org" ? active.live : undefined;
+  const isOrg = !!liveOrg;
+  const address = (isOrg ? liveOrg!.address : identity?.address) as `0x${string}` | undefined;
+  const via = isOrg ? liveOrg!.via : (identity?.via ?? "passkey");
+  const subjectLabel = isOrg ? (liveOrg!.name ?? "this organization") : "you";
   const [contact, setContact] = useState<ImpactContactProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [needsVaultKey, setNeedsVaultKey] = useState(false);
+  const [activating, setActivating] = useState<string | null>(null);
+  const [activateErr, setActivateErr] = useState<string | null>(null);
+  const [keyRefresh, setKeyRefresh] = useState(0);
 
   // Live delegations (spec 246/247) — the person's home-managed grants + inbound grants.
   const [delegations, setDelegations] = useState<LiveDelegation[]>([]);
@@ -41,18 +51,35 @@ export default function VaultPage() {
       .catch((err) => { if (!cancelled && err instanceof VaultKeyUnauthorizedError) setNeedsVaultKey(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [address]);
+  }, [address, keyRefresh]);
+
+  /** Activate the active subject's vault key. For a live org, the connected person signs the org's
+   *  VaultKeyAuthorization as its on-chain custodian (ERC-1271) — this is what gives the org a vault. */
+  async function onActivateVault() {
+    if (!address) return;
+    setActivateErr(null); setActivating("Activating the vault…");
+    const out = await activateVaultKey(address, via, token ?? undefined);
+    setActivating(null);
+    if (out.ok) setKeyRefresh((k) => k + 1);
+    else setActivateErr(out.error);
+  }
 
   useEffect(() => {
     if (!token) { setDelLoading(false); return; }
     let cancelled = false;
     setDelLoading(true);
     Promise.all([listMyOrgs(token), listMyReceivedDelegations(token)])
-      .then(([orgs, received]) => { if (!cancelled) setDelegations(flattenDelegations(orgs, received)); })
+      .then(([orgs, received]) => {
+        if (cancelled) return;
+        const all = flattenDelegations(orgs, received);
+        // In an org's vault, show only the grants that bind THIS org (e.g. the stewardship grant
+        // org→you that makes you its custodian); in your own vault, show them all.
+        setDelegations(isOrg && address ? all.filter((d) => d.counterpartyAddr.toLowerCase() === address.toLowerCase()) : all);
+      })
       .catch(() => { if (!cancelled) setDelegations([]); })
       .finally(() => { if (!cancelled) setDelLoading(false); });
     return () => { cancelled = true; };
-  }, [token, delRefresh]);
+  }, [token, delRefresh, isOrg, address]);
 
   async function onRevoke(d: LiveDelegation) {
     if (!d.wire) return;
@@ -84,7 +111,7 @@ export default function VaultPage() {
       .catch((err) => { if (!cancelled && err instanceof VaultKeyUnauthorizedError) setEntNeedsKey(true); })
       .finally(() => { if (!cancelled) setEntLoading(false); });
     return () => { cancelled = true; };
-  }, [address]);
+  }, [address, keyRefresh]);
 
   async function persistEntitlements(next: ImpactEntitlement[]) {
     if (!address) return;
@@ -105,7 +132,7 @@ export default function VaultPage() {
     const ent: ImpactEntitlement = {
       id: `ent:${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}:${Date.now()}`,
       title,
-      issuer: addForm.issuer.trim() || (person?.name ? person.name : "You"),
+      issuer: addForm.issuer.trim() || (isOrg ? (liveOrg!.name ?? "This organization") : (person?.name ? person.name : "You")),
       scope: addForm.scope.trim() || "Self-recorded credential",
       status: "active",
       grantedAt: new Date().toISOString(),
@@ -135,15 +162,24 @@ export default function VaultPage() {
       href: "/profile",
     });
   }
-  records.push(...person.vaultRecords.map((r) => ({ type: r.type, label: r.label, class: r.class, summary: r.summary })));
+  // Seed sample records belong to YOUR home only — never bleed them into an org's vault.
+  if (!isOrg) records.push(...person.vaultRecords.map((r) => ({ type: r.type, label: r.label, class: r.class, summary: r.summary })));
 
   return (
     <>
       <SectionHead
-        eyebrow="Your vault"
+        eyebrow={isOrg ? "Organization vault" : "Your vault"}
         title="Vault"
-        sub="Everything you hold — your PII profile, entitlements, and delegations — gated by you and read only through a delegation."
+        sub={isOrg
+          ? `${liveOrg!.name ?? "This organization"}'s encrypted vault — its PII, entitlements, and delegations, keyed by the org's own Smart Agent. You read and seal it as its custodian; no service holds its key.`
+          : "Everything you hold — your PII profile, entitlements, and delegations — gated by you and read only through a delegation."}
       />
+
+      {(activating || activateErr) && (
+        <div className="muted" style={{ marginBottom: "1rem", color: activateErr ? "var(--danger)" : undefined }}>
+          {activateErr ?? activating}
+        </div>
+      )}
 
       <div className="row wrap" style={{ gap: ".5rem", marginBottom: "1.2rem" }}>
         <TabBtn active={tab === "records"} onClick={() => setTab("records")}>Records ({records.length})</TabBtn>
@@ -153,14 +189,31 @@ export default function VaultPage() {
 
       {tab === "records" && (
         needsVaultKey ? (
-          <EmptyNote>
-            Your vault isn&apos;t activated yet. Go to <Link href="/account">Account → Activate vault key</Link> to
-            store and read your encrypted PII profile and records.
-          </EmptyNote>
+          isOrg ? (
+            <EmptyNote>
+              <div style={{ marginBottom: ".7rem" }}>
+                {liveOrg!.name ?? "This organization"} doesn&apos;t have a vault yet. As its custodian you can
+                activate one — you&apos;ll sign its vault-key authorization with your own credential, and from then
+                on its PII, credentials, and delegations are encrypted under the org&apos;s own key.
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={onActivateVault} disabled={!!activating}>
+                <IconVault width={15} height={15} /> {activating ? "Activating…" : "Activate this org's vault"}
+              </button>
+            </EmptyNote>
+          ) : (
+            <EmptyNote>
+              Your vault isn&apos;t activated yet. Go to <Link href="/account">Account → Activate vault key</Link> to
+              store and read your encrypted PII profile and records.
+            </EmptyNote>
+          )
         ) : loading && records.length === 0 ? (
           <div className="muted">Reading your encrypted vault…</div>
         ) : records.length === 0 ? (
-          <EmptyNote>Your vault is empty so far — fill in your <Link href="/profile">profile</Link> and it&apos;s sealed here under your own key.</EmptyNote>
+          isOrg ? (
+            <EmptyNote>{liveOrg!.name ?? "This organization"}&apos;s vault is active but empty so far. Record a credential under <strong>Entitlements</strong> and it&apos;s sealed here under the org&apos;s own key.</EmptyNote>
+          ) : (
+            <EmptyNote>Your vault is empty so far — fill in your <Link href="/profile">profile</Link> and it&apos;s sealed here under your own key.</EmptyNote>
+          )
         ) : (
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
             {records.map((r) => {
@@ -192,10 +245,19 @@ export default function VaultPage() {
 
       {tab === "entitlements" && (
         needsVaultKey ? (
-          <EmptyNote>
-            Your vault isn&apos;t activated yet. Go to <Link href="/account">Account → Activate vault key</Link> to
-            hold and read verifiable credentials in your encrypted vault.
-          </EmptyNote>
+          isOrg ? (
+            <EmptyNote>
+              <div style={{ marginBottom: ".7rem" }}>{liveOrg!.name ?? "This organization"} doesn&apos;t have a vault yet — activate it to hold the org&apos;s verifiable credentials.</div>
+              <button className="btn btn-primary btn-sm" onClick={onActivateVault} disabled={!!activating}>
+                <IconVault width={15} height={15} /> {activating ? "Activating…" : "Activate this org's vault"}
+              </button>
+            </EmptyNote>
+          ) : (
+            <EmptyNote>
+              Your vault isn&apos;t activated yet. Go to <Link href="/account">Account → Activate vault key</Link> to
+              hold and read verifiable credentials in your encrypted vault.
+            </EmptyNote>
+          )
         ) : entNeedsKey ? (
           <EmptyNote>
             Your vault key is active for your profile but doesn&apos;t yet cover credentials. Re-run

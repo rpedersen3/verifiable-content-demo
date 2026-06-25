@@ -5,28 +5,34 @@ import { useSession } from "@/context/session";
 import { orgById } from "@/lib/seed";
 import { Glyph } from "@/components/ui";
 import { IconChevron, IconCheck } from "@/components/Icons";
+import { usePersonOrgs } from "@/lib/use-live";
 
 // Switch between acting as yourself and acting as a custodian of one of your
 // organizations. A pinned default org is where you land on arrival.
 export default function ContextSwitcher() {
-  const { person, active, setActive, defaultOrgId, setDefaultOrg } = useSession();
+  const { person, identity, token, active, setActive, defaultOrgId, setDefaultOrg } = useSession();
   const [open, setOpen] = useState(false);
+  const live = usePersonOrgs(token);
   if (!person) return null;
 
+  const via = identity?.via ?? "passkey";
   const custodyOrgs = person.custodyOf.map(orgById).filter(Boolean);
   const activeOrg = active.mode === "org" ? orgById(active.orgId) : undefined;
+  const liveActive = active.mode === "org" ? active.live : undefined;
+  const liveLabel = liveActive ? (liveActive.name ?? `${liveActive.address.slice(0, 6)}…${liveActive.address.slice(-4)}`) : undefined;
+  const triggerName = liveLabel ?? (activeOrg ? activeOrg.name : person.name);
 
   return (
     <div className="ctx-switch" style={{ minWidth: 220 }}>
       <button className="ctx-trigger" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        {active.mode === "org" && activeOrg ? (
-          <Glyph kind="org" name={activeOrg.name} size="sm" />
+        {active.mode === "org" ? (
+          <Glyph kind="org" name={triggerName} size="sm" />
         ) : (
           <Glyph kind="person" name={person.name} size="sm" />
         )}
         <span className="col" style={{ gap: 0, flex: 1, minWidth: 0 }}>
           <span style={{ fontWeight: 650, fontSize: ".88rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {active.mode === "org" && activeOrg ? activeOrg.name : person.name}
+            {triggerName}
           </span>
           <span className="faint" style={{ fontSize: ".7rem" }}>
             {active.mode === "org" ? "acting as custodian" : "acting as you"}
@@ -86,6 +92,30 @@ export default function ContextSwitcher() {
                     {isDefault ? "★ default" : "set default"}
                   </button>
                 </div>
+              );
+            })}
+
+            {live.orgs.length > 0 && (
+              <div className="nav-group-label" style={{ padding: ".5rem .55rem .2rem" }}>
+                Organizations you created
+              </div>
+            )}
+            {live.orgs.map((o) => {
+              const name = o.name ?? `${o.agent.slice(0, 6)}…${o.agent.slice(-4)}`;
+              const isActive = active.mode === "org" && active.live?.address.toLowerCase() === o.agent.toLowerCase();
+              return (
+                <button
+                  key={o.agent}
+                  className={`ctx-opt ${isActive ? "active" : ""}`}
+                  onClick={() => { setActive({ mode: "org", orgId: o.agent, live: { address: o.agent, name: o.name, via } }); setOpen(false); }}
+                >
+                  <Glyph kind="org" name={name} size="sm" />
+                  <span className="col" style={{ gap: 0, flex: 1 }}>
+                    <span style={{ fontWeight: 600, fontSize: ".86rem" }}>{name}</span>
+                    <span className="faint" style={{ fontSize: ".72rem" }}>live · on-chain</span>
+                  </span>
+                  {isActive && <IconCheck width={16} height={16} style={{ color: "var(--amber-600)" }} />}
+                </button>
               );
             })}
 

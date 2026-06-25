@@ -20,7 +20,16 @@ export default function ServiceAgentsPage() {
     );
   }
   const org = orgById(active.orgId);
-  if (!org) return null;
+  if (!org) {
+    const liveName = active.live ? (active.live.name ?? "This organization") : "This organization";
+    return (
+      <div className="card card-pad" style={{ textAlign: "center", padding: "2.5rem" }}>
+        <div className="h2" style={{ marginBottom: ".5rem" }}>No service agents yet</div>
+        <p className="muted" style={{ marginBottom: "1rem" }}>{liveName} hasn&apos;t deployed any service agents. They&apos;ll appear here once you add them.</p>
+        <Link href="/organizations" className="btn btn-ghost btn-sm">Back to organizations</Link>
+      </div>
+    );
+  }
   const services = servicesForOrg(org.id);
 
   return (

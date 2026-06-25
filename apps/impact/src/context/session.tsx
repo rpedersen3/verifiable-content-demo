@@ -34,7 +34,20 @@ export interface Identity {
   via: Via;
 }
 
-export type ActiveContext = { mode: "person" } | { mode: "org"; orgId: string };
+/** A live, on-chain organization the connected person governs (custodied by the person's own
+ *  credential; stewardship grant org→person). When `active` carries this, org-mode renders the
+ *  REAL org — its own vault keyed by the org SA — rather than seeded sample content. */
+export interface LiveOrgRef {
+  address: Address;
+  name: string | null;
+  /** The custodian credential that controls the org SA — the same `via` as the person, since the
+   *  person custodies the org. Used to sign the org's vault-key authorization (ERC-1271). */
+  via: Via;
+}
+
+export type ActiveContext =
+  | { mode: "person" }
+  | { mode: "org"; orgId: string; live?: LiveOrgRef };
 
 interface SessionState {
   phase: Phase;

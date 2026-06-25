@@ -10,7 +10,9 @@ export default function SecurityPage() {
   const via = identity?.via;
   if (!person) return null;
   const isOrg = active.mode === "org";
-  const subject = isOrg ? orgById(active.orgId)?.name : person.name;
+  const subject = isOrg
+    ? (active.live ? (active.live.name ?? "this organization") : orgById(active.orgId)?.name)
+    : person.name;
 
   const devices = [
     { name: "Grace's MacBook", method: "passkey", last: "today", current: via === "passkey" },

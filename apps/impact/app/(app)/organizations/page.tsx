@@ -9,7 +9,9 @@ import { Glyph, SectionHead, Pill, TrustMeter, EmptyNote } from "@/components/ui
 import { IconPlus, IconOrg } from "@/components/Icons";
 import { usePersonOrgs, type LiveOrg } from "@/lib/use-live";
 import { createOrg } from "@/lib/connect";
+import { activateVaultKey } from "@/lib/vault-key";
 import type { Organization } from "@/lib/types";
+import type { Via } from "@/context/session";
 
 const EXPLORER = "https://sepolia.basescan.org/address/";
 
@@ -39,6 +41,11 @@ export default function OrganizationsPage() {
     router.push("/home");
   }
 
+  function enterLiveAsCustodian(org: LiveOrg) {
+    setActive({ mode: "org", orgId: org.agent, live: { address: org.agent, name: org.name, via } });
+    router.push("/home");
+  }
+
   async function onCreate() {
     if (!person) return;
     const name = orgName.trim();
@@ -46,14 +53,16 @@ export default function OrganizationsPage() {
     if (!deployed) { setErr("First secure your home on-chain — Account → Secure my home — then create an organization."); return; }
     setErr(null);
     const out = await createOrg({ name, personSA: person.address, via, token: token ?? undefined }, setBusy);
+    if (!out.ok) { setBusy(null); setErr(out.error); return; }
+    // Give the org its OWN encrypted vault straight away — you sign its vault-key authorization as
+    // its on-chain custodian (ERC-1271). Non-fatal: the org exists either way; surface a soft note.
+    setBusy("Activating the organization's vault…");
+    const act = await activateVaultKey(out.agent, via, token ?? undefined);
     setBusy(null);
-    if (out.ok) {
-      setShowCreate(false);
-      setOrgName("");
-      setRefreshKey((k) => k + 1);
-    } else {
-      setErr(out.error);
-    }
+    setShowCreate(false);
+    setOrgName("");
+    setRefreshKey((k) => k + 1);
+    if (!act.ok) setErr(`Organization created, but activating its vault failed: ${act.error}. You can retry from the org's Vault.`);
   }
 
   const hasAny = custody.length + member.length + live.orgs.length > 0;
@@ -124,7 +133,7 @@ export default function OrganizationsPage() {
       {live.orgs.length > 0 && <div className="eyebrow" style={{ marginBottom: ".6rem" }}>You steward (live)</div>}
       {live.orgs.length > 0 && (
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))", marginBottom: "1.6rem" }}>
-          {live.orgs.map((o) => <LiveOrgCard key={o.agent} org={o} />)}
+          {live.orgs.map((o) => <LiveOrgCard key={o.agent} org={o} onManage={() => enterLiveAsCustodian(o)} />)}
         </div>
       )}
 
@@ -147,8 +156,8 @@ export default function OrganizationsPage() {
   );
 }
 
-/** A live, on-chain organization the person created — minimal card (no seeded trust/services yet). */
-function LiveOrgCard({ org }: { org: LiveOrg }) {
+/** A live, on-chain organization the person created — custodied by you, with its own vault. */
+function LiveOrgCard({ org, onManage }: { org: LiveOrg; onManage: () => void }) {
   const display = org.name ?? `${org.agent.slice(0, 6)}…${org.agent.slice(-4)}`;
   return (
     <div className="card card-pad">
@@ -160,7 +169,7 @@ function LiveOrgCard({ org }: { org: LiveOrg }) {
             <Pill tone="amber">custodian</Pill>
           </div>
           <div className="muted" style={{ fontSize: ".82rem" }}>
-            {org.name ? "Your organization, on-chain." : "Nameless organization — its address is its id; you can name it later."}
+            {org.name ? "Your organization, on-chain — you steward it; it has its own vault." : "Nameless organization — its address is its id; you can name it later."}
           </div>
         </div>
       </div>
@@ -169,6 +178,9 @@ function LiveOrgCard({ org }: { org: LiveOrg }) {
           {org.agent.slice(0, 10)}…{org.agent.slice(-6)} · explorer ↗
         </a>
         <Pill tone="emerald"><span className="dot" /> Base Sepolia</Pill>
+      </div>
+      <div className="row" style={{ gap: ".5rem", marginTop: "1rem" }}>
+        <button className="btn btn-primary btn-sm" onClick={onManage}>Manage as custodian</button>
       </div>
     </div>
   );

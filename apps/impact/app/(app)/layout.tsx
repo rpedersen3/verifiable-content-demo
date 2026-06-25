@@ -29,7 +29,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const orgName = active.mode === "org" ? orgById(active.orgId)?.name : undefined;
+  const orgName = active.mode === "org"
+    ? (active.live ? (active.live.name ?? `${active.live.address.slice(0, 6)}…${active.live.address.slice(-4)}`) : orgById(active.orgId)?.name)
+    : undefined;
   const groups = buildNav(active, orgName);
   const mobile = mobileNav(active);
   const isActive = (href: string) =>

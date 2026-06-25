@@ -7,7 +7,9 @@ import { SectionHead, Pill } from "@/components/ui";
 export default function ActivityPage() {
   const { active } = useSession();
   const isOrg = active.mode === "org";
-  const subject = isOrg ? orgById(active.orgId)?.name : "you";
+  const subject = isOrg
+    ? (active.live ? (active.live.name ?? "this organization") : orgById(active.orgId)?.name)
+    : "you";
   const events = isOrg ? ACTIVITY.filter((a) => a.context === "org") : ACTIVITY;
 
   return (

@@ -6,11 +6,63 @@ import { ACTIVITY, orgById, servicesForOrg } from "@/lib/seed";
 import { Glyph, SectionHead, StatTile, TrustMeter, DimensionBadges, Pill, EmptyNote } from "@/components/ui";
 import { IconVault, IconWallet, IconShield, IconGraph, IconBot, IconOrg, IconPlus } from "@/components/Icons";
 import { useAgentBalances, usePersonTreasury } from "@/lib/use-live";
+import type { LiveOrgRef } from "@/context/session";
+
+const EXPLORER = "https://sepolia.basescan.org/address/";
 
 export default function HomePage() {
   const { person, active } = useSession();
   if (!person) return null;
-  return active.mode === "org" ? <OrgDashboard orgId={active.orgId} /> : <PersonDashboard />;
+  if (active.mode === "org") {
+    return active.live ? <LiveOrgDashboard live={active.live} /> : <OrgDashboard orgId={active.orgId} />;
+  }
+  return <PersonDashboard />;
+}
+
+/** Dashboard for a LIVE org the connected person custodies — real identity + on-chain balance, with
+ *  its own vault (keyed by the org SA). Seeded trust/services/members don't apply yet. */
+function LiveOrgDashboard({ live }: { live: LiveOrgRef }) {
+  const bal = useAgentBalances(live.address);
+  const display = live.name ?? `${live.address.slice(0, 6)}…${live.address.slice(-4)}`;
+  return (
+    <>
+      <SectionHead eyebrow="Acting as custodian" title={display} sub="An organization you steward. It has its own Smart Agent, vault, and treasury — and you hold its key only by signing as its custodian." />
+
+      <div className="card card-pad" style={{ marginBottom: "1.2rem" }}>
+        <div className="row" style={{ gap: "1rem", alignItems: "flex-start" }}>
+          <Glyph kind="org" name={display} size="lg" />
+          <div style={{ flex: 1 }}>
+            <div className="row wrap" style={{ gap: ".4rem" }}>
+              {live.name && <span className="addr">{live.name}</span>}
+              <a href={`${EXPLORER}${live.address}`} target="_blank" rel="noreferrer" className="addr">
+                {live.address.slice(0, 10)}…{live.address.slice(-6)} · explorer ↗
+              </a>
+              <Pill tone="amber">you are custodian</Pill>
+            </div>
+            <div className="muted" style={{ fontSize: ".86rem", marginTop: ".7rem" }}>
+              Stewardship is on-chain: this org granted you a delegation to read and oversee its vault, and its
+              Smart Agent is custodied by your own credential. Nothing here holds a private key on your behalf.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: "1.4rem" }}>
+        <StatTile num={bal.loading ? "…" : `$${bal.usdc ?? "0.00"}`} label="Org USDC (live)" accent="var(--emerald-700)" />
+        <StatTile num={bal.loading ? "…" : `${bal.eth ?? "0"}`} label="ETH (live)" />
+        <StatTile num={live.name ? "Named" : "Nameless"} label="Identity" />
+        <StatTile num="Custodian" label="Your role" />
+      </div>
+
+      <SectionHead title="Manage this organization" sub="Its vault, security, and trust — acting as custodian." />
+      <div className="grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", marginBottom: "1.6rem" }}>
+        <QuickLink href="/vault" icon={<IconVault />} title="Organization vault" sub="PII, credentials, delegations — under the org's key" />
+        <QuickLink href="/treasury" icon={<IconWallet />} title="Treasury" sub="Org balance & giving" />
+        <QuickLink href="/trust-graph" icon={<IconGraph />} title="Trust graph" sub="The org's relationships" />
+        <QuickLink href="/security" icon={<IconShield />} title="Security" sub="Custody & sessions" />
+      </div>
+    </>
+  );
 }
 
 function PersonDashboard() {

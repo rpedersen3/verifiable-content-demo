@@ -15,6 +15,7 @@ const EXPLORER = "https://sepolia.basescan.org/address/";
 export default function TreasuryPage() {
   const { person, active, identity, token } = useSession();
   const isOrg = active.mode === "org";
+  const liveOrg = active.mode === "org" ? active.live : undefined;
   const via = identity?.via ?? "passkey";
   const deployed = !!identity?.deployed;
   const [refreshKey, setRefreshKey] = useState(0);
@@ -25,22 +26,25 @@ export default function TreasuryPage() {
   // person-treasury record written at create time), with its on-chain balance.
   const treas = usePersonTreasury(isOrg ? null : token, refreshKey);
   // Fallback: the person SA's own balance, used only if there's no treasury agent yet.
-  const selfBal = useAgentBalances(isOrg ? undefined : person?.address);
+  const selfBal = useAgentBalances(isOrg && !liveOrg ? undefined : liveOrg ? liveOrg.address : person?.address);
   if (!person) return null;
 
-  const org = isOrg ? orgById(active.orgId) : undefined;
-  const orgTreasury: Treasury | undefined = isOrg ? org?.treasury : undefined;
+  const org = isOrg && !liveOrg ? orgById(active.orgId) : undefined;
+  const orgTreasury: Treasury | undefined = org?.treasury;
 
-  const ownerName = isOrg ? org?.name : person.name;
+  const ownerName = liveOrg ? (liveOrg.name ?? "your organization") : isOrg ? org?.name : person.name;
 
-  // Resolve the displayed treasury (address, balance, label) for the active context.
-  const treasuryAddr = isOrg ? orgTreasury?.address : treas.exists ? treas.address : person.address;
-  const treasuryName = isOrg ? org?.agentName : treas.exists ? (treas.name ?? "Your money agent") : person.agentName;
-  const balanceLabel = isOrg
-    ? `$${(orgTreasury?.balanceUsdc ?? 0).toLocaleString()}`
-    : treas.loading || selfBal.loading
-      ? "…"
-      : `$${(treas.exists ? treas.usdc : selfBal.usdc) ?? "0.00"}`;
+  // Resolve the displayed treasury (address, balance, label) for the active context. A LIVE org
+  // holds funds in its own Smart Agent (a dedicated org-treasury agent is a follow-on).
+  const treasuryAddr = liveOrg ? liveOrg.address : isOrg ? orgTreasury?.address : treas.exists ? treas.address : person.address;
+  const treasuryName = liveOrg ? (liveOrg.name ?? "Organization agent") : isOrg ? org?.agentName : treas.exists ? (treas.name ?? "Your money agent") : person.agentName;
+  const balanceLabel = liveOrg
+    ? (selfBal.loading ? "…" : `$${selfBal.usdc ?? "0.00"}`)
+    : isOrg
+      ? `$${(orgTreasury?.balanceUsdc ?? 0).toLocaleString()}`
+      : treas.loading || selfBal.loading
+        ? "…"
+        : `$${(treas.exists ? treas.usdc : selfBal.usdc) ?? "0.00"}`;
 
   const mandates = orgTreasury?.mandates ?? [];
   const subscriptions = mandates.filter((m) => m.kind === "subscription");

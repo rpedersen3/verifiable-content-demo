@@ -17,7 +17,19 @@ export default function OrganizationPage() {
     );
   }
   const org = orgById(active.orgId);
-  if (!org) return null;
+  if (!org) {
+    const liveName = active.live ? (active.live.name ?? "This organization") : "This organization";
+    return (
+      <div className="card card-pad" style={{ textAlign: "center", padding: "2.5rem" }}>
+        <div className="h2" style={{ marginBottom: ".5rem" }}>{liveName}</div>
+        <p className="muted" style={{ marginBottom: "1rem" }}>
+          This is a live on-chain organization you steward. Its public profile (mission, sector, members) isn&apos;t
+          set up yet — for now, manage its encrypted records in the <Link href="/vault">organization vault</Link>.
+        </p>
+        <Link href="/vault" className="btn btn-primary btn-sm">Open the organization vault</Link>
+      </div>
+    );
+  }
 
   const memberLookup = (id: string) => (id === PERSON.id ? PERSON : PEERS.find((p) => p.id === id));
   const fields = [
