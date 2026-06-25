@@ -1,7 +1,7 @@
 // ============================================================================
 // Seed data — a realistic faith-community trust graph for the redesigned UI.
 // Phase 1 renders entirely from this; ceremonies (sign / vault / pay) are stubbed
-// and wired to the live demo-a2a / demo-mcp backends in a later phase.
+// and wired to the live impact-a2a / impact-mcp backends in a later phase.
 // ============================================================================
 
 import type {
@@ -140,7 +140,7 @@ export const PERSON: Person = {
     { type: "person:entitlements", label: "Entitlements", class: "public", updatedAt: "2026-01-14", summary: "3 active credentials" },
     { type: "person:delegations", label: "Delegations", class: "restricted", updatedAt: "2025-11-20", summary: "2 given · 1 received" },
     { type: "person:stewardship", label: "Stewardship links", class: "restricted", updatedAt: "2025-09-02", summary: "Custodian of Cornerstone Fellowship" },
-    { type: "person:keys", label: "Vault key authorization", class: "restricted", updatedAt: "2025-09-02", summary: "KMS-wrapped DEK · demo-mcp bound" },
+    { type: "person:keys", label: "Vault key authorization", class: "restricted", updatedAt: "2025-09-02", summary: "KMS-wrapped DEK · impact-mcp bound" },
   ],
   attestations: [
     { id: "att:p1", by: "Cornerstone Fellowship", statement: "Recognized steward since 2025", at: "2025-09-02", confidence: 1.0 },

@@ -3,7 +3,7 @@
 //
 // SIWE is verified IN THIS FUNCTION (connect-auth ECDSA path). The EOA → SA
 // mapping is DETERMINISTIC (factory CREATE2 of `{ mode:0, custodians:[eoa],
-// salt:0 }` — the same spec demo-a2a's eoa deploy uses), so resolution is: derive
+// salt:0 }` — the same spec impact-a2a's eoa deploy uses), so resolution is: derive
 // the SA, then confirm on-chain (`isDeployed` + `isCustodian`). If it already
 // exists (possibly created via another demo) → RECONNECT (issue a custody-grade
 // session + record the facet). If not → bootstrap. This is one mechanism (derive +
@@ -98,7 +98,7 @@ export const onRequestPost = async ({ request, env }: FnContext): Promise<Respon
     const sub = toCanonicalAgentId(CHAIN_ID, sa);
     const { signer } = await getServer(env);
     // DEMO-ONLY (spec 247): the demo-jp operator agents (Pete/Jill) get a ~10-year
-    // session so their "Sign in at impact-agent.me" link from the demo dashboard is
+    // session so their "Sign in at churchcore.me" link from the demo dashboard is
     // always valid. This is a deliberate, scoped weakening of ONLY these two demo
     // person agents — NEVER do this for real users. See apps/demo-jp/docs/operator-recovery.md.
     const DEMO_LONG_LIVED_EOAS = new Set([

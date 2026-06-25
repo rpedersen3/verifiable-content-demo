@@ -2,7 +2,7 @@
   "name": "@verifiable-content-demo/impact",
   "version": "0.0.1",
   "private": true,
-  "description": "Impact — a faith-based home where people and organizations connect and manage their agents. Redesigned agent home modeled after agenticprimitives/demo-sso-next, with an agentic trust-graph. Talks to the live demo-a2a/demo-mcp deployments.",
+  "description": "Impact — a faith-based home where people and organizations connect and manage their agents. Redesigned agent home modeled after agenticprimitives/demo-sso-next, with an agentic trust-graph. Talks to the live impact-a2a/impact-mcp deployments.",
   "type": "module",
   "scripts": {
     "dev": "next dev --port 5374",

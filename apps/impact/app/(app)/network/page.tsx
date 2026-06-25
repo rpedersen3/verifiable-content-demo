@@ -65,7 +65,7 @@ export default function NetworkPage() {
       <SectionHead
         eyebrow="Live backend"
         title="Network"
-        sub="Impact reads live from the deployed agenticprimitives backend (demo-a2a / demo-mcp) through a same-origin proxy. Everything below is fetched on-chain in real time."
+        sub="Impact reads live from the deployed agenticprimitives backend (impact-a2a / impact-mcp) through a same-origin proxy. Everything below is fetched on-chain in real time."
       />
 
       {err && <div className="card card-pad chip-danger" style={{ marginBottom: "1.2rem" }}>Backend unreachable: {err}</div>}
@@ -78,11 +78,11 @@ export default function NetworkPage() {
 
       <SectionHead title="Services" />
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: "1.6rem" }}>
-        <ServiceCard label="demo-a2a" sub="relayer · custody bridge · vault proxy" ok={!!a2a?.ok} detail={a2a?.runtime} />
-        <ServiceCard label="demo-mcp" sub="vault · vault-key bind ceremony" ok={!!mcp?.ok} detail={mcp?.service} />
+        <ServiceCard label="impact-a2a" sub="relayer · custody bridge · vault proxy" ok={!!a2a?.ok} detail={a2a?.runtime} />
+        <ServiceCard label="impact-mcp" sub="vault · vault-key bind ceremony" ok={!!mcp?.ok} detail={mcp?.service} />
       </div>
 
-      <SectionHead title="On-chain contract registry" sub="Pulled live from demo-a2a /deployments. Click to open the block explorer." />
+      <SectionHead title="On-chain contract registry" sub="Pulled live from impact-a2a /deployments. Click to open the block explorer." />
       <div className="card" style={{ overflow: "hidden" }}>
         {registryRows.length === 0 && <div className="card-pad muted">Loading registry…</div>}
         {registryRows.map(([k, v], i) => (

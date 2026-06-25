@@ -1,4 +1,4 @@
-// demo-mcp's entitlement gate (spec 277 Phase 3).
+// impact-mcp's entitlement gate (spec 277 Phase 3).
 //
 // Sensitive reads resolve an entitlement BEFORE the vault decrypts any field, and
 // the decision's `allowedFields` scopes the projection. Demo policy (testnet grade):

@@ -1,4 +1,4 @@
-// demo-mcp's key-release gate (spec 277 Phase 4).
+// impact-mcp's key-release gate (spec 277 Phase 4).
 //
 // After the entitlement gate allows a read, the handler does NOT decrypt
 // directly — it requests a one-time DecryptGrant and runs it through the KAS.
@@ -69,7 +69,7 @@ export async function authorizeDecrypt(input: AuthorizeDecryptInput): Promise<Ke
     mcp: { resourceUri: input.audience, serverId: input.serverId, toolName: input.toolName, argsHash },
     authorization: { entitlementHashes },
     vault: {
-      vaultId: 'demo-mcp',
+      vaultId: 'impact-mcp',
       objectIds: [`${input.principal.toLowerCase()}:${input.resource}`],
       resource: input.resource,
       fields: input.allowedFields,

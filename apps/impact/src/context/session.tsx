@@ -4,7 +4,7 @@
 // Session + active-context.
 //
 // Connect is REAL now (spec parity with demo-sso-next): passkey and wallet/SIWE
-// run the actual WebAuthn / SIWE ceremony against the live demo-a2a relayer + the
+// run the actual WebAuthn / SIWE ceremony against the live impact-a2a relayer + the
 // ported broker routes (/connect/*, /me), producing a real Smart Agent + a signed
 // AgentSession. `identity` holds that real connected agent.
 //

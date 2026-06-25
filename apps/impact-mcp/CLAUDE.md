@@ -1,4 +1,4 @@
-# demo-mcp — Claude guide
+# impact-mcp — Claude guide
 
 ## What this app is
 
@@ -32,7 +32,7 @@ events while consuming `@agenticprimitives/mcp-runtime`, `delegation`,
 - Generic MCP middleware → `packages/mcp-runtime`.
 - Tool risk taxonomy → `packages/tool-policy`.
 - Audit schema/sinks → `packages/audit`.
-- A2A relayer/session routes → `apps/demo-a2a`.
+- A2A relayer/session routes → `apps/impact-a2a`.
 
 ## Read These First
 

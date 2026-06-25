@@ -1,13 +1,13 @@
 // A2A-by-subdomain host context (spec 231; pattern ported from agentic-trust
-// `apps/atp-agent/src/worker.ts`). A request to `<handle>.impact-agent.io`
+// `apps/atp-agent/src/worker.ts`). A request to `<handle>.churchcore.me`
 // identifies an A2A request for the agent named `<handle>.demo.agent`. The
 // personal subdomain is the agent's single canonical endpoint — humans get the
 // Connect SSO home, machines get this A2A endpoint.
 //
 // In production the subdomain origin is served by demo-sso (Pages), which owns
-// the `*.impact-agent.io` custom domain and proxies the A2A paths here while
+// the `*.churchcore.me` custom domain and proxies the A2A paths here while
 // injecting `X-Agent-Subdomain` (the resolved label) + `X-Public-Origin` (the
-// public `https://<handle>.impact-agent.io`). For direct workers.dev / local
+// public `https://<handle>.churchcore.me`). For direct workers.dev / local
 // access we parse the Host header ourselves.
 
 import { AgentNamingClient } from '@agenticprimitives/agent-naming';
@@ -19,12 +19,12 @@ import type { Address } from '@agenticprimitives/types';
 export const AGENT_NAME_PARENT = 'impact';
 
 /** The public registrable base domain for personal endpoints. */
-export const DEFAULT_PUBLIC_BASE_DOMAIN = 'impact-agent.io';
+export const DEFAULT_PUBLIC_BASE_DOMAIN = 'churchcore.me';
 
 /**
  * Extract a single-label subdomain from a hostname given the base domain.
- * `alice.impact-agent.io` + `impact-agent.io` → `alice`. The apex, nested
- * labels (`a.b.impact-agent.io`), and non-matching hosts → `null`.
+ * `alice.churchcore.me` + `churchcore.me` → `alice`. The apex, nested
+ * labels (`a.b.churchcore.me`), and non-matching hosts → `null`.
  */
 export function parseAgentSubdomain(hostname: string | undefined, baseDomain: string): string | null {
   if (!hostname) return null;
@@ -49,7 +49,7 @@ export interface AgentHostContext {
   agent: Address | null;
   /** The `.agent` name, or null on the apex. */
   name: string | null;
-  /** Public endpoint origin (`https://alice.impact-agent.io`). */
+  /** Public endpoint origin (`https://alice.churchcore.me`). */
   publicOrigin: string;
 }
 

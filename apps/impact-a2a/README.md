@@ -1,4 +1,4 @@
-# demo-a2a
+# impact-a2a
 
 **The agent boundary: where a browser session becomes bounded machine authority.**
 
@@ -14,7 +14,7 @@ Concretely, this Worker:
 - **Relays on-chain actions** — builds and submits Smart Agent deploys, batched executes, and paymaster-sponsored UserOps so demo users never need gas.
 - **Holds session state in a Durable Object** — per-user sessions live in `SessionStoreDO`; signing keys are handled through the KMS abstraction, not ambient environment access.
 - **Mints `DelegationToken` envelopes** — the bridge from a user-signed EIP-712 delegation to a bounded, JTI-tracked token a downstream MCP server can verify independently.
-- **Proxies MCP vault and tool calls** — the same Worker fronts [`demo-mcp`](../demo-mcp) for the browser apps, so every tool call arrives delegation-first.
+- **Proxies MCP vault and tool calls** — the same Worker fronts [`impact-mcp`](../impact-mcp) for the browser apps, so every tool call arrives delegation-first.
 
 Every browser demo in this repo — [`demo-web`](../demo-web), [`demo-web-pro`](../demo-web-pro), [`demo-sso`](../demo-sso), [`demo-org`](../demo-org), [`demo-gs`](../demo-gs) — routes its `/a2a/*` traffic here. One boundary, one authority model.
 
@@ -44,4 +44,4 @@ Local secrets and contract addresses come from `.dev.vars` (wrangler convention)
 
 Reference implementation, not a product. Runs live against Base Sepolia (chain 84532) and local Anvil. The relayer and demo session secrets are development-grade by design — production custody is the job of [`key-custody`](../../packages/key-custody)'s KMS backends. Production launch of the substrate is gated on the public checklist in the [root README](../../README.md); findings are tracked live in [`docs/audits/findings.yaml`](../../docs/audits/findings.yaml).
 
-Validate: `pnpm check:demo-a2a`.
+Validate: `pnpm check:impact-a2a`.

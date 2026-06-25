@@ -63,7 +63,7 @@ export default function YouPage() {
 
       <p className="faint" style={{ fontSize: ".78rem", marginTop: "1rem" }}>
         This profile lives in your vault as <code className="mono">person:pii</code>, encrypted at rest.
-        Editing & the live vault write ceremony wire to demo-mcp in a later phase.
+        Editing & the live vault write ceremony wire to impact-mcp in a later phase.
       </p>
     </>
   );

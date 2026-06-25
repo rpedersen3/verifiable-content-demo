@@ -1,5 +1,5 @@
 /**
- * Shared input validators for every demo-a2a route (audit P1-3).
+ * Shared input validators for every impact-a2a route (audit P1-3).
  *
  * Routes used to call `BigInt(body.salt)` and `body.owner as Address`
  * directly on attacker-controlled JSON. That gave us:

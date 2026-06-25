@@ -1,10 +1,10 @@
-// demo-mcp's OAuth ingress shell (spec 277 Phase 6 / §6–§8, §15).
+// impact-mcp's OAuth ingress shell (spec 277 Phase 6 / §6–§8, §15).
 //
 // This is the APP-side authorization-server + JWT glue that
 // `@agenticprimitives/mcp-oauth` deliberately does NOT own (the package is the
 // transport-agnostic compat bridge; signature verification + the encrypted
 // bundle store are app-supplied). It provides exactly enough to let a public
-// HTTP MCP client talk to demo-mcp:
+// HTTP MCP client talk to impact-mcp:
 //
 //   1. A demo authorization endpoint (`mintDemoMcpToken`) that synthesizes an
 //      Agentic Grant Bundle, DOGFOODS the vault to store it encrypted, and mints
@@ -181,14 +181,14 @@ export async function mintDemoMcpToken(env: OAuthEnv, input: MintDemoTokenInput)
   const issuedAt = now.toISOString();
   const expiresAt = new Date(exp * 1000).toISOString();
   const scopes = input.scopes ?? DEFAULT_SCOPES;
-  const clientId = input.clientId ?? 'demo-mcp-client';
+  const clientId = input.clientId ?? 'impact-mcp-client';
 
   const id = `urn:ap:mcp-grant:${globalThis.crypto.randomUUID()}` as const;
   const bundle = await createMcpGrantBundle({
     id,
     oauth: { issuer: input.issuer, clientId, subject: input.principal, audience: input.audience, scopes },
     principal: { id: input.principal },
-    mcp: { resourceUri: input.audience, serverId: 'demo-mcp' },
+    mcp: { resourceUri: input.audience, serverId: 'impact-mcp' },
     delegation: {
       // Illustrative demo hashes — the real authority chain re-runs server-side
       // off `ap_principal` in /mcp (owner-reads-own via the entitlement resolver).

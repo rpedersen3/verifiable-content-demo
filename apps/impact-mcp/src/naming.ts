@@ -1,5 +1,5 @@
 /**
- * Server-side `.agent` name resolution for demo-mcp.
+ * Server-side `.agent` name resolution for impact-mcp.
  *
  * Same principle as the browser demos: ONE `reverseResolveString` view
  * call via the package client — no `eth_getLogs` walk, no fallback to a

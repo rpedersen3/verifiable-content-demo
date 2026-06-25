@@ -21,7 +21,7 @@ agenticprimitives `demo-sso-next/OIDC-SETUP.md` is the same flow but for Cloudfl
 create one. On that client set:
 
 - **Authorized JavaScript origins:** your impact origin, e.g. `https://www.churchcore.me`
-  (and `https://impact-agent.me` if you serve there too).
+  (and `https://churchcore.me` if you serve there too).
 - **Authorized redirect URIs (must EXACTLY match `GOOGLE_REDIRECT_URI`):**
   `https://<your-impact-origin>/oidc/google/callback`
   — e.g. `https://www.churchcore.me/oidc/google/callback`. One entry **per origin** you sign in on.

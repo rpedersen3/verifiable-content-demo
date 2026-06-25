@@ -77,7 +77,7 @@ export async function recordOidcFacet(
 }
 
 /** Read the per-(iss,sub) Google × KMS custody rotation (spec 235 §5b). Default 0 — the first
- *  home. The custody gate derives `C_sub(iss,sub,rotation)`, so the broker + demo-a2a must agree. */
+ *  home. The custody gate derives `C_sub(iss,sub,rotation)`, so the broker + impact-a2a must agree. */
 export async function readRotation(kv: KvLike, iss: string, sub: string): Promise<number> {
   const raw = await kv.get(rotationKey(iss, sub));
   const n = raw ? Number.parseInt(raw, 10) : 0;

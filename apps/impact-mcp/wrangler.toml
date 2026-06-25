@@ -1,4 +1,4 @@
-# Cloudflare Worker config for impact-mcp (identical to agenticprimitives demo-mcp).
+# Cloudflare Worker config for impact-mcp (identical to agenticprimitives impact-mcp).
 #
 # Local dev:  wrangler dev (uses local D1 SQLite at .wrangler/state-impact-mcp/v3/d1/)
 # Production: wrangler deploy + wrangler d1 migrations apply impact-mcp
@@ -50,7 +50,7 @@ DEMO_VAULT_PROVISION_ENABLED = "true"
 # ──────────────────────────────────────────────────────────────────────────
 
 [env.production.vars]
-# RPC_URL intentionally omitted — see apps/demo-a2a/wrangler.toml for
+# RPC_URL intentionally omitted — see apps/impact-a2a/wrangler.toml for
 # the rationale. Set as a wrangler secret instead.
 CHAIN_ID = "84532"
 MCP_AUDIENCE = "urn:mcp:server:person"

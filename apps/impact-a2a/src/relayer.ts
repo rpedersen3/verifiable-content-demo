@@ -66,7 +66,7 @@ export interface RelayerEnv {
 /**
  * Default per-tx cap for the paymaster top-up signer when
  * `PAYMASTER_TOPUP_CAP_WEI` is unset. 0.002 ETH matches the
- * existing demo-a2a per-call cap and the route's documented
+ * existing impact-a2a per-call cap and the route's documented
  * "topup ≤ 0.002 ETH" promise. Override via env when running on a
  * higher-traffic deployment.
  */

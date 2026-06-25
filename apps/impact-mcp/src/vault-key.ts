@@ -1,4 +1,4 @@
-// demo-mcp per-person vault key resolution + authorization (spec 278 P4).
+// impact-mcp per-person vault key resolution + authorization (spec 278 P4).
 //
 // Composes the spec-278 primitives end-to-end with NO global key for person data
 // (VKB-D1) and NO fallbacks: every vault operation resolves the owner's
@@ -34,7 +34,7 @@ import { createDemoVault } from './vault.js';
 import { getVaultKeyBindingRow, putVaultKeyBindingRow, type VaultKeyBindingRow } from './db.js';
 
 /** The host id a person SA authorizes in its VaultKeyBinding. */
-export const VAULT_SERVER_ID = 'demo-mcp';
+export const VAULT_SERVER_ID = 'impact-mcp';
 
 export interface VaultKeyEnv {
   DB: D1Database;

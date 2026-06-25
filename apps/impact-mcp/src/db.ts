@@ -24,7 +24,7 @@ export function buildSeedProfile(owner: string): Profile {
     full_name: `Demo User (${owner.slice(0, 6)}…${owner.slice(-4)})`,
     email: `${owner.slice(2, 10)}@demo.agenticprimitives.local`,
     phone: '+1-555-0100',
-    notes: 'Seeded by demo-mcp.',
+    notes: 'Seeded by impact-mcp.',
     updated_at: new Date().toISOString(),
   };
 }
@@ -148,7 +148,7 @@ export function buildSeedPii(subject: string): PersonPii {
     dob: '1985-06-15',
     ssn_last4: subject.slice(-4),
     postal_address: '1 Demo Way, Springfield, IL 62701',
-    notes: 'Seeded by demo-mcp.',
+    notes: 'Seeded by impact-mcp.',
     updated_at: new Date().toISOString(),
   };
 }
@@ -163,7 +163,7 @@ export function buildSeedOrgSensitive(orgAddress: string): OrgSensitive {
     active_contracts: 14,
     pending_litigation: 0,
     primary_banking: 'Chase Business · acct ****8821',
-    notes: 'Seeded by demo-mcp.',
+    notes: 'Seeded by impact-mcp.',
     updated_at: new Date().toISOString(),
   };
 }

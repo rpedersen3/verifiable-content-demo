@@ -1,4 +1,4 @@
-# demo-a2a — Claude guide
+# impact-a2a — Claude guide
 
 ## What this app is
 
@@ -17,7 +17,7 @@ proxies selected MCP requests during local demos.
 
 - Package delegation semantics → `packages/delegation`.
 - MCP middleware primitives → `packages/mcp-runtime`.
-- MCP tool implementation → `apps/demo-mcp`.
+- MCP tool implementation → `apps/impact-mcp`.
 - Browser UX → `apps/demo-web*`.
 - Contract source → `packages/contracts`.
 
@@ -26,7 +26,7 @@ proxies selected MCP requests during local demos.
 1. `package.json` — Worker scripts.
 2. `src/index.ts` — route map and app wiring.
 3. `src/validate.ts` — request validation.
-4. `../demo-mcp/CLAUDE.md` when changing MCP proxy behavior.
+4. `../impact-mcp/CLAUDE.md` when changing MCP proxy behavior.
 
 ## Validate
 

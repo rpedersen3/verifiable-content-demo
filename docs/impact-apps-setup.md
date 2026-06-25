@@ -9,8 +9,8 @@ The three apps:
 | App | Runtime | Role |
 |-----|---------|------|
 | **impact** | Next.js (Vercel) | The browser **home** + auth **broker**. Passkey/SIWE/social sign-in, mints `AgentSession` JWTs, proxies `/a2a/*` and `/mcp-bind/*` to the workers. |
-| **impact-a2a** | Cloudflare Worker + Durable Objects | A2A boundary: SIWE/passkey verify, **relayer** (gasless Smart-Account deploys + UserOps), delegation-token minting, custody bridge. A byte-faithful copy of `agenticprimitives/apps/demo-a2a`. |
-| **impact-mcp** | Cloudflare Worker + D1 | MCP server: delegation-verified tools, OAuth ingress, per-person **vault** (KMS-keyed). A byte-faithful copy of `agenticprimitives/apps/demo-mcp`. |
+| **impact-a2a** | Cloudflare Worker + Durable Objects | A2A boundary: SIWE/passkey verify, **relayer** (gasless Smart-Account deploys + UserOps), delegation-token minting, custody bridge. A byte-faithful copy of `agenticprimitives/apps/impact-a2a`. |
+| **impact-mcp** | Cloudflare Worker + D1 | MCP server: delegation-verified tools, OAuth ingress, per-person **vault** (KMS-keyed). A byte-faithful copy of `agenticprimitives/apps/impact-mcp`. |
 
 ```
  browser ──▶ impact (Next.js/Vercel)
@@ -88,9 +88,9 @@ complete the workspace.
 
 ---
 
-## 2. Create impact-mcp (copy of demo-mcp)
+## 2. Create impact-mcp (copy of impact-mcp)
 
-Copy `agenticprimitives/apps/demo-mcp` → `apps/impact-mcp` (src + `migrations/` + `tsconfig.json`;
+Copy `agenticprimitives/apps/impact-mcp` → `apps/impact-mcp` (src + `migrations/` + `tsconfig.json`;
 **skip** `node_modules`, `.wrangler`, `.dev.vars`, `*.db`). The `src/` stays identical; change only:
 
 - **`package.json`**: `name` → `@<your-scope>/impact-mcp`; `workspace:*` deps → the published
@@ -105,15 +105,15 @@ Copy `agenticprimitives/apps/demo-mcp` → `apps/impact-mcp` (src + `migrations/
 
 ---
 
-## 3. Create impact-a2a (copy of demo-a2a)
+## 3. Create impact-a2a (copy of impact-a2a)
 
-Copy `agenticprimitives/apps/demo-a2a` → `apps/impact-a2a` (same exclusions). Change only:
+Copy `agenticprimitives/apps/impact-a2a` → `apps/impact-a2a` (same exclusions). Change only:
 
 - **`package.json`**: `name` → `@<your-scope>/impact-a2a`; deps → published versions; unique dev port.
 - **`wrangler.toml`**:
   - `name = "impact-a2a"`
-  - **Drop demo-a2a's `routes = ["*.<domain>/*"]`** unless you own that zone — the demo's route is
-    already claimed by `demo-a2a-production`. impact reaches the worker via its `workers.dev` URL
+  - **Drop impact-a2a's `routes = ["*.<domain>/*"]`** unless you own that zone — the demo's route is
+    already claimed by `impact-a2a-production`. impact reaches the worker via its `workers.dev` URL
     (the Next app's `/a2a/*` rewrite). Keep `workers_dev = true`.
   - `[[env.production.kv_namespaces]]` `BRIDGE_NONCES` + `FED_TOKENS`: ids from §4.
   - `[[env.production.services]]` `binding = "MCP"`, `service = "impact-mcp-production"`.

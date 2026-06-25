@@ -1,5 +1,5 @@
 // Real connect — passkey (WebAuthn) + SIWE (wallet) sign-in/bootstrap against the
-// live demo-a2a relayer + the ported broker routes (/connect/*, /me). Ported from
+// live impact-a2a relayer + the ported broker routes (/connect/*, /me). Ported from
 // agenticprimitives/demo-sso-next/src/connect-client.ts, trimmed to the sign-in
 // substrate (no org/delegation/treasury/payment surface). Social (Google/YouVersion)
 // is wired separately and needs the custody-bridge env.
@@ -89,7 +89,7 @@ function agentAccountClient(): AgentAccountClient {
 
 /** sha256(hostname) — must match the rpIdHash the server bakes into the passkey-SA CREATE2 salt. */
 async function derivePasskeyRpIdHash(): Promise<Hex> {
-  const hostname = typeof window !== "undefined" ? window.location.hostname : "impact-agent.me";
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "www.churchcore.me";
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(hostname));
   const arr = Array.from(new Uint8Array(buf));
   return ("0x" + arr.map((b) => b.toString(16).padStart(2, "0")).join("")) as Hex;

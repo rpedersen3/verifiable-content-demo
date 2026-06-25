@@ -1,7 +1,7 @@
-// demo-mcp as a Cloudflare Worker with D1.
+// impact-mcp as a Cloudflare Worker with D1.
 //
 // Local dev:  wrangler dev (port 8788; uses local D1 SQLite)
-// Production: wrangler deploy + wrangler d1 migrations apply demo-mcp
+// Production: wrangler deploy + wrangler d1 migrations apply impact-mcp
 
 import { Hono } from 'hono';
 import {
@@ -86,7 +86,7 @@ function buildAuditSink(env: Env): AuditSink {
 /**
  * Extract the request's correlation ID for audit-trail stitching.
  *
- * Prefers `X-Correlation-Id` from the upstream caller (demo-a2a sets this
+ * Prefers `X-Correlation-Id` from the upstream caller (impact-a2a sets this
  * per the pass-5b wiring so a single user action correlates across both
  * workers). Falls back to Cloudflare's `cf-ray` for external clients that
  * don't set the header — but worker-to-worker service-binding fetches
@@ -101,7 +101,7 @@ function getCorrelationId(c: { req: { header: (k: string) => string | undefined 
 // Unlike buildAuditSink (fail-soft telemetry), this composes the durable D1 sink
 // fail-HARD: if the commit can't persist, the write throws and the caller fails
 // closed (no decrypt, no data). PII guardrail still redacts — events carry only
-// ids/refs/field-names, never raw PII (spec §16). Action vocabulary is demo-mcp's
+// ids/refs/field-names, never raw PII (spec §16). Action vocabulary is impact-mcp's
 // own (documented in docs/audit/guide.md): key_release.approved, vault.object.decrypted.
 function requiredAuditSink(env: Env): AuditSink {
   return composeFailHardSinks(createPiiGuardrailSink(createD1AuditSink(env.DB), { mode: 'redact' }));
@@ -136,7 +136,7 @@ async function recordRequiredRelease(
     );
     return true;
   } catch (e) {
-    console.error('[demo-mcp] required audit failed — failing closed (no decrypt):', e instanceof Error ? e.message : String(e));
+    console.error('[impact-mcp] required audit failed — failing closed (no decrypt):', e instanceof Error ? e.message : String(e));
     return false;
   }
 }
@@ -265,7 +265,7 @@ export interface Env {
   UNIVERSAL_SIGNATURE_VALIDATOR?: string;
   /**
    * Shared HMAC secret for service-mac verification (audit C1).
-   * Same value as demo-a2a's A2A_MAC_SECRET. When unset, the
+   * Same value as impact-a2a's A2A_MAC_SECRET. When unset, the
    * service-mac middleware fails closed in production
    * (NODE_ENV === 'production') and bypasses with a loud warning in
    * dev for ergonomic local hacking. Production preflight enforces
@@ -345,7 +345,7 @@ function baseConfig(env: Env): McpResourceVerifyConfig {
 }
 
 // DEL-001 (spec 270 v4) — the verify config for a vault call, ENFORCING the session-key↔delegator
-// binding when the request is client-minted. demo-a2a sets `enforceBinding` ONLY on the forwarded
+// binding when the request is client-minted. impact-a2a sets `enforceBinding` ONLY on the forwarded
 // client-mint path (per-source binding); the persona/admin path leaves it false, so those tokens
 // (no leaf) keep verifying under the legacy config. The signal rides the service-MAC-authenticated
 // body, so it's unforgeable. When enforcing, we ALSO switch to the UniversalSignatureValidator so the
@@ -379,7 +379,7 @@ interface Variables {
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.get('/health', (c) =>
-  c.json({ ok: true, service: 'demo-mcp', runtime: 'cloudflare-workers' }),
+  c.json({ ok: true, service: 'impact-mcp', runtime: 'cloudflare-workers' }),
 );
 
 // ─── Service-MAC verification middleware (audit C1) ───────────────────
@@ -421,7 +421,7 @@ app.use('/tools/*', async (c, next) => {
   }
   if (!c.env.A2A_MAC_SECRET) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('[demo-mcp] A2A_MAC_SECRET is not set in production — fail-closed');
+      console.error('[impact-mcp] A2A_MAC_SECRET is not set in production — fail-closed');
       await auditSink
         .write(
           buildEvent({
@@ -435,11 +435,11 @@ app.use('/tools/*', async (c, next) => {
         .catch(() => {});
       return c.json({ error: 'service-mac unavailable' }, 401);
     }
-    console.warn('[demo-mcp] A2A_MAC_SECRET unset — dev bypass; production would 401');
+    console.warn('[impact-mcp] A2A_MAC_SECRET unset — dev bypass; production would 401');
     return next();
   }
   // Buffer the body once: the MAC verifier needs the EXACT wire bytes
-  // (so the sha256 matches what demo-a2a computed), and Hono's body
+  // (so the sha256 matches what impact-a2a computed), and Hono's body
   // stream is single-read. We stash the parsed object on the context
   // so the route handler reads it from there rather than re-consuming
   // the body.
@@ -463,7 +463,7 @@ app.use('/tools/*', async (c, next) => {
     correlationId: getCorrelationId(c),
   });
   if (!result.ok) {
-    console.error(`[demo-mcp] service-mac rejected:`, result.reason);
+    console.error(`[impact-mcp] service-mac rejected:`, result.reason);
     return c.json({ error: 'service-mac rejected' }, 401);
   }
   // Parse + stash for the route handler.
@@ -504,7 +504,7 @@ app.post('/tools/get_profile', async (c) => {
       // Profile lives in the encrypted vault (resource `profile`, pii.low). spec 278:
       // gated on the person's vault-key binding + authorization — no binding ⇒ fail closed.
       const gate = await authorizePersonVaultOp(c.env, principal, RESOURCE_PROFILE, 'read', 'pii.low');
-      if (!gate.ok) return { ok: false, error: gate.error, served_by: 'demo-mcp:get_profile' };
+      if (!gate.ok) return { ok: false, error: gate.error, served_by: 'impact-mcp:get_profile' };
       const obj = await gate.pv.vault.read<Profile>({ owner: principal, resource: RESOURCE_PROFILE });
       // Label the owner with its `.agent` name (single-call resolve).
       const owner_name = await resolveAgentName(c.env, principal);
@@ -527,7 +527,7 @@ app.post('/tools/get_profile', async (c) => {
     const result = await handler({ token: body.token, args: body.args ?? {} });
     return c.json(result as Record<string, unknown>);
   } catch (e) {
-    if (e instanceof McpAuthError) { console.error('[demo-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
     return c.json({ error: 'internal error', detail: String(e) }, 500);
   }
 });
@@ -561,10 +561,10 @@ app.post('/tools/get_pii', async (c) => {
       const r = await readSensitive(
         c.env,
         { principal, args, correlationId: getCorrelationId(c), audience: c.env.MCP_AUDIENCE },
-        { resource: RESOURCE_PERSON_PII, classification: 'pii.sensitive', toolName: 'get_pii', servedBy: 'demo-mcp:get_pii' },
+        { resource: RESOURCE_PERSON_PII, classification: 'pii.sensitive', toolName: 'get_pii', servedBy: 'impact-mcp:get_pii' },
       );
       if (!r.ok) return r;
-      return { ok: true, subject: principal, subject_name: r.subject_name, record: r.record, served_by: 'demo-mcp:get_pii' };
+      return { ok: true, subject: principal, subject_name: r.subject_name, record: r.record, served_by: 'impact-mcp:get_pii' };
     },
     {
       toolName: 'get_pii',
@@ -582,7 +582,7 @@ app.post('/tools/get_pii', async (c) => {
     const result = await handler({ token: body.token, args: body.args ?? {} });
     return c.json(result as Record<string, unknown>);
   } catch (e) {
-    if (e instanceof McpAuthError) { console.error('[demo-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
     return c.json({ error: 'internal error', detail: String(e) }, 500);
   }
 });
@@ -615,10 +615,10 @@ app.post('/tools/get_org_sensitive', async (c) => {
       const r = await readSensitive(
         c.env,
         { principal, args, correlationId: getCorrelationId(c), audience: c.env.MCP_AUDIENCE },
-        { resource: RESOURCE_ORG_SENSITIVE, classification: 'regulated.high', toolName: 'get_org_sensitive', servedBy: 'demo-mcp:get_org_sensitive' },
+        { resource: RESOURCE_ORG_SENSITIVE, classification: 'regulated.high', toolName: 'get_org_sensitive', servedBy: 'impact-mcp:get_org_sensitive' },
       );
       if (!r.ok) return r;
-      return { ok: true, org: principal, org_name: r.subject_name, record: r.record, served_by: 'demo-mcp:get_org_sensitive' };
+      return { ok: true, org: principal, org_name: r.subject_name, record: r.record, served_by: 'impact-mcp:get_org_sensitive' };
     },
     {
       toolName: 'get_org_sensitive',
@@ -636,7 +636,7 @@ app.post('/tools/get_org_sensitive', async (c) => {
     const result = await handler({ token: body.token, args: body.args ?? {} });
     return c.json(result as Record<string, unknown>);
   } catch (e) {
-    if (e instanceof McpAuthError) { console.error('[demo-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
     return c.json({ error: 'internal error', detail: String(e) }, 500);
   }
 });
@@ -671,9 +671,9 @@ app.post('/tools/get_vault_record', async (c) => {
         if (!recordType) return { ok: false, error: 'recordType required' };
         const resource = `${VAULT_RECORD_PREFIX}${recordType}`;
         const gate = await authorizePersonVaultOp(c.env, principal, resource, 'read', 'internal');
-        if (!gate.ok) return { ok: false, error: gate.error, served_by: 'demo-mcp:get_vault_record' };
+        if (!gate.ok) return { ok: false, error: gate.error, served_by: 'impact-mcp:get_vault_record' };
         const obj = await gate.pv.vault.read({ owner: principal, resource });
-        return { ok: true, owner: principal, recordType, data: obj?.data ?? null, served_by: 'demo-mcp:get_vault_record' };
+        return { ok: true, owner: principal, recordType, data: obj?.data ?? null, served_by: 'impact-mcp:get_vault_record' };
       },
       {
         toolName: 'get_vault_record',
@@ -688,7 +688,7 @@ app.post('/tools/get_vault_record', async (c) => {
     const result = await handler({ token: body.token, args: body.args ?? {} });
     return c.json(result as Record<string, unknown>);
   } catch (e) {
-    if (e instanceof McpAuthError) { console.error('[demo-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
     return c.json({ error: 'internal error', detail: String(e) }, 500);
   }
 });
@@ -714,10 +714,10 @@ app.post('/tools/set_vault_record', async (c) => {
         const resource = `${VAULT_RECORD_PREFIX}${recordType}`;
         // spec 278 write gate: sealing requires op:'write' on the person's vault-key authorization.
         const gate = await authorizePersonVaultOp(c.env, principal, resource, 'write', 'internal');
-        if (!gate.ok) return { ok: false, error: gate.error, served_by: 'demo-mcp:set_vault_record' };
+        if (!gate.ok) return { ok: false, error: gate.error, served_by: 'impact-mcp:set_vault_record' };
         // `data === null` is a soft-delete (tombstone) by contract.
         await gate.pv.vault.write({ owner: principal, resource, data: args?.data ?? null });
-        return { ok: true, owner: principal, recordType, served_by: 'demo-mcp:set_vault_record' };
+        return { ok: true, owner: principal, recordType, served_by: 'impact-mcp:set_vault_record' };
       },
       {
         toolName: 'set_vault_record',
@@ -732,7 +732,7 @@ app.post('/tools/set_vault_record', async (c) => {
     const result = await handler({ token: body.token, args: body.args ?? {} });
     return c.json(result as Record<string, unknown>);
   } catch (e) {
-    if (e instanceof McpAuthError) { console.error('[demo-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
     return c.json({ error: 'internal error', detail: String(e) }, 500);
   }
 });
@@ -756,13 +756,13 @@ app.post('/tools/list_vault_record', async (c) => {
         // spec 278: listing the owner's own records still requires the vault-key binding
         // (the listing comes from the per-person-KEK vault). `vault:` prefix → 'internal'.
         const gate = await authorizePersonVaultOp(c.env, principal, VAULT_RECORD_PREFIX, 'read', 'internal');
-        if (!gate.ok) return { ok: false, error: gate.error, served_by: 'demo-mcp:list_vault_record' };
+        if (!gate.ok) return { ok: false, error: gate.error, served_by: 'impact-mcp:list_vault_record' };
         // Map the vault refs back to the established { record_type, updated_at } shape.
         const refs = await gate.pv.vault.list(principal);
         const records = refs
           .filter((r) => r.resource.startsWith(VAULT_RECORD_PREFIX))
           .map((r) => ({ record_type: r.resource.slice(VAULT_RECORD_PREFIX.length), updated_at: r.updatedAt }));
-        return { ok: true, owner: principal, records, served_by: 'demo-mcp:list_vault_record' };
+        return { ok: true, owner: principal, records, served_by: 'impact-mcp:list_vault_record' };
       },
       {
         toolName: 'list_vault_record',
@@ -777,7 +777,7 @@ app.post('/tools/list_vault_record', async (c) => {
     const result = await handler({ token: body.token, args: body.args ?? {} });
     return c.json(result as Record<string, unknown>);
   } catch (e) {
-    if (e instanceof McpAuthError) { console.error('[demo-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
+    if (e instanceof McpAuthError) { console.error('[impact-mcp] McpAuthError:', e.message, e.code, (e as any).reason, e.stack); return c.json({ error: 'auth failed', detail: e.message, code: e.code }, 401); }
     return c.json({ error: 'internal error', detail: String(e) }, 500);
   }
 });
@@ -799,8 +799,8 @@ app.post('/tools/list_vault_record', async (c) => {
 // service-MAC routes). Field authority is NOT in scopes — it lives in the
 // entitlement/grant bundle (spec 277 §6.2).
 const OAUTH_TOOL_SPECS: Record<string, SensitiveReadSpec> = {
-  get_pii: { resource: RESOURCE_PERSON_PII, classification: 'pii.sensitive', toolName: 'get_pii', servedBy: 'demo-mcp:get_pii' },
-  get_org_sensitive: { resource: RESOURCE_ORG_SENSITIVE, classification: 'regulated.high', toolName: 'get_org_sensitive', servedBy: 'demo-mcp:get_org_sensitive' },
+  get_pii: { resource: RESOURCE_PERSON_PII, classification: 'pii.sensitive', toolName: 'get_pii', servedBy: 'impact-mcp:get_pii' },
+  get_org_sensitive: { resource: RESOURCE_ORG_SENSITIVE, classification: 'regulated.high', toolName: 'get_org_sensitive', servedBy: 'impact-mcp:get_org_sensitive' },
 };
 
 // CORS for the OAuth ingress — public HTTP MCP clients (incl. browsers, e.g.
@@ -934,7 +934,7 @@ app.get('/custody/vault-key/server-info', (c) =>
 // POST /custody/vault-key/provision { owner } — provision (idempotent) the owner's per-person
 // symmetric KEK in GCP Cloud KMS and return its resource name (the kmsKeyRef the ceremony binds).
 // Per-SA key id ⇒ re-calling is a no-op (409 → skip). project_id + runtime SA come from the same
-// GCP_SERVICE_ACCOUNT_JSON demo-mcp wields KEKs with (it holds roles/cloudkms.admin); location +
+// GCP_SERVICE_ACCOUNT_JSON impact-mcp wields KEKs with (it holds roles/cloudkms.admin); location +
 // key ring are config (GCP_KEK_LOCATION / GCP_KEK_KEYRING).
 //
 // FAIL-CLOSED behind DEMO_VAULT_PROVISION_ENABLED (mirrors DEMO_OAUTH_MINT_ENABLED): this endpoint
@@ -1060,14 +1060,14 @@ app.post('/mcp', async (c) => {
     if (tool === 'set_impact_profile') {
       const data = (body.args as { data?: unknown } | undefined)?.data ?? null;
       const gate = await authorizePersonVaultOp(c.env, principal, resource, 'write', 'internal');
-      if (!gate.ok) return c.json({ ok: false, error: gate.error, served_by: 'demo-mcp:set_impact_profile' });
+      if (!gate.ok) return c.json({ ok: false, error: gate.error, served_by: 'impact-mcp:set_impact_profile' });
       await gate.pv.vault.write({ owner: principal, resource, data });
-      return c.json({ ok: true, tool, principal, served_by: 'demo-mcp:set_impact_profile' });
+      return c.json({ ok: true, tool, principal, served_by: 'impact-mcp:set_impact_profile' });
     }
     const gate = await authorizePersonVaultOp(c.env, principal, resource, 'read', 'pii.low');
-    if (!gate.ok) return c.json({ ok: false, error: gate.error, served_by: 'demo-mcp:get_impact_profile' });
+    if (!gate.ok) return c.json({ ok: false, error: gate.error, served_by: 'impact-mcp:get_impact_profile' });
     const obj = await gate.pv.vault.read({ owner: principal, resource });
-    return c.json({ ok: true, tool, principal, record: obj?.data ?? null, served_by: 'demo-mcp:get_impact_profile' });
+    return c.json({ ok: true, tool, principal, record: obj?.data ?? null, served_by: 'impact-mcp:get_impact_profile' });
   }
 
   const spec = OAUTH_TOOL_SPECS[tool];

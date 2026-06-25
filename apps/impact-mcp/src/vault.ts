@@ -1,4 +1,4 @@
-// demo-mcp's encrypted Vault adapter (spec 277 Phase 2; per-person keying spec 278 P4).
+// impact-mcp's encrypted Vault adapter (spec 277 Phase 2; per-person keying spec 278 P4).
 //
 // Implements the `@agenticprimitives/vault` `Vault` interface with envelope
 // encryption: payloads are AES-256-GCM sealed (sealEnvelope) under a per-object

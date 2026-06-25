@@ -1,4 +1,4 @@
-// HMAC envelope for the demo-sso-next ↔ demo-a2a custody bridge (SEC-010).
+// HMAC envelope for the demo-sso-next ↔ impact-a2a custody bridge (SEC-010).
 //
 // Replaces `Authorization: Bearer ${A2A_CUSTODY_BRIDGE_SECRET}` with a per-call
 // signed envelope:

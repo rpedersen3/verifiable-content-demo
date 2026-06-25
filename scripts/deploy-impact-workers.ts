@@ -2,7 +2,7 @@
  * deploy-impact-workers.ts
  *
  * One-shot deploy of impact's OWN backend Workers (apps/impact-mcp + apps/impact-a2a —
- * copies of agenticprimitives demo-mcp/demo-a2a) to Cloudflare. This MIRRORS steps 1-5 of
+ * copies of agenticprimitives impact-mcp/impact-a2a) to Cloudflare. This MIRRORS steps 1-5 of
  * agenticprimitives' scripts/deploy-cloudflare.ts, trimmed to the two Workers (impact's
  * frontend is the Next.js app on Vercel, not a Cloudflare Pages project).
  *
@@ -28,8 +28,8 @@
  * Override via env:
  *   DEPLOY_NETWORK=base-sepolia              (only base-sepolia is wired today)
  *   IMPACT_ALLOWED_ORIGINS=https://a,https://b   (browser origins cleared for CORS/CSRF)
- *   IMPACT_BROKER_ORIGIN=https://www.impact-agent.me   (custody-gate iss; social sign-in)
- *   IMPACT_A2A_PUBLIC_BASE_DOMAIN=impact-agent.io
+ *   IMPACT_BROKER_ORIGIN=https://www.churchcore.me   (custody-gate iss; social sign-in)
+ *   IMPACT_A2A_PUBLIC_BASE_DOMAIN=churchcore.me
  *   DEMO_SSO_AUD=impact                       (must equal the impact home's connect AUD)
  *   A2A_KMS_BACKEND=gcp-kms GCP_KMS_KEY_NAME=projects/…/cryptoKeyVersions/N  (no-held-key signer)
  *   GCP_KMS_ENCRYPT_KEY_NAME=projects/…       (envelope-encrypt key, gcp-kms only)
@@ -53,12 +53,12 @@ const STATE_PATH = join(REPO_ROOT, 'impact-cloudflare-urls.json');
 // Browser origins cleared for CORS/CSRF on impact-a2a (the impact homes that call it).
 const ALLOWED_ORIGINS =
   process.env.IMPACT_ALLOWED_ORIGINS ??
-  'https://impact-agent.me,https://*.impact-agent.me,https://churchcore.me,https://*.churchcore.me';
+  'https://churchcore.me,https://*.churchcore.me';
 // Custody-gate issuer (only matters for Google/YouVersion KMS-custody sign-in). Must be the
 // impact home origin whose broker mints the session. Override per deployment.
-const BROKER_ORIGIN = process.env.IMPACT_BROKER_ORIGIN ?? 'https://www.impact-agent.me';
+const BROKER_ORIGIN = process.env.IMPACT_BROKER_ORIGIN ?? 'https://www.churchcore.me';
 const DEMO_SSO_AUD = process.env.DEMO_SSO_AUD ?? 'impact';
-const A2A_PUBLIC_BASE_DOMAIN = process.env.IMPACT_A2A_PUBLIC_BASE_DOMAIN ?? 'impact-agent.io';
+const A2A_PUBLIC_BASE_DOMAIN = process.env.IMPACT_A2A_PUBLIC_BASE_DOMAIN ?? 'churchcore.me';
 
 const TOTAL = 5;
 function step(n: number, msg: string): void {

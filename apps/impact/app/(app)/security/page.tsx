@@ -35,7 +35,7 @@ export default function SecurityPage() {
           <ul style={{ margin: ".8rem 0 0", paddingLeft: "1.1rem", fontSize: ".86rem", lineHeight: 1.7 }}>
             <li>Root credential signs every delegation leaf</li>
             <li>No held keys — KMS custody for social sign-in</li>
-            <li>Vault key wrapped by KMS, bound to demo-mcp</li>
+            <li>Vault key wrapped by KMS, bound to impact-mcp</li>
           </ul>
         </div>
         <div className="card card-pad">
@@ -49,7 +49,7 @@ export default function SecurityPage() {
             <Pill>non-subdelegable</Pill>
           </div>
           <div className="faint" style={{ fontSize: ".76rem", marginTop: ".6rem" }}>
-            VAULT_KEY_USE caveat · person SA → demo-mcp
+            VAULT_KEY_USE caveat · person SA → impact-mcp
           </div>
         </div>
       </div>

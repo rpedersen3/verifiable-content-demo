@@ -1,6 +1,6 @@
 // THE GATE — Google × KMS custody (spec 235 §5).
 //
-// demo-a2a is the SOLE holder of the master, so it is the ONLY party that can
+// impact-a2a is the SOLE holder of the master, so it is the ONLY party that can
 // derive a member's per-subject custodian C_sub and compute their Smart Agent
 // address. These helpers are the security boundary for the three custody
 // endpoints in index.ts:

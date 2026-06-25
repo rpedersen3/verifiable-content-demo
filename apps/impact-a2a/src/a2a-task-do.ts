@@ -1,6 +1,6 @@
 // A2aTaskDO — the live A2A task runtime for ONE agent, sharded `idFromName(agentSA)`.
 //
-// This is the demo-a2a *relayer adoption* of `@agenticprimitives/a2a` (spec 269 W5): the worker no
+// This is the impact-a2a *relayer adoption* of `@agenticprimitives/a2a` (spec 269 W5): the worker no
 // longer fakes "message received" — it runs the real delegation-authorized Task runtime. The DO holds
 // the durable TaskStore (the package's `./cloudflare` adapter over DO storage), drives `processDue()`
 // from `alarm()`, and binds the on-chain auth checks (ERC-1271 + isRevoked) to Base Sepolia.
@@ -23,7 +23,7 @@ import {
   type SkillHandler,
 } from '@agenticprimitives/a2a';
 import { createDurableObjectTaskStore } from '@agenticprimitives/a2a/cloudflare';
-// FR-3.4 — deliver artifacts into a principal's demo-mcp vault over their delegation. The value import is
+// FR-3.4 — deliver artifacts into a principal's impact-mcp vault over their delegation. The value import is
 // cyclic with index.ts, but safe: `callMcpToolViaDelegation` is a hoisted function used only at request
 // time (never at module-init), and `Env`/`IncomingDelegation` are type-only.
 import { callMcpToolViaDelegation, type Env, type IncomingDelegation } from './index.js';
@@ -82,8 +82,8 @@ export class A2aTaskDO {
       verifyCallerSignature: async (caller, digest, signature) => erc1271(caller as Address, digest, signature as Hex),
     };
     // Vault seam (A2A-INV-04 — only refs/hashes in task state):
-    //  • with a delegation (FR-3.4) → write/read the DELEGATOR's demo-mcp vault via the captured grant
-    //    (demo-mcp keys by principal); this is how a handler delivers an Entitlement VC into the reader's
+    //  • with a delegation (FR-3.4) → write/read the DELEGATOR's impact-mcp vault via the captured grant
+    //    (impact-mcp keys by principal); this is how a handler delivers an Entitlement VC into the reader's
     //    own namespace. No DO signing key needed — the delegation is pre-signed (SR-8).
     //  • without one → the agent's private DO-storage store (its own artifacts), keyed by owner.
     const env = this.env;

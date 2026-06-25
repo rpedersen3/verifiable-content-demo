@@ -1,12 +1,12 @@
 // Origin / hostname allowlisting with ONE controlled wildcard form.
 //
 // An `ALLOWED_ORIGINS` entry is either:
-//   - an exact origin  — "https://impact-agent.io", "http://localhost:5173"
-//   - a single wildcard — "https://*.impact-agent.io" — which matches any
-//     SINGLE-LABEL subdomain ("https://alice.impact-agent.io"). It does NOT
-//     match the apex, and does NOT match nested labels ("a.b.impact-agent.io").
+//   - an exact origin  — "https://churchcore.me", "http://localhost:5173"
+//   - a single wildcard — "https://*.churchcore.me" — which matches any
+//     SINGLE-LABEL subdomain ("https://alice.churchcore.me"). It does NOT
+//     match the apex, and does NOT match nested labels ("a.b.churchcore.me").
 //
-// Per-person subdomains (spec 231 — `<handle>.impact-agent.io` is one agent's
+// Per-person subdomains (spec 231 — `<handle>.churchcore.me` is one agent's
 // unified SSO + A2A endpoint) are each a distinct browser Origin, so the
 // exact-match CORS / CSRF / SIWE allowlists need this one controlled wildcard.
 // The CSRF HMAC still binds each token to its mint origin (connect-auth
@@ -37,8 +37,8 @@ function splitPatterns(raw: Iterable<string>): { exact: string[]; wild: Wildcard
   return { exact, wild };
 }
 
-/** A single-label subdomain of `base` (alice.impact-agent.io of impact-agent.io)
- *  — not the apex, not nested (a.b.impact-agent.io). */
+/** A single-label subdomain of `base` (alice.churchcore.me of churchcore.me)
+ *  — not the apex, not nested (a.b.churchcore.me). */
 function isSingleLabelSubdomain(host: string, base: string): boolean {
   if (!host.endsWith('.' + base)) return false;
   const label = host.slice(0, host.length - base.length - 1);

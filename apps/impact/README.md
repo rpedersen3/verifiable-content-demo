@@ -24,7 +24,7 @@ agents. Modeled after [`agenticprimitives/demo-sso-next`](https://github.com/age
 - **Redesigned UI shell + trust graph** — complete; render from seed (`src/lib/seed.ts`).
 - **Connect is REAL** (ported from demo-sso-next, same packages + wire protocol):
   - **Passkey** and **SIWE/wallet** run the actual WebAuthn / SIWE ceremony against the
-    live `demo-a2a` relayer + the ported broker routes (`/connect/*`, `/me`, `/jwks`),
+    live `impact-a2a` relayer + the ported broker routes (`/connect/*`, `/me`, `/jwks`),
     producing a real Smart Agent + a signed `AgentSession`. See `src/lib/connect.ts` +
     `server/connect/*`.
   - **Social (Google / YouVersion)** — degrades to a "needs configuration" message until
@@ -40,7 +40,7 @@ agents. Modeled after [`agenticprimitives/demo-sso-next`](https://github.com/age
 |-----|-----------|-----|
 | `BROKER_PRIVATE_JWK` + `BROKER_KID` | passkey + SIWE (mint sessions) | `node scripts/gen-broker-key.mjs`, set both in Vercel (JWK = Sensitive) |
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` | single-use nonces / challenges | attach a Vercel KV / Upstash store (local dev falls back to in-memory) |
-| `GOOGLE_*`, `YOUVERSION_*`, `A2A_CUSTODY_*` | social sign-in only | provision a Google OAuth client + a custody-bridge secret matching demo-a2a |
+| `GOOGLE_*`, `YOUVERSION_*`, `A2A_CUSTODY_*` | social sign-in only | provision a Google OAuth client + a custody-bridge secret matching impact-a2a |
 
 See `.env.example`. Without `BROKER_PRIVATE_JWK` + a KV store, passkey/SIWE can't mint a
 session; the bridge secret + OAuth client are only needed for Google/YouVersion.
@@ -48,7 +48,7 @@ session; the bridge secret + OAuth client are only needed for Google/YouVersion.
 ### Social sign-in (Google / YouVersion) setup
 
 The OIDC flow is ported (`/oidc/{google,youversion}/{start,callback}`, `/token`, the
-demo-a2a custody bridge). Until configured, those buttons return a 503 "not configured".
+impact-a2a custody bridge). Until configured, those buttons return a 503 "not configured".
 To enable, set on the Vercel project + register the callback URLs:
 
 - **Google** ([console.cloud.google.com](https://console.cloud.google.com) → OAuth client):
@@ -57,8 +57,8 @@ To enable, set on the Vercel project + register the callback URLs:
 - **YouVersion** (public PKCE — no secret): `YOUVERSION_CLIENT_ID`,
   `YOUVERSION_REDIRECT_URI` = `https://<your-domain>/oidc/youversion/callback`.
 - **Custody bridge** (so a NEW social home gets a KMS-custodied Smart Agent):
-  `A2A_CUSTODY_URL` = your demo-a2a, `A2A_CUSTODY_BRIDGE_SECRET` = the value configured
-  in **your** demo-a2a. Without it, social sign-in only works for a subject already
+  `A2A_CUSTODY_URL` = your impact-a2a, `A2A_CUSTODY_BRIDGE_SECRET` = the value configured
+  in **your** impact-a2a. Without it, social sign-in only works for a subject already
   linked to an agent (else it returns `bootstrap`).
 - `DEMO_SSO_AUD` defaults to `impact` (must match the connect aud for custody-grade sessions).
 

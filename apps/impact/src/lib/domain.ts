@@ -3,33 +3,33 @@
 // from here. This module is deployment-specific BY DESIGN and must never be
 // hoisted into packages/* (enforced by `pnpm check:no-domain-in-packages`).
 //
-// SSO/A2A split (spec 232): the human SSO home is `<handle>.impact-agent.me`
-// (this app); the agent's A2A endpoint is a separate domain
-// `<handle>.impact-agent.io` (the demo-a2a Worker). Names live under a
-// permissionless subregistry `<label>.demo.agent`.
+// Impact is served on a single home domain (churchcore.me). The app resolves the registrable
+// domain dynamically from the live host (currentBaseDomain/currentHandle below), so it runs on any
+// domain; these constants are only the SSR/fallback defaults. impact reaches its A2A worker through
+// the next.config `/a2a/*` rewrite (workers.dev), not a per-handle A2A subdomain.
 
 /** Registrable Connect SSO domain — each person's home is a single-label subdomain. */
-export const CONNECT_DOMAIN = 'impact-agent.me';
-/** Registrable A2A domain (served by demo-a2a, not this app) — for display/links. */
-export const A2A_DOMAIN = 'impact-agent.io';
+export const CONNECT_DOMAIN = 'churchcore.me';
+/** Registrable A2A domain — impact has no separate A2A domain (it proxies to impact-a2a). */
+export const A2A_DOMAIN = 'churchcore.me';
 /** The TLD names are claimed under (the `.impact` permissionless subregistry). */
 export const AGENT_NAME_PARENT = 'impact';
 
 /** Same-origin proxies to the live agenticprimitives backends (next.config rewrites).
- *  /a2a → demo-a2a (relayer + custody bridge + vault proxy); /mcp-bind → demo-mcp. */
+ *  /a2a → impact-a2a (relayer + custody bridge + vault proxy); /mcp-bind → impact-mcp. */
 export const BACKEND = {
   a2a: '/a2a',
   mcpBind: '/mcp-bind',
 } as const;
 
-// ── Dynamic per-deployment domain (works on impact-agent.me, churchcore.me, …) ──
+// ── Dynamic per-deployment domain (works on churchcore.me or any host) ──
 // A person's home lives on a single-label subdomain `<handle>.<registrable-domain>`,
 // and passkeys bind to that host — so connecting a named home means being ON its
 // subdomain. These derive the registrable domain + current handle from the live host
 // rather than the hardcoded CONNECT_DOMAIN, so impact runs under any domain.
 
 /** Registrable domain of the current host = the last two dot-labels
- *  (`lbsb.impact-agent.me` → `impact-agent.me`; `www.churchcore.me` → `churchcore.me`). */
+ *  (`lbsb.churchcore.me` → `churchcore.me`; `www.churchcore.me` → `churchcore.me`). */
 export function currentBaseDomain(): string {
   if (typeof window === 'undefined') return CONNECT_DOMAIN;
   const host = window.location.hostname.toLowerCase();
@@ -59,7 +59,7 @@ export const CENTRAL_AUTH_DOMAIN = CONNECT_DOMAIN;
 /** Platform (apex) Connect origin — landing + bootstrap default. */
 export const PLATFORM_AUTH_ORIGIN = `https://${CONNECT_DOMAIN}`;
 
-/** Single-label subdomain of `baseDomain` (alice.impact-agent.me → alice). The
+/** Single-label subdomain of `baseDomain` (alice.churchcore.me → alice). The
  *  apex, nested labels, `www`, and non-matching hosts → null. */
 export function parseAgentSubdomain(hostname: string, baseDomain: string = CONNECT_DOMAIN): string | null {
   const host = (hostname.split(':')[0] ?? '').toLowerCase();
@@ -77,7 +77,7 @@ export function subdomainHandle(): string | null {
   return parseAgentSubdomain(window.location.hostname);
 }
 
-/** Personal SSO origin for a label (alice → https://alice.impact-agent.me). */
+/** Personal SSO origin for a label (alice → https://alice.churchcore.me). */
 export function personalAuthOrigin(label: string): string {
   return `https://${label}.${CONNECT_DOMAIN}`;
 }

@@ -51,7 +51,7 @@ export default function EntryExperience() {
       const v = p.get("via");
       const provider = v === "youversion" ? "YouVersion" : v === "google" ? "Google" : "Your provider";
       setError(
-        `${provider} verified ${email}, but there's no home for it yet. Creating a new home from a social sign-in needs the server custody bridge configured (A2A_CUSTODY_BRIDGE_SECRET matching your demo-a2a). Once set, this signs you straight in.`,
+        `${provider} verified ${email}, but there's no home for it yet. Creating a new home from a social sign-in needs the server custody bridge configured (A2A_CUSTODY_BRIDGE_SECRET matching your impact-a2a). Once set, this signs you straight in.`,
       );
       window.history.replaceState({}, "", window.location.pathname);
     }

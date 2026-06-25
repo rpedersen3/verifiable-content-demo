@@ -1,5 +1,5 @@
 // ============================================================================
-// Live backend read client — talks to the deployed agenticprimitives demo-a2a
+// Live backend read client — talks to the deployed agenticprimitives impact-a2a
 // Worker through the same-origin /a2a proxy (next.config.mjs rewrite). These are
 // the secret-free reads (health, on-chain registry, JSON-RPC, reverse-name).
 // Authenticated writes (vault set, custody bootstrap, delegation signing) need

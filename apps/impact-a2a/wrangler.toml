@@ -1,4 +1,4 @@
-# Cloudflare Worker config for impact-a2a (identical to agenticprimitives demo-a2a).
+# Cloudflare Worker config for impact-a2a (identical to agenticprimitives impact-a2a).
 #
 # Local dev:  wrangler dev (reads .dev.vars for secrets + Anvil contract addrs)
 # Production: wrangler deploy (uses [vars] + secrets set via `wrangler secret put`)
@@ -46,19 +46,19 @@ MCP_URL = "http://127.0.0.1:8788"
 # Deploy via `pnpm deploy:cloudflare` (scripts/deploy-cloudflare.ts), which
 # wraps `wrangler deploy --env production` with `--var` flags for contract
 # addresses (from deployments-base-sepolia.json) and the just-deployed
-# demo-mcp URL.
+# impact-mcp URL.
 #
 # Secrets are set ONCE per environment via:
 #   wrangler secret put SESSION_JWT_SECRETS    --env production
 #   wrangler secret put CSRF_SECRET            --env production
 #   wrangler secret put A2A_SESSION_SECRET     --env production
 #   wrangler secret put A2A_MASTER_PRIVATE_KEY --env production
-#   wrangler secret put A2A_MAC_SECRET         --env production   # R7.4 — shared with demo-mcp
+#   wrangler secret put A2A_MAC_SECRET         --env production   # R7.4 — shared with impact-mcp
 #
 # A2A_MAC_SECRET is the HMAC key that binds the a2a→mcp service envelope
-# (audience + service + route + nonce + timestamp + body digest). demo-mcp
+# (audience + service + route + nonce + timestamp + body digest). impact-mcp
 # rejects every call when this is unset on the producer side. The SAME
-# value must be set on demo-mcp via the same `wrangler secret put` command.
+# value must be set on impact-mcp via the same `wrangler secret put` command.
 # The preflight (scripts/check-production-deploy.ts N10.1) refuses deploys
 # when this declaration is absent.
 #
@@ -67,8 +67,8 @@ MCP_URL = "http://127.0.0.1:8788"
 # ──────────────────────────────────────────────────────────────────────────
 
 [env.production]
-# NOTE: demo-a2a's `*.impact-agent.io` route is intentionally DROPPED here — that route is
-# already owned by demo-a2a-production, and impact reaches this worker via its workers.dev URL
+# NOTE: impact-a2a's `*.churchcore.me` route is intentionally DROPPED here — that route is
+# already owned by impact-a2a-production, and impact reaches this worker via its workers.dev URL
 # (the impact app's next.config `/a2a/*` rewrite → IMPACT_A2A_URL). impact-a2a is served on
 # `impact-a2a-production.<acct>.workers.dev`. If impact ever needs A2A-by-subdomain on its own
 # zone, add a `routes` block for THAT domain (e.g. `*.churchcore.me`) here.
@@ -81,7 +81,7 @@ workers_dev = true
 #   echo "<rpc-url>" | wrangler secret put RPC_URL --env production
 CHAIN_ID = "84532"
 # These two are placeholders — `pnpm deploy:cloudflare` overrides via `--var`
-# with the freshly-deployed Pages URL + demo-mcp Worker URL. Defaults left
+# with the freshly-deployed Pages URL + impact-mcp Worker URL. Defaults left
 # blank so a misconfigured deploy fails closed (no CORS allowed, no MCP).
 ALLOWED_ORIGINS = ""
 MCP_URL = ""
@@ -119,19 +119,19 @@ A2A_ALLOW_LOCAL_ENVELOPE_KEY = "false"
 # Set → GcpKmsProvider Encrypt/Decrypt instead of LocalAesProvider's HKDF-from-local-secret.
 # Uses the `agent-envelope` symmetric key (SA encrypt/decrypt verified).
 GCP_KMS_ENCRYPT_KEY_NAME = "projects/churchcore2/locations/us-central1/keyRings/agenticprimitives-demo/cryptoKeys/agent-envelope"
-# PAYMASTER: SmartAgentPaymaster contract address. When set, demo-a2a
+# PAYMASTER: SmartAgentPaymaster contract address. When set, impact-a2a
 # enables the /session/deploy endpoints; demo-web shows the Step 1.5
 # "Deploy smart account" prompt and the user's smart account is deployed
 # via a paymaster-sponsored UserOp on first SIWE login. When empty,
 # /session/deploy returns 409 and the demo falls back to counterfactual
-# mode (requireDeployed:false in demo-mcp).
+# mode (requireDeployed:false in impact-mcp).
 PAYMASTER = ""
-# PAYMASTER_VERIFYING_SIGNER: address that demo-a2a must sign paymaster
+# PAYMASTER_VERIFYING_SIGNER: address that impact-a2a must sign paymaster
 # envelopes for. MUST match SmartAgentPaymaster.verifyingSigner() on-chain;
 # /session/deploy appends a 77-byte verifying-paymaster signature using
 # the master KMS account when this is set. When unset, paymasterAndData
 # is built without a signature (acceptable only if paymaster is in
-# allowlist/dev mode). Realigned on-chain 2026-05-20 to the demo-a2a
+# allowlist/dev mode). Realigned on-chain 2026-05-20 to the impact-a2a
 # master signer's address; tracked under audit C2.
 # impact-a2a's own gcp-kms signer address (smart-agent-2). Self-consistent so the appended
 # verifying-paymaster signature is signed by the same address it claims. Moot while the
@@ -153,7 +153,7 @@ bindings = [
 ]
 
 # impact-a2a's OWN KV namespaces (provisioned 2026-06-25 via `wrangler kv namespace create
-# impact-a2a-BRIDGE_NONCES` / `impact-a2a-FED_TOKENS`) — separate state from demo-a2a.
+# impact-a2a-BRIDGE_NONCES` / `impact-a2a-FED_TOKENS`) — separate state from impact-a2a.
 #
 # Bridge anti-replay nonce store (audit M-1): single-use bridge-envelope nonces recorded across isolates
 # (the per-isolate in-memory Map caught nothing cross-isolate). TTL'd presence keys via `nonceStoreFromKv`.
@@ -168,7 +168,7 @@ id = "6fac282a54014ecd830ade15f9d28785"
 binding = "FED_TOKENS"
 id = "6fa48cfb73a044f4ba15945c29b8cd25"
 
-# Service binding: demo-a2a → demo-mcp. Cloudflare blocks direct
+# Service binding: impact-a2a → impact-mcp. Cloudflare blocks direct
 # fetch(*.workers.dev) between sibling Workers on the same account
 # with error 1042 (recursion/loop protection). Service bindings are
 # the canonical fix — calls flow through Cloudflare's internal

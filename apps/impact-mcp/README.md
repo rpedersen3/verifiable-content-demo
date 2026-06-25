@@ -1,4 +1,4 @@
-# demo-mcp
+# impact-mcp
 
 **Tools that check who sent the agent — not just who the agent claims to be.**
 
@@ -18,7 +18,7 @@ The Worker holds demo PII and per-agent vault records in D1, and exposes delegat
 
 Replay protection is not a middleware afterthought: the JTI store uses D1's atomic `INSERT … ON CONFLICT … RETURNING`, so a replayed token loses the race at the database, not in application code. Tools carry classification tags (`@sa-tool`, `@sa-auth`, `@sa-risk-tier`) per [spec 204](../../specs/204-tool-policy.md), and the canonical audit walkthrough lives in [`docs/audit/guide.md`](docs/audit/guide.md).
 
-Browser apps never call this Worker directly — [`demo-a2a`](../demo-a2a) fronts it, so the delegation chain stays intact at every hop.
+Browser apps never call this Worker directly — [`impact-a2a`](../impact-a2a) fronts it, so the delegation chain stays intact at every hop.
 
 ## Packages composed
 
@@ -47,4 +47,4 @@ A dev-only `/_dev/seed` route exists for seeding test data; it is not part of th
 
 Reference implementation, not a product. The read tools, vault tools, JTI replay protection, and audit trail run live against Base Sepolia and local Anvil; `update_profile` remains a stub. Production launch of the substrate is gated on the public checklist in the [root README](../../README.md); every security finding is tracked live in [`docs/audits/findings.yaml`](../../docs/audits/findings.yaml).
 
-Validate: `pnpm check:demo-mcp`.
+Validate: `pnpm check:impact-mcp`.

@@ -1,6 +1,6 @@
 -- Phase 6f.6 — Real PII + Org sensitive-data resources for the Treasury
 -- Service Agent demo (spec 211 Act 5/6). Replaces the inline mock
--- records served by demo-a2a's stub endpoints.
+-- records served by impact-a2a's stub endpoints.
 
 CREATE TABLE IF NOT EXISTS person_pii (
   subject_address   TEXT PRIMARY KEY,

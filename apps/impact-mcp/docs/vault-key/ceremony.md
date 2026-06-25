@@ -2,11 +2,11 @@
 
 How a person goes from **fail-closed** (no binding ⇒ `vault_key_unauthorized`) to a **live**
 per-person-keyed vault. There is **no global key** — each person's vault objects are wrapped
-under that person's own GCP Cloud KMS KEK, and demo-mcp may wield it only because the person
+under that person's own GCP Cloud KMS KEK, and impact-mcp may wield it only because the person
 SA signed a `VaultKeyAuthorization` naming this server + that KEK (VKB-D1, VKB-D3).
 
 The flow has three parties: the **operator** (provisions the KEK), the **person** (their SA
-signs the authorization via their connected custodian), and **demo-mcp** (verifies + binds).
+signs the authorization via their connected custodian), and **impact-mcp** (verifies + binds).
 
 ## 1. Operator — provision the person's KEK (spec 276)
 
@@ -18,7 +18,7 @@ per-key IAM (master-key separation). Use the spec-276 provisioning helper:
 ap-provision-gcp \
   --project "$GCP_PROJECT" --location "$GCP_LOCATION" --key-ring "$VAULT_KEY_RING" \
   --identity "<personSA>" \
-  --runtime-service-account "<demo-mcp-runtime-SA-email>" \
+  --runtime-service-account "<impact-mcp-runtime-SA-email>" \
   --protection-level HSM
 # → prints the cryptoKey resource name (the binding's `kmsKeyRef`) + grants the runtime SA
 #   roles/cloudkms.signer/cryptoKeyEncrypterDecrypter scoped to THAT key only.
@@ -37,13 +37,13 @@ const { keyMap } = await executeGcpProvision(
 // purpose:'encrypt-decrypt' ⇒ GOOGLE_SYMMETRIC_ENCRYPTION + roles/cloudkms.cryptoKeyEncrypterDecrypter (B3)
 ```
 
-Then write the runtime secret to demo-mcp + the demo-mcp URL to the home (backlog B6 writers — no
+Then write the runtime secret to impact-mcp + the impact-mcp URL to the home (backlog B6 writers — no
 echo, fail-closed; values come from env/stdin, never argv):
 
 ```bash
-# GCP creds → demo-mcp (Cloudflare Worker secret, via wrangler stdin):
-GCP_SA=... ; printf '%s' "$GCP_SA" | pnpm deploy:secret cloudflare --worker demo-mcp --env production --name GCP_SERVICE_ACCOUNT_JSON
-# demo-mcp URL → the home (Vercel project env, via REST API — NOT `vercel env add`):
+# GCP creds → impact-mcp (Cloudflare Worker secret, via wrangler stdin):
+GCP_SA=... ; printf '%s' "$GCP_SA" | pnpm deploy:secret cloudflare --worker impact-mcp --env production --name GCP_SERVICE_ACCOUNT_JSON
+# impact-mcp URL → the home (Vercel project env, via REST API — NOT `vercel env add`):
 VERCEL_TOKEN=... printf '%s' "$DEMO_MCP_URL" | pnpm deploy:secret vercel --project demo-sso-next --name DEMO_MCP_URL --target production
 ```
 
@@ -54,12 +54,12 @@ has the person SA sign its EIP-712 digest via the custody credential (passkey, o
 approved-hash sentinel for passkey-only custodians — the same rail org-create uses):
 
 ```ts
-import { buildVaultKeyAuthorization } from '<demo-mcp>/vault-key'; // or rebuild with delegation primitives
+import { buildVaultKeyAuthorization } from '<impact-mcp>/vault-key'; // or rebuild with delegation primitives
 const { authorization, digest } = buildVaultKeyAuthorization(
   { CHAIN_ID, DELEGATION_MANAGER },
   {
     owner: personSA,
-    vaultId: 'demo-mcp',
+    vaultId: 'impact-mcp',
     kmsKeyRef,                              // from step 1
     serverKey: DEMO_MCP_DELEGATE_KEY,       // the host's authorized delegate
     allowedResources: ['person-pii', 'org-sensitive', 'profile'],
@@ -76,14 +76,14 @@ The authorization carries a `VAULT_KEY_USE` caveat (non-subdelegable). It is **c
 governed** (ADR-0011) — a custody op, not a routine session delegation. The SA address never
 changes; rotating the KEK later re-runs this step with a new `kmsKeyRef`.
 
-## 3. demo-mcp — verify + bind
+## 3. impact-mcp — verify + bind
 
 ```
 POST /custody/vault-key/bind
 { owner, vaultId, kmsKeyRef, allowedResources, classificationCeiling, ops, expiresAt, authorization }
 ```
 
-demo-mcp verifies the authorization end-to-end — the `VAULT_KEY_USE` caveat matches the KEK +
+impact-mcp verifies the authorization end-to-end — the `VAULT_KEY_USE` caveat matches the KEK +
 scope, the delegator is the owner SA, and the **owner SA actually signed it** (ERC-1271 via the
 `UniversalSignatureValidator`) — then persists the `VaultKeyBinding` (migration `0008`). On a bad
 signature or scope mismatch it returns `401 authorization_invalid` and stores nothing.

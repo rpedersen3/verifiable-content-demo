@@ -25,7 +25,7 @@ export interface DemoA2aConfig {
 function require_(name: string): string {
   const v = process.env[name];
   if (!v) {
-    throw new Error(`demo-a2a: missing required env ${name}`);
+    throw new Error(`impact-a2a: missing required env ${name}`);
   }
   return v;
 }
@@ -38,7 +38,7 @@ function loadDeployments(): DemoA2aConfig['deployments'] {
   );
   if (!existsSync(path)) {
     throw new Error(
-      `demo-a2a: deployments file not found at ${path}. Run \`pnpm dev:contracts\` (or set DEPLOYMENTS_DIR).`,
+      `impact-a2a: deployments file not found at ${path}. Run \`pnpm dev:contracts\` (or set DEPLOYMENTS_DIR).`,
     );
   }
   const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, string>;

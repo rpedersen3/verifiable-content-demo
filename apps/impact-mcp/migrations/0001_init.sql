@@ -1,4 +1,4 @@
--- Initial D1 schema for demo-mcp.
+-- Initial D1 schema for impact-mcp.
 -- Two tables: PII profiles + JTI replay tracking.
 
 CREATE TABLE IF NOT EXISTS profiles (

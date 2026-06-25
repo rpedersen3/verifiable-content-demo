@@ -32,10 +32,10 @@ export interface Env {
   RPC_URL?: string;
   /** Comma-separated exact-match relying-site redirect URIs (CN-1). */
   REDIRECT_URI_ALLOWLIST?: string;
-  /** Shared secret with the `*.impact-agent.io` subdomain-router Worker
+  /** Shared secret with the `*.churchcore.me` subdomain-router Worker
    *  (spec 231). When a request carries `X-Proxy-Secret` matching this AND an
    *  `X-Forwarded-Host`, the broker derives its issuer origin from that host —
-   *  so the per-person OP `iss` stays `https://<handle>.impact-agent.io` even
+   *  so the per-person OP `iss` stays `https://<handle>.churchcore.me` even
    *  though the Worker proxies to this pages.dev origin. The secret gate
    *  prevents direct-to-pages.dev issuer spoofing. See functions/_lib/origin.ts. */
   PROXY_SHARED_SECRET?: string;
@@ -54,16 +54,16 @@ export interface Env {
    *  secret: YouVersion is a public PKCE client, so only the App Key + redirect URI are needed. */
   YOUVERSION_CLIENT_ID?: string;
   /** Must EXACTLY match the callback URL registered in the YouVersion Platform Portal,
-   *  e.g. https://www.impact-agent.me/oidc/youversion/callback */
+   *  e.g. https://www.churchcore.me/oidc/youversion/callback */
   YOUVERSION_REDIRECT_URI?: string;
 
   // ─── Google × KMS custody (spec 235) ───────────────────────────────
-  /** demo-a2a base URL for the server-to-server custody RESOLVE call (e.g.
+  /** impact-a2a base URL for the server-to-server custody RESOLVE call (e.g.
    *  `https://<a2a-worker>`). The broker can't hold the master, so during the
-   *  OIDC callback it asks demo-a2a to derive the member's KMS-custodied SA.
+   *  OIDC callback it asks impact-a2a to derive the member's KMS-custodied SA.
    *  When unset, Google stays login-grade only (no custody path). */
   A2A_CUSTODY_URL?: string;
-  /** Shared secret for the resolve call — must match demo-a2a's
+  /** Shared secret for the resolve call — must match impact-a2a's
    *  `A2A_CUSTODY_BRIDGE_SECRET`. */
   A2A_CUSTODY_BRIDGE_SECRET?: string;
   /** The Personal-Home `aud` for which Google sign-in mints a CUSTODY-grade,
@@ -72,8 +72,8 @@ export interface Env {
   DEMO_SSO_AUD?: string;
 
   /** SEC-006: comma-separated allowlist of inbound `Host` headers the broker will
-   *  mint id_tokens for. Wildcards like `*.impact-agent.me` match exactly one label.
-   *  When unset, defaults to the production patterns (impact-agent.me + its subdomains
+   *  mint id_tokens for. Wildcards like `*.churchcore.me` match exactly one label.
+   *  When unset, defaults to the production patterns (churchcore.me + its subdomains
    *  + localhost). A request with a foreign Host is rejected — the broker will never
    *  sign `iss=<attacker-host>`. */
   ALLOWED_ISSUER_HOSTS?: string;

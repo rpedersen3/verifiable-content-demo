@@ -2,7 +2,7 @@
 
 This guide walks through adopting agenticprimitives' append-only audit trail in your own MCP server (or A2A worker, or any consumer of the platform's primitives). It pairs with [spec 206](../../../../specs/206-audit.md), which is the architect's design doc.
 
-The canonical implementation lives in this app (`apps/demo-mcp/`) — `composeSinks(console, d1)` with a PII guardrail wrapped around the D1 sink, correlation-stitched across the a2a → mcp service boundary. You can run the demo, hit `/tools/get_profile`, then `wrangler d1 execute demo-mcp --remote --command "SELECT … FROM audit_events"` to see the trail.
+The canonical implementation lives in this app (`apps/impact-mcp/`) — `composeSinks(console, d1)` with a PII guardrail wrapped around the D1 sink, correlation-stitched across the a2a → mcp service boundary. You can run the demo, hit `/tools/get_profile`, then `wrangler d1 execute impact-mcp --remote --command "SELECT … FROM audit_events"` to see the trail.
 
 ## What you get
 
@@ -14,7 +14,7 @@ Every authority-bearing operation in the platform writes a structured audit row:
 | `key-custody` | `key-custody.sign` (Local + GCP signers) | Signer ops |
 | `mcp-runtime` | `mcp-runtime.with-delegation.{accept,reject}`, `mcp-runtime.service-mac.{accept,reject}` | MCP route entry |
 
-Rows are correlation-stitched: demo-a2a generates an `X-Correlation-Id` per request, propagates it via header, demo-mcp threads it into every event written for that request. Querying by `correlation_id` reconstructs the full request path across both workers.
+Rows are correlation-stitched: impact-a2a generates an `X-Correlation-Id` per request, propagates it via header, impact-mcp threads it into every event written for that request. Querying by `correlation_id` reconstructs the full request path across both workers.
 
 ## Doctrine in 30 seconds
 
@@ -25,7 +25,7 @@ Rows are correlation-stitched: demo-a2a generates an `X-Correlation-Id` per requ
 
 ## Setting up audit in your app
 
-Five minutes, three steps. Patterns lifted directly from `apps/demo-mcp/src/index.ts`.
+Five minutes, three steps. Patterns lifted directly from `apps/impact-mcp/src/index.ts`.
 
 ### 1. Compose your sinks
 
@@ -119,7 +119,7 @@ The schema mirrors the `AuditEvent` shape from `@agenticprimitives/audit`. Appen
 
 ```bash
 # Latest activity, correlation-stitched
-wrangler d1 execute demo-mcp --env production --remote --command "
+wrangler d1 execute impact-mcp --env production --remote --command "
   SELECT timestamp, action, correlation_id, actor_id, subject_id
   FROM audit_events
   ORDER BY timestamp DESC
@@ -127,7 +127,7 @@ wrangler d1 execute demo-mcp --env production --remote --command "
 "
 
 # Reconstruct one request flow across services
-wrangler d1 execute demo-mcp --env production --remote --command "
+wrangler d1 execute impact-mcp --env production --remote --command "
   SELECT timestamp, action, outcome, actor_id, subject_id, reason
   FROM audit_events
   WHERE correlation_id = 'a931b2d0-2356-…'
@@ -135,7 +135,7 @@ wrangler d1 execute demo-mcp --env production --remote --command "
 "
 
 # Per-primitive accept rate (anomaly detection)
-wrangler d1 execute demo-mcp --env production --remote --command "
+wrangler d1 execute impact-mcp --env production --remote --command "
   SELECT action,
          SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) as accepts,
          COUNT(*) as total
@@ -157,7 +157,7 @@ Allowlisted context keys (hex passes through unchanged): `signerAddress`, `addre
 
 ## What this guide doesn't cover
 
-- **Cross-app destination unification** — demo-a2a is still console-only (no D1 binding). Spec 206 § 11 open question.
+- **Cross-app destination unification** — impact-a2a is still console-only (no D1 binding). Spec 206 § 11 open question.
 - **Identity-auth caller-emit pattern** — `identity-auth` itself is forbidden from importing `audit` per the dep doctrine; the consuming app emits at call sites. Demo doesn't exercise this yet.
 - **Cloud Logging / Splunk / Datadog sinks** — straightforward to implement on top of `AuditSink`; not shipped.
 

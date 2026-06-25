@@ -5,7 +5,7 @@
 // alg-pinned, nonce), then treat the verified (iss, sub) as a credential facet, resolve it to a
 // canonical agent (KMS custody for the Personal Home, spec 235), issue an aud-bound AgentSession, and
 // deliver it via the §4a single-use code. YouVersion is a PUBLIC PKCE client (no client_secret) and is
-// KMS-custodied exactly like Google — the demo-a2a bridge derives the custodian from (iss, sub), so the
+// KMS-custodied exactly like Google — the impact-a2a bridge derives the custodian from (iss, sub), so the
 // only differences from the Google handler are the provider module, the env vars, and `via=youversion`.
 import { completeLogin, oidcFacetId } from '@agenticprimitives/connect-auth/youversion';
 import { newAuthCode, validateRedirectUri, importJwks, verifyAgentSession, mintAgentSession } from '@agenticprimitives/connect';
@@ -33,7 +33,7 @@ function isOwnPortalReturn(rpRedirect: string): boolean {
   }
 }
 
-/** Ask demo-a2a (the master holder) for this subject's KMS-custodied SA (spec 235 §5). Derive-only,
+/** Ask impact-a2a (the master holder) for this subject's KMS-custodied SA (spec 235 §5). Derive-only,
  *  bridge-authenticated. Identical to the Google handler — the custodian derives from (iss, sub), so the
  *  YouVersion issuer yields a distinct home from the same person's Google home. */
 async function resolveKmsAgent(
@@ -167,7 +167,7 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
     await recordOidcFacet(env.AUTH_CODES, oidcIss, oidcSub, derived.agentId);
     agent = derived.agentId;
     custodyGrade = true;
-    // spec 265 W2 — custody the YouVersion OAuth tokens (KMS-encrypted in demo-a2a, keyed by the person
+    // spec 265 W2 — custody the YouVersion OAuth tokens (KMS-encrypted in impact-a2a, keyed by the person
     // SA) for later user-data reads. Best-effort: never block sign-in on token custody. The token never
     // comes back to the browser or any relying app.
     if (result.tokens.accessToken && env.A2A_CUSTODY_URL && env.A2A_CUSTODY_BRIDGE_SECRET && env.YOUVERSION_CLIENT_ID) {

@@ -41,7 +41,7 @@ function isOwnPortalReturn(rpRedirect: string): boolean {
 }
 
 /**
- * Ask demo-a2a (the master holder) for this Google subject's KMS-custodied SA
+ * Ask impact-a2a (the master holder) for this Google subject's KMS-custodied SA
  * (spec 235 §5). Derive-only, server-to-server, bridge-secret authenticated.
  * Returns the CAIP-10 agent id. The broker can't derive it itself (no master).
  */
@@ -153,7 +153,7 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
   // Google × KMS custody is offered ONLY for the Personal-Home aud (spec 235).
   // Relying-app auds stay login-grade — their members onboard via the Personal Home.
   const custodyEligible = stash.aud === custodyAud;
-  // Per-subject rotation (spec 235 §5b): which KMS home this Google account opens now. demo-a2a
+  // Per-subject rotation (spec 235 §5b): which KMS home this Google account opens now. impact-a2a
   // derives `SA(iss,sub,rotation)` deterministically — derive-only here, no on-chain effect.
   const rotation = await readRotation(env.AUTH_CODES, oidcIss, oidcSub);
   const derived = custodyEligible
@@ -166,7 +166,7 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
   if (custodyEligible && derived.ok) {
     // Personal-Home Google = the KMS-custodied home at the CURRENT rotation. Record/refresh the
     // facet to it (idempotent; after a rotation bump the old facet is stale → this points at the
-    // new home). Custody-grade: C_sub is a real on-chain custodian (demo-a2a's gate re-verifies).
+    // new home). Custody-grade: C_sub is a real on-chain custodian (impact-a2a's gate re-verifies).
     await recordOidcFacet(env.AUTH_CODES, oidcIss, oidcSub, derived.agentId);
     agent = derived.agentId;
     custodyGrade = true;
@@ -200,7 +200,7 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
       aud: stash.aud,
       iss,
       ttlSeconds: 3600,
-      // Carry the rotation so demo-a2a's gate derives the matching per-subject key (spec 235 §5b).
+      // Carry the rotation so impact-a2a's gate derives the matching per-subject key (spec 235 §5b).
       ...(custodyGrade ? { rotation } : {}),
     },
     signer,

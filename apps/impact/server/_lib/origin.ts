@@ -1,24 +1,24 @@
 // Issuer-origin resolution for the Next/Vercel broker (spec 232; SEC-006 hardening).
 //
-// On Vercel the request reaches the handler on its REAL host (`alice.impact-agent.me`),
+// On Vercel the request reaches the handler on its REAL host (`alice.churchcore.me`),
 // so the per-person OP issuer (spec 230) is simply that host. We read it from the `Host`
 // header (the canonical requested host — more reliable than `request.url`, which can
 // reflect the server bind address) + `x-forwarded-proto`.
 //
 // SEC-006 closure: the broker validates the inbound `Host` against an ALLOWED_ISSUER_HOSTS
-// allowlist. Wildcard pattern `*.impact-agent.me` matches any single label; explicit hosts
+// allowlist. Wildcard pattern `*.churchcore.me` matches any single label; explicit hosts
 // match exactly. A request with a foreign Host (Vercel preview / mis-routed traffic / wildcard
 // abuse) is rejected with HTTP 400 — the broker will NEVER sign `iss=<attacker-host>`.
 //
 // The Cloudflare Option-2 `X-Forwarded-Host`/`PROXY_SHARED_SECRET` proxy branch is GONE
 // here (spec 232 §5) — there is no Worker proxy hop on Vercel.
 
-/** Comma-separated env list of allowed issuer hosts. Entries may be exact (`impact-agent.me`)
- *  or wildcard (`*.impact-agent.me`). Wildcards match exactly ONE label (no dots) — the
+/** Comma-separated env list of allowed issuer hosts. Entries may be exact (`churchcore.me`)
+ *  or wildcard (`*.churchcore.me`). Wildcards match exactly ONE label (no dots) — the
  *  per-person subdomain pattern. */
 const DEFAULT_ALLOWED_ISSUER_HOSTS = [
-  'impact-agent.me',
-  '*.impact-agent.me',
+  'churchcore.me',
+  '*.churchcore.me',
   // Localhost development — bare host + ports (matched by stripping :port below).
   'localhost',
   '127.0.0.1',

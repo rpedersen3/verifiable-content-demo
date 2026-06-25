@@ -8,7 +8,7 @@
 
 CREATE TABLE IF NOT EXISTS vault_key_bindings (
   owner_address          TEXT NOT NULL,   -- the person SA (the key domain)
-  server_id              TEXT NOT NULL,   -- the host this binding authorizes (e.g. 'demo-mcp')
+  server_id              TEXT NOT NULL,   -- the host this binding authorizes (e.g. 'impact-mcp')
   vault_id               TEXT NOT NULL,
   kms_key_ref            TEXT NOT NULL,   -- the person's KEK resource name (GCP Cloud KMS)
   allowed_resources      TEXT NOT NULL,   -- JSON string[] of authorized resources

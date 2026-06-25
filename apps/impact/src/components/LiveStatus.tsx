@@ -6,7 +6,7 @@ import { getBlockNumber, getChainId } from "@/lib/backend";
 
 const CHAIN_NAME: Record<number, string> = { 84532: "Base Sepolia", 8453: "Base" };
 
-// Real backend status: pings the LIVE demo-a2a Worker (through the /a2a proxy) for
+// Real backend status: pings the LIVE impact-a2a Worker (through the /a2a proxy) for
 // chain id + current block, refreshing every 15s. Honest signal — green only when
 // the deployed backend actually answers.
 export default function LiveStatus() {
@@ -47,7 +47,7 @@ export default function LiveStatus() {
     return <span className="chip" title="Contacting the live backend"><span className="dot" style={{ color: "var(--text-faint)" }} /> connecting…</span>;
   }
   return (
-    <Link href="/network" className="chip chip-emerald" title="Live demo-a2a · click for network details">
+    <Link href="/network" className="chip chip-emerald" title="Live impact-a2a · click for network details">
       <span className="dot" /> {CHAIN_NAME[chainId ?? 0] ?? `chain ${chainId}`} · #{block.toLocaleString()}
     </Link>
   );
