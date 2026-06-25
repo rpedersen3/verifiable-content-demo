@@ -14,8 +14,12 @@ import { listMyOrgs, listMyReceivedDelegations, flattenDelegations, type LiveDel
 import { revokeDelegation } from "@/lib/connect";
 import { activateVaultKey, isVaultKeyBound } from "@/lib/vault-key";
 import { loadImpactEntitlements, saveImpactEntitlements, type ImpactEntitlement } from "@/lib/entitlements-store";
+import { issueOrgEntitlement, listOrgEntitlements, revokeOrgEntitlement, readOrgAsMember, type IssuedEntitlement } from "@/lib/entitlements-admin";
+import type { DelegationWire } from "@/lib/delegation";
+import type { ConnectVia } from "@/lib/connect";
+import type { Address } from "@agenticprimitives/types";
 
-type Tab = "records" | "entitlements" | "delegations";
+type Tab = "records" | "entitlements" | "delegations" | "members";
 
 export default function VaultPage() {
   const { person, identity, token, active } = useSession();
@@ -215,7 +219,23 @@ export default function VaultPage() {
         <TabBtn active={tab === "records"} onClick={() => setTab("records")}>Records ({records.length})</TabBtn>
         <TabBtn active={tab === "entitlements"} onClick={() => setTab("entitlements")}>Entitlements ({entitlements.length})</TabBtn>
         <TabBtn active={tab === "delegations"} onClick={() => setTab("delegations")}>Delegations ({delegations.length})</TabBtn>
+        {isOrg && <TabBtn active={tab === "members"} onClick={() => setTab("members")}>Members &amp; access</TabBtn>}
       </div>
+
+      {tab === "members" && isOrg && (
+        liveOrg!.stewardship ? (
+          <MembersPanel
+            orgName={liveOrg!.name ?? "this organization"}
+            orgSA={liveOrg!.address}
+            stewardship={liveOrg!.stewardship}
+            custodian={liveOrg!.custodian}
+            via={via}
+            token={token}
+          />
+        ) : (
+          <EmptyNote>This org&apos;s stewardship grant isn&apos;t loaded, so member access can&apos;t be managed here. Re-enter the org from <Link href="/organizations">Organizations</Link>.</EmptyNote>
+        )
+      )}
 
       {tab === "records" && (
         needsVaultKey ? (
@@ -393,5 +413,128 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
     <button className={`btn btn-sm ${active ? "btn-primary" : "btn-ghost"}`} onClick={onClick}>
       {children}
     </button>
+  );
+}
+
+const RECORD_OPTIONS = [
+  { value: "impact-profile", label: "Community profile" },
+  { value: "impact-entitlements", label: "Entitlements record" },
+];
+
+/** Org-custodian surface: grant a MEMBER (a different SA) scoped read access to this org's vault via a
+ *  signed entitlement — access is by the credential, NOT custody. Issue / list / revoke present the
+ *  org's stewardship authority; "Test access" reads the org record AS a member you custody, proving the
+ *  entitlement is the gate (revoke ⇒ the same read fails closed). */
+function MembersPanel({ orgName, orgSA, stewardship, custodian, via, token }: {
+  orgName: string; orgSA: Address; stewardship: DelegationWire; custodian: Address; via: ConnectVia; token: string | null;
+}) {
+  const auth = { stewardship, requester: custodian };
+  const [issued, setIssued] = useState<IssuedEntitlement[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const [form, setForm] = useState({ member: "", recordType: "impact-profile", days: "" });
+  const [test, setTest] = useState<{ id: string; result: string; tone: "emerald" | "danger" } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    listOrgEntitlements(auth)
+      .then((list) => { if (alive) setIssued(list); })
+      .catch(() => { if (alive) setIssued([]); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refresh, orgSA]);
+
+  async function onIssue() {
+    const member = form.member.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(member)) { setErr("Enter the member's Smart Agent address (0x…)."); return; }
+    if (member.toLowerCase() === orgSA.toLowerCase()) { setErr("The member must be a different agent than the org."); return; }
+    setErr(null); setBusy(true);
+    const days = Number(form.days);
+    const out = await issueOrgEntitlement(auth, {
+      member: member as Address, recordType: form.recordType,
+      ...(days > 0 ? { ttlSeconds: Math.round(days * 86400) } : {}),
+    });
+    setBusy(false);
+    if (out.ok) { setForm({ member: "", recordType: form.recordType, days: "" }); setRefresh((k) => k + 1); }
+    else setErr(out.error);
+  }
+
+  async function onRevoke(id: string) {
+    setErr(null); setBusy(true);
+    const out = await revokeOrgEntitlement(auth, id);
+    setBusy(false);
+    if (out.ok) setRefresh((k) => k + 1); else setErr(out.error);
+  }
+
+  async function onTest(e: IssuedEntitlement) {
+    setTest({ id: e.id, result: "Reading as the member…", tone: "emerald" });
+    const out = await readOrgAsMember({ member: e.member, via, token, owner: orgSA, recordType: e.recordType });
+    if (out.ok) {
+      const n = out.data && typeof out.data === "object" ? Object.keys(out.data as object).length : 0;
+      setTest({ id: e.id, result: `Allowed — read ${n} field group(s)${out.allowedFields ? ` (fields: ${out.allowedFields.join(", ")})` : ""}.`, tone: "emerald" });
+    } else {
+      setTest({ id: e.id, result: `Denied${out.reason ? ` (${out.reason})` : ""}: ${out.error}`, tone: "danger" });
+    }
+  }
+
+  return (
+    <div className="col" style={{ gap: ".9rem" }}>
+      {err && <div className="muted" style={{ color: "var(--danger)" }}>{err}</div>}
+      <div className="card card-pad col" style={{ gap: ".6rem" }}>
+        <div>
+          <strong style={{ fontSize: ".95rem" }}>Grant a member access</strong>
+          <div className="muted" style={{ fontSize: ".83rem", marginTop: 3 }}>
+            Issue {orgName} a signed entitlement so a member (a different Smart Agent) can read a scoped record
+            of this org&apos;s vault — gated by the credential, never by custody. Revoke any time.
+          </div>
+        </div>
+        <div className="row wrap" style={{ gap: ".5rem", alignItems: "center" }}>
+          <input value={form.member} onChange={(e) => setForm((f) => ({ ...f, member: e.target.value }))} placeholder="Member Smart Agent (0x…)" aria-label="Member address" style={{ ...inputStyle, width: 340, fontFamily: "var(--font-mono, monospace)" }} />
+          <select value={form.recordType} onChange={(e) => setForm((f) => ({ ...f, recordType: e.target.value }))} aria-label="Record" style={{ ...inputStyle, width: 190 }}>
+            {RECORD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <input value={form.days} onChange={(e) => setForm((f) => ({ ...f, days: e.target.value }))} placeholder="Days (blank = no expiry)" inputMode="numeric" aria-label="Validity days" style={{ ...inputStyle, width: 150 }} />
+          <button className="btn btn-primary btn-sm" onClick={onIssue} disabled={busy}>{busy ? "…" : "Issue entitlement"}</button>
+        </div>
+        <span className="faint" style={{ fontSize: ".72rem" }}>Tip: to see the member side, use one of your OWN agents (treasury / another org) as the member — &quot;Test access&quot; then reads as it.</span>
+      </div>
+
+      {loading && issued.length === 0 ? (
+        <div className="muted">Loading issued entitlements…</div>
+      ) : issued.length === 0 ? (
+        <EmptyNote>No members yet. Issue an entitlement above to grant a member scoped, revocable access to this org&apos;s vault.</EmptyNote>
+      ) : (
+        issued.map((e) => (
+          <div key={e.id} className="card card-pad">
+            <div className="row-between" style={{ alignItems: "flex-start" }}>
+              <div>
+                <div className="row" style={{ gap: ".5rem" }}>
+                  <strong>{e.recordType}</strong>
+                  <Pill tone={e.status === "granted" ? "emerald" : "danger"}>{e.status}</Pill>
+                </div>
+                <div className="faint" style={{ fontSize: ".74rem", marginTop: 4 }}>
+                  member <code className="mono">{e.member.slice(0, 8)}…{e.member.slice(-4)}</code>
+                  {e.validUntil ? ` · expires ${new Date(e.validUntil).toLocaleDateString()}` : " · no expiry"}
+                  {` · granted ${new Date(e.createdAt).toLocaleDateString()}`}
+                </div>
+              </div>
+              <div className="row" style={{ gap: ".4rem" }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => onTest(e)} disabled={busy}>Test access</button>
+                {e.status === "granted" && <button className="btn btn-danger btn-sm" onClick={() => onRevoke(e.id)} disabled={busy}>Revoke</button>}
+              </div>
+            </div>
+            {test && test.id === e.id && (
+              <div className="muted" style={{ fontSize: ".8rem", marginTop: ".6rem", color: test.tone === "danger" ? "var(--danger)" : "var(--emerald-700)" }}>
+                {test.result}
+              </div>
+            )}
+          </div>
+        ))
+      )}
+    </div>
   );
 }
