@@ -8,8 +8,12 @@ workers `impact-a2a` / `impact-mcp`). Substitute your own names everywhere — s
 | App | Runtime | Role |
 |-----|---------|------|
 | **`<home>`** (Impact) | Next.js (Vercel) | Browser **home** + auth **broker**: passkey/SIWE/social sign-in, mints `AgentSession` JWTs, proxies `/a2a/*` + `/mcp-bind/*` to the workers. |
-| **`<home>-a2a`** (impact-a2a) | Cloudflare Worker + Durable Objects | A2A boundary: SIWE/passkey verify, **relayer** (gasless Smart-Account deploys + UserOps), delegation-token minting, social-custody bridge. Copied from agenticprimitives **`apps/demo-a2a`**. |
-| **`<home>-mcp`** (impact-mcp) | Cloudflare Worker + D1 | MCP server: delegation-verified tools, OAuth ingress, per-person KMS **vault**. Copied from agenticprimitives **`apps/demo-mcp`**. |
+| **`<home>-a2a`** (impact-a2a) | Cloudflare Worker + Durable Objects | A2A boundary: SIWE/passkey verify, **relayer** (gasless Smart-Account deploys + UserOps), delegation-token minting, social-custody bridge. Template: **`apps/impact-a2a`** (this repo). |
+| **`<home>-mcp`** (impact-mcp) | Cloudflare Worker + D1 | MCP server: delegation-verified tools, OAuth ingress, per-person KMS **vault**. Template: **`apps/impact-mcp`** (this repo). |
+
+> This guide uses **this repo's `impact` / `impact-a2a` / `impact-mcp` apps as the template** for a new
+> repo. The only thing pulled from **agenticprimitives** is the published **`@agenticprimitives/*`
+> packages** (npm) — you do not copy or depend on its `demo-*` apps.
 
 ```
  browser ─▶ <home> (Next.js / Vercel)
@@ -34,12 +38,13 @@ You will substitute three things throughout:
 | `<domain>` | `churchcore.me` | the registrable home domain (served on `www.<domain>`) |
 | `<gcp-project>` | `churchcore2` | your Google Cloud project id |
 
-When you copy `demo-a2a`/`demo-mcp`, rename **`demo-a2a`→`<home>-a2a`** and **`demo-mcp`→`<home>-mcp`**
-across src/configs/docs. This is safe **except** verify these stay internally consistent (they're not
-cross-system, so a uniform rename is fine): the vault server id (`VAULT_SERVER_ID`, `vaultId`,
-`serverId` — only rename on a **fresh** vault, before any encrypted rows exist), the delegation-token
-`iss`, and health/`served_by` labels. The a2a↔mcp service-MAC binds `service: 'a2a-to-mcp'` +
-`MCP_AUDIENCE` (do **not** touch). Run `pnpm -r typecheck` after.
+When you copy this repo's `impact-a2a`/`impact-mcp`, rename **`impact-a2a`→`<home>-a2a`**,
+**`impact-mcp`→`<home>-mcp`**, and **`churchcore.me`→`<domain>`** across src/configs. This is safe
+**except** verify these stay internally consistent (they're not cross-system, so a uniform rename is
+fine): the vault server id (`VAULT_SERVER_ID`, `vaultId`, `serverId` — only rename on a **fresh**
+vault, before any encrypted rows exist), the delegation-token `iss`, and health/`served_by` labels.
+The a2a↔mcp service-MAC binds `service: 'a2a-to-mcp'` + `MCP_AUDIENCE` (do **not** touch). Run
+`pnpm -r typecheck` after.
 
 ---
 
@@ -94,9 +99,9 @@ imports addresses from it). Each app `tsconfig.json` extends a shared `tsconfig.
 
 ## 2. Copy + rename the two workers
 
-Copy `agenticprimitives/apps/demo-mcp` → `apps/<home>-mcp` and `agenticprimitives/apps/demo-a2a` →
-`apps/<home>-a2a` (src + `migrations/` + `tsconfig.json`; **exclude** `node_modules`, `.wrangler`,
-`.dev.vars`, `dist`, `*.db`). Then:
+Copy this repo's `apps/impact-mcp` → `apps/<home>-mcp` and `apps/impact-a2a` → `apps/<home>-a2a`
+(src + `migrations/` + `tsconfig.json`; **exclude** `node_modules`, `.wrangler`, `.dev.vars`, `dist`,
+`*.db`). Then:
 
 **`<home>-mcp`** — `package.json` name → `@<scope>/<home>-mcp`, deps `workspace:*` → the pinned
 versions, unique dev port/persist-to, D1 scripts target `<home>-mcp`. `wrangler.toml`:
@@ -104,9 +109,9 @@ versions, unique dev port/persist-to, D1 scripts target `<home>-mcp`. `wrangler.
 keep `[env.production.vars]` (`CHAIN_ID="84532"`, `MCP_AUDIENCE="urn:mcp:server:person"`,
 `DEMO_OAUTH_MINT_ENABLED="true"`, `DEMO_VAULT_PROVISION_ENABLED="true"` — testnet-only).
 
-**`<home>-a2a`** — same package rename. `wrangler.toml`: `name = "<home>-a2a"`; **drop demo-a2a's
-`routes = ["*.<domain>/*"]`** (you reach the worker via its `workers.dev` URL through the Next
-`/a2a/*` rewrite — keep `workers_dev = true`); `[[env.production.kv_namespaces]]` `BRIDGE_NONCES` +
+**`<home>-a2a`** — same package rename. `wrangler.toml`: `name = "<home>-a2a"`; **keep it route-less**
+(`impact-a2a` has no custom `routes` — you reach the worker via its `workers.dev` URL through the Next
+`/a2a/*` rewrite; keep `workers_dev = true`); `[[env.production.kv_namespaces]]` `BRIDGE_NONCES` +
 `FED_TOKENS` ids from §3; `[[env.production.services]]` `binding = "MCP"`,
 `service = "<home>-mcp-production"`.
 
@@ -119,7 +124,7 @@ keep `[env.production.vars]` (`CHAIN_ID="84532"`, `MCP_AUDIENCE="urn:mcp:server:
 
 ```bash
 wrangler login
-# <home>-a2a KV (run in apps/<home>-a2a) — use DISTINCT titles so you don't share state with demo-a2a:
+# <home>-a2a KV (run in apps/<home>-a2a) — use DISTINCT per-deployment titles (don't reuse another worker's):
 wrangler kv namespace create <home>-a2a-BRIDGE_NONCES   # → paste id into BRIDGE_NONCES
 wrangler kv namespace create <home>-a2a-FED_TOKENS      # → paste id into FED_TOKENS
 # <home>-mcp D1 (run in apps/<home>-mcp):
@@ -240,7 +245,7 @@ realigning it needs the paymaster `owner`.
 
 ## 7. The Next.js home (Vercel)
 
-It's a port of agenticprimitives `apps/demo-sso-next` (broker + passkey/SIWE/social client). Two
+Template: this repo's `apps/impact` (the broker + passkey/SIWE/social client). Two
 server rewrites in `next.config.mjs`:
 ```js
 const IMPACT_A2A_URL = process.env.IMPACT_A2A_URL || 'https://<home>-a2a-production.<acct>.workers.dev';

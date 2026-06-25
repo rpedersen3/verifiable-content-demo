@@ -1,13 +1,13 @@
 /** @type {import('next').NextConfig} */
 
-// Impact talks to its OWN backend workers (apps/impact-a2a + apps/impact-mcp — copies of
-// the agenticprimitives demo-a2a/demo-mcp) for all real ceremonies (delegation signing,
+// Impact talks to its OWN backend workers (apps/impact-a2a + apps/impact-mcp) for all real
+// ceremonies (delegation signing,
 // vault read/write, KMS custody, x402). Production deployments SHOULD set these env vars
 // explicitly; the fallbacks are solo-dev convenience only.
 const IMPACT_A2A_URL = process.env.IMPACT_A2A_URL || 'https://impact-a2a-production.richardpedersen3.workers.dev';
 const IMPACT_MCP_URL = process.env.IMPACT_MCP_URL || 'https://impact-mcp-production.richardpedersen3.workers.dev';
 
-// Security headers baseline (mirrors demo-sso-next). A strict CSP lands once the
+// Security headers baseline. A strict CSP lands once the
 // ceremony wiring is in place.
 const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
@@ -22,7 +22,7 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   // The @agenticprimitives connect/auth packages ship ESM; transpile them so Next
-  // bundles them consistently across server routes + client (same as demo-sso-next).
+  // bundles them consistently across server routes + client.
   transpilePackages: [
     "@agenticprimitives/types",
     "@agenticprimitives/connect",
