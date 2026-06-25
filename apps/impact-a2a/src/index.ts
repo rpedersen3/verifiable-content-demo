@@ -1004,22 +1004,18 @@ function accountClient(env: Env): AgentAccountClient {
 }
 
 function sessionManagerFor(env: Env, accountAddress: Address): SessionManager {
-  // Pick the envelope-encryption backend by env:
-  // - If A2A_KMS_BACKEND=gcp-kms AND GCP_KMS_ENCRYPT_KEY_NAME is configured,
-  //   wrap session data keys with Cloud KMS Encrypt/Decrypt. Production-grade.
-  // - Otherwise fall back to local-aes (dev backend; fails fast when
-  //   NODE_ENV=production per its production guard).
-  const backend = ((process.env.A2A_KMS_BACKEND as KmsBackend | undefined) || 'local-aes');
-  const keyCustody =
-    backend === 'gcp-kms' && env.GCP_KMS_ENCRYPT_KEY_NAME && env.GCP_SERVICE_ACCOUNT_JSON
-      ? buildKeyProvider({
-          backend: 'gcp-kms',
-          config: {
-            cryptoKeyName: env.GCP_KMS_ENCRYPT_KEY_NAME,
-            serviceAccountJson: env.GCP_SERVICE_ACCOUNT_JSON,
-          },
-        })
-      : buildKeyProvider({ backend: 'local-aes' });
+  // Session-data-key ENVELOPE backend. This wraps the EPHEMERAL session key that signs the
+  // short-lived MCP delegation token (auth only — NOT an on-chain signer, so [[no-held-keys-rule]]
+  // is about the relayer/userOp signers, which stay gcp-kms below, not this).
+  //
+  // We use local-aes (HKDF-AES under the A2A_SESSION_SECRET wrangler secret), NOT gcp-kms: the
+  // @agenticprimitives/key-custody@alpha.13 GcpKmsProvider has a round-trip AAD bug — generateSession-
+  // DataKey builds the encrypt AAD with the provider's static keyVersion ('gcp-kms:unknown') but
+  // returns the version PARSED from the GCP response ('gcp-kms:vN'), which decryptSessionDataKey then
+  // uses in the decrypt AAD → encrypt-AAD ≠ decrypt-AAD → KMS HTTP 400 on every package(). local-aes
+  // uses a constant keyVersion ('local-v1'), so encrypt/decrypt AADs always match. Requires
+  // A2A_ALLOW_LOCAL_ENVELOPE_KEY=true + A2A_SESSION_SECRET (both set for this testnet deployment).
+  const keyCustody = buildKeyProvider({ backend: 'local-aes' });
   // Shard per-user: idFromName(accountAddress) → isolated DO instance.
   const store = new DurableObjectSessionStore(env.SESSIONS, accountAddress);
   return new SessionManager({ keyCustody, store });
@@ -3512,45 +3508,58 @@ export async function callMcpToolViaDelegation(args: {
   const auditSink = buildAuditSink(args.env);
   const correlationId = crypto.randomUUID();
 
-  const sm = sessionManagerFor(args.env, args.requester);
-  const initRes = await sm.init(args.requester, Number(args.env.CHAIN_ID));
+  let step = 'session-init';
+  let token: string;
+  try {
+    const sm = sessionManagerFor(args.env, args.requester);
+    const initRes = await sm.init(args.requester, Number(args.env.CHAIN_ID));
 
-  const delegationStruct: Delegation = {
-    delegator: args.delegation.delegator,
-    delegate: args.delegation.delegate,
-    authority: args.delegation.authority,
-    caveats: args.delegation.caveats.map((c) => ({
-      enforcer: c.enforcer,
-      terms: c.terms,
-      args: (c.args ?? '0x') as Hex,
-    })),
-    salt: BigInt(args.delegation.salt),
-    signature: args.delegation.signature,
-  };
-  await sm.package(initRes.sessionId, delegationStruct);
+    const delegationStruct: Delegation = {
+      delegator: args.delegation.delegator,
+      delegate: args.delegation.delegate,
+      authority: args.delegation.authority,
+      caveats: args.delegation.caveats.map((c) => ({
+        enforcer: c.enforcer,
+        terms: c.terms,
+        args: (c.args ?? '0x') as Hex,
+      })),
+      salt: BigInt(args.delegation.salt),
+      signature: args.delegation.signature,
+    };
+    step = 'session-package';
+    await sm.package(initRes.sessionId, delegationStruct);
 
-  const resolved = await sm.resolve(initRes.sessionId);
-  if (!resolved.delegation) {
+    step = 'session-resolve';
+    const resolved = await sm.resolve(initRes.sessionId);
+    if (!resolved.delegation) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'session_resolve_no_delegation' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // 4. Mint the delegation token signed by the session key.
+    step = 'mint-token';
+    ({ token } = await mintDelegationToken(
+      {
+        iss: 'impact-a2a',
+        aud: MCP_AUDIENCE,
+        sub: resolved.delegation.delegator,
+        delegation: resolved.delegation,
+        sessionKeyAddress: resolved.signer.address,
+        ttlSeconds: 300,
+        usageLimit: 10,
+      },
+      (msg) => resolved.signer.signMessage(msg),
+      { auditSink, correlationId },
+    ));
+  } catch (e) {
+    console.error(`[impact-a2a] callMcpToolViaDelegation FAILED at step=${step} tool=${args.toolName} delegator=${args.delegation.delegator} delegate=${args.delegation.delegate}:`, e instanceof Error ? (e.stack ?? e.message) : String(e));
     return new Response(
-      JSON.stringify({ ok: false, error: 'session_resolve_no_delegation' }),
+      JSON.stringify({ ok: false, error: 'delegation_mint_failed', step, detail: e instanceof Error ? e.message : String(e) }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }
-
-  // 4. Mint the delegation token signed by the session key.
-  const { token } = await mintDelegationToken(
-    {
-      iss: 'impact-a2a',
-      aud: MCP_AUDIENCE,
-      sub: resolved.delegation.delegator,
-      delegation: resolved.delegation,
-      sessionKeyAddress: resolved.signer.address,
-      ttlSeconds: 300,
-      usageLimit: 10,
-    },
-    (msg) => resolved.signer.signMessage(msg),
-    { auditSink, correlationId },
-  );
 
   // 5 + 6. Service-MAC envelope + worker-to-worker call to impact-mcp (shared with the client-mint path).
   return forwardMcpToken({

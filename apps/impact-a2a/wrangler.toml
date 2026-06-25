@@ -112,9 +112,12 @@ A2A_ALLOW_LOCAL_MASTER_KEY = "true"
 # Acceptable on testnet (test keys, ephemeral DOs); MUST be replaced
 # by A2A_KMS_BACKEND=gcp-kms + GCP_KMS_ENCRYPT_KEY_NAME before any
 # real-value keys land. See packages/key-custody/AUDIT.md → KC-3.
-# Disabled — impact-a2a wraps session-data-keys via Cloud KMS (GCP_KMS_ENCRYPT_KEY_NAME below),
-# so no local AES envelope key is held ([[no-held-keys-rule]]).
-A2A_ALLOW_LOCAL_ENVELOPE_KEY = "false"
+# ENABLED — the alpha.13 GcpKmsProvider has a session-envelope AAD round-trip bug (encrypt AAD uses
+# keyVersion 'gcp-kms:unknown' but decrypt AAD uses the response-parsed 'gcp-kms:vN' → KMS HTTP 400),
+# so SessionManager wraps the EPHEMERAL token-signing key via local-aes (HKDF under A2A_SESSION_SECRET)
+# instead. This is a token-auth key, not an on-chain signer, so [[no-held-keys-rule]] (relayer/userOp
+# signers) is unaffected — those stay gcp-kms. Revisit when key-custody ships the AAD fix.
+A2A_ALLOW_LOCAL_ENVELOPE_KEY = "true"
 # GCP_KMS_ENCRYPT_KEY_NAME: symmetric Cloud KMS key for session-data-key envelope encryption.
 # Set → GcpKmsProvider Encrypt/Decrypt instead of LocalAesProvider's HKDF-from-local-secret.
 # Uses the `agent-envelope` symmetric key (SA encrypt/decrypt verified).
