@@ -1070,8 +1070,28 @@ app.post('/mcp', async (c) => {
     return c.json({ ok: true, tool, principal, record: obj?.data ?? null, served_by: 'impact-mcp:get_impact_profile' });
   }
 
+  // spec 277 — the member's ENTITLEMENTS (verifiable credentials an issuer grants them) are the
+  // CANONICAL store in the reader's OWN per-person vault (`vault:impact-entitlements`), per the
+  // entitlement-storage decision: written into the reader's namespace at grant time, read back by
+  // the reader from their own vault. Owner-reads/writes-own over this OAuth ingress (ap_principal);
+  // both ops binding-gated; no binding ⇒ fail closed. Sealed/opened under the person's GCP KEK.
+  if (tool === 'get_impact_entitlements' || tool === 'set_impact_entitlements') {
+    const resource = `${VAULT_RECORD_PREFIX}impact-entitlements`;
+    if (tool === 'set_impact_entitlements') {
+      const data = (body.args as { data?: unknown } | undefined)?.data ?? null;
+      const gate = await authorizePersonVaultOp(c.env, principal, resource, 'write', 'internal');
+      if (!gate.ok) return c.json({ ok: false, error: gate.error, served_by: 'impact-mcp:set_impact_entitlements' });
+      await gate.pv.vault.write({ owner: principal, resource, data });
+      return c.json({ ok: true, tool, principal, served_by: 'impact-mcp:set_impact_entitlements' });
+    }
+    const gate = await authorizePersonVaultOp(c.env, principal, resource, 'read', 'internal');
+    if (!gate.ok) return c.json({ ok: false, error: gate.error, served_by: 'impact-mcp:get_impact_entitlements' });
+    const obj = await gate.pv.vault.read({ owner: principal, resource });
+    return c.json({ ok: true, tool, principal, record: obj?.data ?? null, served_by: 'impact-mcp:get_impact_entitlements' });
+  }
+
   const spec = OAUTH_TOOL_SPECS[tool];
-  if (!spec) return c.json({ ok: false, error: 'unknown_tool', tool, supported: [...Object.keys(OAUTH_TOOL_SPECS), 'get_impact_profile', 'set_impact_profile'] }, 400);
+  if (!spec) return c.json({ ok: false, error: 'unknown_tool', tool, supported: [...Object.keys(OAUTH_TOOL_SPECS), 'get_impact_profile', 'set_impact_profile', 'get_impact_entitlements', 'set_impact_entitlements'] }, 400);
   const rawArgs = (body.args ?? body.params) as { fields?: string[]; purpose?: string } | undefined;
 
   const r = await readSensitive(

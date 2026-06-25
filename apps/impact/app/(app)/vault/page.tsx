@@ -11,6 +11,7 @@ import {
 import { displayNameFromContact } from "@/lib/profile-name";
 import { listMyOrgs, listMyReceivedDelegations, flattenDelegations, type LiveDelegation } from "@/lib/related";
 import { revokeDelegation } from "@/lib/connect";
+import { loadImpactEntitlements, saveImpactEntitlements, type ImpactEntitlement } from "@/lib/entitlements-store";
 
 type Tab = "records" | "entitlements" | "delegations";
 
@@ -62,6 +63,59 @@ export default function VaultPage() {
     else setDelErr(out.error);
   }
 
+  // Live entitlements (spec 277) — verifiable credentials sealed in the member's own vault.
+  const [entitlements, setEntitlements] = useState<ImpactEntitlement[]>([]);
+  const [entLoading, setEntLoading] = useState(true);
+  const [entErr, setEntErr] = useState<string | null>(null);
+  const [entBusy, setEntBusy] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addForm, setAddForm] = useState({ title: "", issuer: "", scope: "" });
+
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
+    setEntLoading(true); setEntErr(null);
+    loadImpactEntitlements(address as `0x${string}`)
+      .then((list) => { if (!cancelled) setEntitlements(list); })
+      .catch((err) => { if (!cancelled && err instanceof VaultKeyUnauthorizedError) setNeedsVaultKey(true); })
+      .finally(() => { if (!cancelled) setEntLoading(false); });
+    return () => { cancelled = true; };
+  }, [address]);
+
+  async function persistEntitlements(next: ImpactEntitlement[]) {
+    if (!address) return;
+    setEntErr(null); setEntBusy(true);
+    try {
+      await saveImpactEntitlements(address as `0x${string}`, next);
+      setEntitlements(next);
+    } catch (err) {
+      setEntErr(err instanceof VaultKeyUnauthorizedError ? "Activate your vault key first (Account → Activate vault key)." : err instanceof Error ? err.message : "save failed");
+    } finally {
+      setEntBusy(false);
+    }
+  }
+
+  async function onAddEntitlement() {
+    const title = addForm.title.trim();
+    if (!title) { setEntErr("Give the credential a title."); return; }
+    const ent: ImpactEntitlement = {
+      id: `ent:${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}:${Date.now()}`,
+      title,
+      issuer: addForm.issuer.trim() || (person?.name ? person.name : "You"),
+      scope: addForm.scope.trim() || "Self-recorded credential",
+      status: "active",
+      grantedAt: new Date().toISOString(),
+      selfAsserted: !addForm.issuer.trim(),
+    };
+    await persistEntitlements([...entitlements, ent]);
+    setAddForm({ title: "", issuer: "", scope: "" });
+    setShowAdd(false);
+  }
+
+  async function onRemoveEntitlement(id: string) {
+    await persistEntitlements(entitlements.filter((e) => e.id !== id));
+  }
+
   if (!person) return null;
 
   // Build the real records list: the encrypted community-profile record (if it holds anything) +
@@ -89,7 +143,7 @@ export default function VaultPage() {
 
       <div className="row wrap" style={{ gap: ".5rem", marginBottom: "1.2rem" }}>
         <TabBtn active={tab === "records"} onClick={() => setTab("records")}>Records ({records.length})</TabBtn>
-        <TabBtn active={tab === "entitlements"} onClick={() => setTab("entitlements")}>Entitlements ({person.entitlements.length})</TabBtn>
+        <TabBtn active={tab === "entitlements"} onClick={() => setTab("entitlements")}>Entitlements ({entitlements.length})</TabBtn>
         <TabBtn active={tab === "delegations"} onClick={() => setTab("delegations")}>Delegations ({delegations.length})</TabBtn>
       </div>
 
@@ -133,24 +187,59 @@ export default function VaultPage() {
       )}
 
       {tab === "entitlements" && (
-        <div className="col" style={{ gap: ".7rem" }}>
-          {person.entitlements.length === 0 && <EmptyNote>No entitlements yet — credentials an organization or service grants you will appear here.</EmptyNote>}
-          {person.entitlements.map((e) => (
-            <div key={e.id} className="card card-pad row-between" style={{ alignItems: "flex-start" }}>
-              <div>
-                <div className="row" style={{ gap: ".5rem" }}>
-                  <strong>{e.title}</strong>
-                  <Pill tone={e.status === "active" ? "emerald" : e.status === "pending" ? "amber" : "danger"}>{e.status}</Pill>
-                </div>
-                <div className="muted" style={{ fontSize: ".84rem", marginTop: 3 }}>{e.scope}</div>
-                <div className="faint" style={{ fontSize: ".74rem", marginTop: 4 }}>
-                  Issued by {e.issuer} · {e.grantedAt}{e.expiresAt ? ` · expires ${e.expiresAt}` : ""}
+        needsVaultKey ? (
+          <EmptyNote>
+            Your vault isn&apos;t activated yet. Go to <Link href="/account">Account → Activate vault key</Link> to
+            hold and read verifiable credentials in your encrypted vault.
+          </EmptyNote>
+        ) : (
+          <div className="col" style={{ gap: ".7rem" }}>
+            {entErr && <div className="muted" style={{ color: "var(--danger)" }}>{entErr}</div>}
+            <div className="row-between">
+              <span className="faint" style={{ fontSize: ".78rem" }}>Sealed in your vault under your own key — read on your terms.</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowAdd((s) => !s)} disabled={entBusy}>{showAdd ? "Cancel" : "Record a credential"}</button>
+            </div>
+
+            {showAdd && (
+              <div className="card card-pad col" style={{ gap: ".55rem" }}>
+                <input className="input" placeholder="Title (e.g. Member — Cornerstone Fellowship)" value={addForm.title} onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))} style={inputStyle} />
+                <input className="input" placeholder="Issuer (leave blank if self-asserted)" value={addForm.issuer} onChange={(e) => setAddForm((f) => ({ ...f, issuer: e.target.value }))} style={inputStyle} />
+                <input className="input" placeholder="Scope (what it grants)" value={addForm.scope} onChange={(e) => setAddForm((f) => ({ ...f, scope: e.target.value }))} style={inputStyle} />
+                <div className="row" style={{ gap: ".4rem" }}>
+                  <button className="btn btn-primary btn-sm" onClick={onAddEntitlement} disabled={entBusy}>{entBusy ? "Sealing…" : "Seal into vault"}</button>
+                  <span className="faint" style={{ fontSize: ".72rem", alignSelf: "center" }}>No issuer ⇒ recorded as self-asserted (no third-party verification).</span>
                 </div>
               </div>
-              <span className="chip chip-emerald"><IconCheck width={13} height={13} /> verifiable</span>
-            </div>
-          ))}
-        </div>
+            )}
+
+            {entLoading && entitlements.length === 0 ? (
+              <div className="muted">Reading your encrypted vault…</div>
+            ) : entitlements.length === 0 ? (
+              <EmptyNote>No entitlements yet — credentials an organization or service grants you appear here, sealed in your vault. You can also record one you already hold.</EmptyNote>
+            ) : (
+              entitlements.map((e) => (
+                <div key={e.id} className="card card-pad row-between" style={{ alignItems: "flex-start" }}>
+                  <div>
+                    <div className="row" style={{ gap: ".5rem" }}>
+                      <strong>{e.title}</strong>
+                      <Pill tone={e.status === "active" ? "emerald" : e.status === "pending" ? "amber" : "danger"}>{e.status}</Pill>
+                    </div>
+                    <div className="muted" style={{ fontSize: ".84rem", marginTop: 3 }}>{e.scope}</div>
+                    <div className="faint" style={{ fontSize: ".74rem", marginTop: 4 }}>
+                      Issued by {e.issuer} · {new Date(e.grantedAt).toLocaleDateString()}{e.expiresAt ? ` · expires ${new Date(e.expiresAt).toLocaleDateString()}` : ""}
+                    </div>
+                  </div>
+                  <div className="col" style={{ gap: ".4rem", alignItems: "flex-end" }}>
+                    {e.selfAsserted
+                      ? <span className="chip chip-amber">self-asserted</span>
+                      : <span className="chip chip-emerald"><IconCheck width={13} height={13} /> verifiable</span>}
+                    <button className="btn btn-danger btn-sm" onClick={() => onRemoveEntitlement(e.id)} disabled={entBusy}>Remove</button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )
       )}
 
       {tab === "delegations" && (
@@ -191,6 +280,11 @@ export default function VaultPage() {
     </>
   );
 }
+
+const inputStyle: React.CSSProperties = {
+  padding: ".5rem .6rem", borderRadius: "var(--r-sm)", border: "1px solid var(--border-strong)",
+  background: "var(--surface)", color: "var(--ink)", fontFamily: "inherit", fontSize: ".86rem", width: "100%",
+};
 
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
