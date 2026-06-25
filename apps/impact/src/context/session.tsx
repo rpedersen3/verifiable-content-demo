@@ -55,6 +55,8 @@ interface SessionApi extends SessionState {
    *  error string on failure, null on success. */
   signIn: (via: Via, nameHint?: string, onStep?: (s: string) => void) => Promise<string | null>;
   signOut: () => void;
+  /** Mark the home as deployed on-chain (after a secure/deploy ceremony) so the UI reflects it. */
+  markDeployed: () => void;
   setActive: (ctx: ActiveContext) => void;
   setDefaultOrg: (orgId: string | null) => void;
   /** Dismiss the welcome beat (the gate calls this when the member enters their home). */
@@ -174,6 +176,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, justConnected: null }));
   }, []);
 
+  const markDeployed = useCallback(() => {
+    setState((s) => {
+      if (!s.identity || s.identity.deployed) return s;
+      const identity: Identity = { ...s.identity, deployed: true };
+      if (s.token) persist({ token: s.token, identity, defaultOrgId: s.defaultOrgId, active: s.active });
+      return { ...s, identity, person: personFromIdentity(identity) };
+    });
+  }, [persist]);
+
   const setActive = useCallback((ctx: ActiveContext) => {
     setState((s) => {
       if (s.token && s.identity) persist({ token: s.token, identity: s.identity, defaultOrgId: s.defaultOrgId, active: ctx });
@@ -190,8 +201,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [persist]);
 
   const api = useMemo<SessionApi>(
-    () => ({ ...state, signIn, signOut, setActive, setDefaultOrg, clearJustConnected }),
-    [state, signIn, signOut, setActive, setDefaultOrg, clearJustConnected],
+    () => ({ ...state, signIn, signOut, markDeployed, setActive, setDefaultOrg, clearJustConnected }),
+    [state, signIn, signOut, markDeployed, setActive, setDefaultOrg, clearJustConnected],
   );
 
   return <SessionCtx.Provider value={api}>{children}</SessionCtx.Provider>;

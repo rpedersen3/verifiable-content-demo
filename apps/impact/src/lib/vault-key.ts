@@ -92,6 +92,23 @@ function buildVaultKeyAuthorization(owner: Address, p: CeremonyParams): { delega
   return { delegation: d, digest, expiresAt: new Date(validUntil * 1000).toISOString() };
 }
 
+/** Deploy a counterfactual SOCIAL (Google/YouVersion) home on-chain — nameless, gas-sponsored,
+ *  idempotent. Required before any ERC-1271 op (vault-key authorization, delegations): an account
+ *  with no code can't validate a signature. The per-(iss,sub) C_sub signs the deploy userOp
+ *  server-side over the custody session (no device gesture). */
+export async function secureSocialHome(token: string): Promise<{ ok: true; agent: Address } | { ok: false; error: string }> {
+  await ensureCsrfToken();
+  const res = await fetch("/a2a/custody/google/bootstrap", {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ session: token }),
+  });
+  const b = (await res.json().catch(() => ({}))) as { ok?: boolean; agent?: Address; error?: string; detail?: string };
+  if (!res.ok || !b.ok || !b.agent) return { ok: false, error: [b.error, b.detail].filter(Boolean).join(" — ") || `secure home failed (HTTP ${res.status})` };
+  return { ok: true, agent: b.agent };
+}
+
 /** Fetch the server's delegate + authorized scope. */
 export async function fetchVaultServerInfo(): Promise<VaultKeyServerInfo> {
   const info = (await (await fetch(`${MCP_BIND}/custody/vault-key/server-info`)).json()) as Partial<VaultKeyServerInfo>;
