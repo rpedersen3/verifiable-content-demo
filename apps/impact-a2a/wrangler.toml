@@ -112,14 +112,13 @@ A2A_ALLOW_LOCAL_MASTER_KEY = "true"
 # Acceptable for the demo (test keys, ephemeral DOs); MUST be replaced
 # by A2A_KMS_BACKEND=gcp-kms + GCP_KMS_ENCRYPT_KEY_NAME before any
 # real-value keys land. See packages/key-custody/AUDIT.md → KC-3.
-A2A_ALLOW_LOCAL_ENVELOPE_KEY = "true"
-# GCP_KMS_ENCRYPT_KEY_NAME: full resource name of the symmetric Cloud KMS
-# key used by GcpKmsProvider for session-data-key envelope encryption.
-# When set (alongside A2A_KMS_BACKEND=gcp-kms), demo-a2a uses Cloud KMS
-# Encrypt/Decrypt for envelope wrapping instead of LocalAesProvider's
-# HKDF-from-local-secret path. Required for live (production) deploys
-# because LocalAesProvider fails closed when NODE_ENV=production.
-GCP_KMS_ENCRYPT_KEY_NAME = ""
+# Disabled — impact-a2a wraps session-data-keys via Cloud KMS (GCP_KMS_ENCRYPT_KEY_NAME below),
+# so no local AES envelope key is held ([[no-held-keys-rule]]).
+A2A_ALLOW_LOCAL_ENVELOPE_KEY = "false"
+# GCP_KMS_ENCRYPT_KEY_NAME: symmetric Cloud KMS key for session-data-key envelope encryption.
+# Set → GcpKmsProvider Encrypt/Decrypt instead of LocalAesProvider's HKDF-from-local-secret.
+# Uses the `agent-envelope` symmetric key (SA encrypt/decrypt verified).
+GCP_KMS_ENCRYPT_KEY_NAME = "projects/churchcore2/locations/us-central1/keyRings/agenticprimitives-demo/cryptoKeys/agent-envelope"
 # PAYMASTER: SmartAgentPaymaster contract address. When set, demo-a2a
 # enables the /session/deploy endpoints; demo-web shows the Step 1.5
 # "Deploy smart account" prompt and the user's smart account is deployed
