@@ -63,7 +63,9 @@ export default function OrganizationsPage() {
     setShowCreate(false);
     setOrgName("");
     setRefreshKey((k) => k + 1);
-    if (!act.ok) setErr(`Organization created, but activating its vault failed: ${act.error}. You can retry from the org's Vault.`);
+    // out.warning ⇒ the org deployed but couldn't be recorded in YOUR vault (it'd be lost on reload).
+    if (out.warning) setErr(out.warning);
+    else if (!act.ok) setErr(`Organization created, but activating its vault failed: ${act.error}. You can retry from the org's Vault.`);
   }
 
   const hasAny = custody.length + member.length + live.orgs.length > 0;

@@ -31,6 +31,7 @@ import { CONTRACTS, DEFAULT_RPC_URL } from "./chain";
 import { nameLabel } from "./domain";
 import { buildApprovedSiteDelegation, toWire, type DelegationWire } from "./delegation";
 import { upsertRelationship, type AgentRelationship } from "./relationships-store";
+import { activateVaultKey } from "./vault-key";
 import type { AccessContext } from "./access";
 
 export type SignHash = (hash: Hex) => Promise<Hex>;
@@ -495,6 +496,21 @@ async function saveRelatedAgent(input: {
   }
 }
 
+/** Save the relationship; if it fails because the person's vault key doesn't yet authorize the
+ *  vault:impact-relationships resource, RE-ACTIVATE the key (gesture-free on a social home) and retry
+ *  once — so creating an agent self-heals the vault scope instead of silently losing the link. */
+async function recordRelationship(
+  input: Parameters<typeof saveRelatedAgent>[0],
+  onStep?: Step,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const first = await saveRelatedAgent(input);
+  if (first.ok) return first;
+  onStep?.("Activating your vault to record this…");
+  const act = await activateVaultKey(input.person, input.via, input.token);
+  if (!act.ok) return { ok: false, error: act.error };
+  return saveRelatedAgent(input);
+}
+
 /** Revoke a delegation the person granted (ADR-0019: a grant is a revocable scoped delegation).
  *  The DELEGATOR SA — an agent the person controls (their treasury / the person SA) — signs
  *  `execute(DelegationManager, revokeDelegationByOwner(d))`, so `msg.sender` is the delegator and
@@ -564,7 +580,7 @@ function managedSalt(kind: ManagedKind): bigint {
 export async function createManagedAgent(
   opts: { name: string | null; kind: ManagedKind; nameSuffix?: string; purpose?: string; parent?: Address; personSA: Address; via: ConnectVia; token?: string },
   onStep?: Step,
-): Promise<{ ok: true; agent: Address; name: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; agent: Address; name: string; warning?: string } | { ok: false; error: string }> {
   const suffix = opts.nameSuffix ?? "";
   const label = opts.name && opts.name.trim() ? nameLabel(opts.name) : null;
   const base = label ? `${label}${suffix}` : null;
@@ -594,11 +610,11 @@ export async function createManagedAgent(
     // Record the agent (+ its stewardship grant agent→parent) in the home vault so it surfaces live
     // (Organizations / Vault Delegations) AND is how it's detected. The endpoint mints the grant.
     onStep?.(`Saving your ${noun} to your vault…`);
-    await saveRelatedAgent({
+    const saved = await recordRelationship({
       person: opts.personSA, orgAgent: b.agent, orgName: pick.name ?? "", purpose,
       kind: opts.kind, parent, stewardshipDelegation: b.stewardshipDelegation, via: opts.via, token: opts.token,
-    });
-    return { ok: true, agent: b.agent, name: pick.name ?? "" };
+    }, onStep);
+    return { ok: true, agent: b.agent, name: pick.name ?? "", ...(saved.ok ? {} : { warning: `${noun} deployed, but recording it in your vault failed: ${saved.error}. Re-activate your vault key (Account → Activate vault key), then reopen Organizations.` }) };
   }
   if (opts.via === "passkey") {
     const passkey = loadPasskey();
@@ -622,14 +638,16 @@ export async function createManagedAgent(
     onStep?.(`Deploying your ${noun} (gas-free)…`);
     const dep = await bootstrapWithPasskey(passkey, callData, onStep, salt);
     if (!dep.ok) return dep;
+    let warning: string | undefined;
     if (opts.token) {
       onStep?.(`Saving your ${noun} to your vault…`);
-      await saveRelatedAgent({
+      const saved = await recordRelationship({
         person: opts.personSA, orgAgent: dep.agent, orgName: agentName, purpose,
         kind: opts.kind, parent, stewardshipDelegation: toWire(stewardship.delegation), via: opts.via, token: opts.token,
-      });
+      }, onStep);
+      if (!saved.ok) warning = `${noun} deployed, but recording it in your vault failed: ${saved.error}. Re-activate your vault key (Account → Activate vault key), then reopen Organizations.`;
     }
-    return { ok: true, agent: dep.agent, name: agentName };
+    return { ok: true, agent: dep.agent, name: agentName, ...(warning ? { warning } : {}) };
   }
   return { ok: false, error: `Creating a ${noun} from a wallet home isn't wired yet — use a passkey or social home.` };
 }

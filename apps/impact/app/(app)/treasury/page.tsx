@@ -55,7 +55,7 @@ export default function TreasuryPage() {
     setActErr(null);
     const out = await createPersonTreasury({ name: identity?.name ?? null, personSA: person.address, via, token: token ?? undefined }, setBusy);
     setBusy(null);
-    if (out.ok) setRefreshKey((k) => k + 1); else setActErr(out.error);
+    if (out.ok) { setRefreshKey((k) => k + 1); if (out.warning) setActErr(out.warning); } else setActErr(out.error);
   }
   async function onFund() {
     if (!person) return;
