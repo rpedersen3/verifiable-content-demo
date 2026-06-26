@@ -1,16 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "@/context/session";
 import { orgById } from "@/lib/seed";
 import { Glyph } from "@/components/ui";
-import { IconChevron, IconCheck } from "@/components/Icons";
+import { IconChevron, IconCheck, IconPlus } from "@/components/Icons";
 import { usePersonOrgs } from "@/lib/use-live";
 
-// Switch between acting as yourself and acting as a custodian of one of your
-// organizations. A pinned default org is where you land on arrival.
+// The WORKSPACE switcher (top-left). Picks what the left nav is scoped to: "Personal" (you) or one
+// of the orgs you steward. Your person IDENTITY + admin live in the top-right AccountMenu, not here.
+// A pinned default workspace is where you land on arrival.
 export default function ContextSwitcher() {
   const { person, identity, token, active, setActive, defaultOrgId, setDefaultOrg } = useSession();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const live = usePersonOrgs(token);
   if (!person) return null;
@@ -48,7 +51,7 @@ export default function ContextSwitcher() {
             onClick={() => setOpen(false)}
           />
           <div className="ctx-menu anim-in">
-            <div className="nav-group-label" style={{ padding: ".3rem .55rem" }}>Act as</div>
+            <div className="nav-group-label" style={{ padding: ".3rem .55rem" }}>Switch workspace</div>
             <button
               className={`ctx-opt ${active.mode === "person" ? "active" : ""}`}
               onClick={() => { setActive({ mode: "person" }); setOpen(false); }}
@@ -122,10 +125,19 @@ export default function ContextSwitcher() {
             <div className="hr" style={{ margin: ".4rem 0" }} />
             <button
               className="ctx-opt"
+              onClick={() => { setActive({ mode: "person" }); router.push("/organizations"); setOpen(false); }}
+            >
+              <IconPlus width={15} height={15} style={{ color: "var(--amber-700)" }} />
+              <span style={{ fontSize: ".84rem", padding: "0 .2rem", color: "var(--amber-700)", fontWeight: 600 }}>
+                Connect or create an organization
+              </span>
+            </button>
+            <button
+              className="ctx-opt"
               onClick={() => { setDefaultOrg(null); setActive({ mode: "person" }); setOpen(false); }}
             >
               <span className="faint" style={{ fontSize: ".8rem", padding: "0 .3rem" }}>
-                Land in my personal home (no default org)
+                Make Personal my default workspace
               </span>
             </button>
           </div>

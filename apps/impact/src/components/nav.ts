@@ -8,7 +8,6 @@ import {
   IconOrg,
   IconBot,
   IconActivity,
-  IconLink,
 } from "@/components/Icons";
 import type { ActiveContext } from "@/context/session";
 
@@ -23,6 +22,12 @@ export interface NavGroup {
   items: NavItem[];
 }
 
+// The left sidebar is ALWAYS scoped to the SELECTED WORKSPACE (the top-left switcher picks it):
+// "Personal" (the connected person) or one of the orgs they steward. Person IDENTITY + admin
+// (profile, account, security/sign-in, sign out) live in the top-RIGHT AccountMenu, never here.
+// Each org is a FULL peer: its own Dashboard, Organization, Service agents, Vault (incl. Members &
+// access), Treasury, Security, Trust, Activity. `/network` is a developer infra page — demoted out
+// of the primary nav (still reachable by direct URL).
 export function buildNav(active: ActiveContext, orgName?: string): NavGroup[] {
   if (active.mode === "org") {
     return [
@@ -32,6 +37,7 @@ export function buildNav(active: ActiveContext, orgName?: string): NavGroup[] {
         items: [
           { href: "/organization", label: "Organization", icon: IconOrg },
           { href: "/service-agents", label: "Service agents", icon: IconBot },
+          { href: "/vault", label: "Vault", icon: IconVault },
           { href: "/treasury", label: "Treasury", icon: IconWallet },
           { href: "/security", label: "Security", icon: IconShield },
         ],
@@ -41,7 +47,6 @@ export function buildNav(active: ActiveContext, orgName?: string): NavGroup[] {
         items: [
           { href: "/trust-graph", label: "Trust graph", icon: IconGraph },
           { href: "/activity", label: "Activity", icon: IconActivity },
-          { href: "/network", label: "Network", icon: IconLink },
         ],
       },
     ];
@@ -53,28 +58,28 @@ export function buildNav(active: ActiveContext, orgName?: string): NavGroup[] {
         { href: "/home", label: "Home", icon: IconHome },
         { href: "/vault", label: "Vault", icon: IconVault },
         { href: "/treasury", label: "Treasury", icon: IconWallet },
+        { href: "/organizations", label: "Organizations", icon: IconOrg },
       ],
     },
     {
       label: "Trust",
       items: [
         { href: "/trust-graph", label: "Trust graph", icon: IconGraph },
-        { href: "/organizations", label: "Organizations", icon: IconOrg },
         { href: "/activity", label: "Activity", icon: IconActivity },
-        { href: "/network", label: "Network", icon: IconLink },
       ],
     },
   ];
 }
 
-/** Five flat items for the mobile bottom bar (context-aware). */
+/** Five flat items for the mobile bottom bar (workspace-aware). The workspace switcher itself lives
+ *  in the top bar; this is page nav within the selected workspace. */
 export function mobileNav(active: ActiveContext): NavItem[] {
   if (active.mode === "org") {
     return [
       { href: "/home", label: "Home", icon: IconHome },
       { href: "/organization", label: "Org", icon: IconOrg },
       { href: "/service-agents", label: "Agents", icon: IconBot },
-      { href: "/trust-graph", label: "Trust", icon: IconGraph },
+      { href: "/vault", label: "Vault", icon: IconVault },
       { href: "/treasury", label: "Treasury", icon: IconWallet },
     ];
   }

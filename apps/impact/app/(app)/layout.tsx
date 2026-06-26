@@ -51,8 +51,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </Link>
 
-        <ContextSwitcher />
-
         <nav style={{ marginTop: ".6rem" }}>
           {groups.map((g) => (
             <div key={g.label}>
@@ -80,6 +78,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Main ── */}
       <div className="main">
         <header className="topbar">
+          {/* Top-LEFT: the workspace switcher (Personal + the orgs you steward) — picks what the
+              left nav is scoped to. Top-RIGHT: your person identity + admin (AccountMenu). */}
+          <ContextSwitcher />
           <div className="spacer" />
           <LiveStatus />
           <AccountMenu />
