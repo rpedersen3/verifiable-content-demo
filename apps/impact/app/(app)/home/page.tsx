@@ -5,7 +5,7 @@ import { useSession } from "@/context/session";
 import { ACTIVITY, orgById, servicesForOrg } from "@/lib/seed";
 import { Glyph, SectionHead, StatTile, TrustMeter, DimensionBadges, Pill, EmptyNote } from "@/components/ui";
 import { IconVault, IconWallet, IconShield, IconGraph, IconBot, IconOrg, IconPlus } from "@/components/Icons";
-import { useAgentBalances, usePersonTreasury } from "@/lib/use-live";
+import { useAgentBalances, usePersonTreasury, useOrgTreasury } from "@/lib/use-live";
 import { orgHref } from "@/lib/workspace";
 import { useOrgDisplay } from "@/lib/org-name";
 import type { LiveOrgRef } from "@/context/session";
@@ -25,7 +25,10 @@ export default function HomePage() {
  *  its own vault (keyed by the org SA). Seeded trust/services/members don't apply yet. */
 function LiveOrgDashboard({ live }: { live: LiveOrgRef }) {
   const bal = useAgentBalances(live.address);
+  const orgTreas = useOrgTreasury(live);
   const display = useOrgDisplay(live.address, live.name);
+  const orgUsdc = orgTreas.exists ? orgTreas.usdc : bal.usdc;
+  const orgUsdcLoading = orgTreas.loading || bal.loading;
   return (
     <>
       <SectionHead eyebrow="Acting as custodian" title={display} sub="An organization you steward. It has its own Smart Agent, vault, and treasury — and you hold its key only by signing as its custodian." />
@@ -50,7 +53,7 @@ function LiveOrgDashboard({ live }: { live: LiveOrgRef }) {
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: "1.4rem" }}>
-        <StatTile num={bal.loading ? "…" : `$${bal.usdc ?? "0.00"}`} label="Org USDC (live)" accent="var(--emerald-700)" />
+        <StatTile num={orgUsdcLoading ? "…" : `$${orgUsdc ?? "0.00"}`} label="Treasury USDC (live)" accent="var(--emerald-700)" />
         <StatTile num={bal.loading ? "…" : `${bal.eth ?? "0"}`} label="ETH (live)" />
         <StatTile num={live.name ? "Named" : "Nameless"} label="Identity" />
         <StatTile num="Custodian" label="Your role" />

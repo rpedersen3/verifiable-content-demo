@@ -55,23 +55,25 @@ function writeCache(personSA: string, list: AgentRelationship[]): void {
   try { localStorage.setItem(cacheKey(personSA), JSON.stringify(list)); } catch { /* ignore */ }
 }
 
-function personOf(ctx: AccessContext): string | null {
-  return ctx.kind === "self" ? ctx.personSA : null; // relationships are a SELF record
+/** The vault OWNER whose relationships record this ctx reads — the person (self) or the org. Both
+ *  cache under their own address, so an org's relationships (e.g. its org-treasury) cache too. */
+function ownerOf(ctx: AccessContext): string {
+  return ctx.kind === "self" ? ctx.personSA : ctx.orgSA;
 }
 
 /** Read the person's relationships from their vault (caches the result). */
 export async function loadRelationships(ctx: AccessContext): Promise<AgentRelationship[]> {
   const rec = await readVaultRecord<StoredRelationships>(ctx, RELATIONSHIPS_RECORD);
   const list = rec && rec.v === 1 && Array.isArray(rec.relationships) ? rec.relationships : [];
-  const p = personOf(ctx);
-  if (p) writeCache(p, list);
+  const o = ownerOf(ctx);
+  writeCache(o, list);
   return list;
 }
 
 export async function saveRelationships(ctx: AccessContext, relationships: AgentRelationship[]): Promise<void> {
   await writeVaultRecord(ctx, RELATIONSHIPS_RECORD, { v: 1, relationships } satisfies StoredRelationships);
-  const p = personOf(ctx);
-  if (p) writeCache(p, relationships);
+  const o = ownerOf(ctx);
+  writeCache(o, relationships);
 }
 
 /** Add or MERGE a relationship by agent address (a re-save never clobbers grants it doesn't carry). */

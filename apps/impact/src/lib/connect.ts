@@ -473,9 +473,12 @@ const REVOKE_DELEGATION_ABI = [
 async function saveRelatedAgent(input: {
   person: Address; orgAgent: Address; orgName: string; purpose: string; kind: string; parent: Address;
   stewardshipDelegation?: DelegationWire; via: ConnectVia; token: string;
+  /** The OWNER vault to record the relationship in (default: the person's). For an org-treasury this
+   *  is the ORG's vault, so the org holds its relationship to (and access grant for) its treasury. */
+  recordIn?: AccessContext;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const ctx: AccessContext = { kind: "self", personSA: input.person, via: input.via, token: input.token };
+    const ctx: AccessContext = input.recordIn ?? { kind: "self", personSA: input.person, via: input.via, token: input.token };
     const kind = input.kind as AgentRelationship["kind"];
     const relation: AgentRelationship["relation"] =
       kind === "person-treasury" || kind === "org" || kind === "org-treasury" ? "steward" : "peer";
@@ -488,16 +491,16 @@ async function saveRelatedAgent(input: {
       parent: input.parent ?? input.person,
       createdAt: Date.now(),
       grants: { stewardship: input.stewardshipDelegation ?? null },
-      attestation: { type: "gc:Attestation", confidence: 1.0, method: "self-issued", basis: "person deployed and stewards this agent" },
+      attestation: { type: "gc:Attestation", confidence: 1.0, method: "self-issued", basis: "deployed and stewarded by the owner agent" },
     });
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "could not save the relationship to your vault" };
+    return { ok: false, error: e instanceof Error ? e.message : "could not save the relationship to the vault" };
   }
 }
 
-/** Save the relationship; if it fails because the person's vault key doesn't yet authorize the
- *  vault:impact-relationships resource, RE-ACTIVATE the key (gesture-free on a social home) and retry
+/** Save the relationship; if it fails because the OWNER's vault key doesn't yet authorize the
+ *  vault:impact-relationships resource, RE-ACTIVATE that key (gesture-free on a social home) and retry
  *  once — so creating an agent self-heals the vault scope instead of silently losing the link. */
 async function recordRelationship(
   input: Parameters<typeof saveRelatedAgent>[0],
@@ -505,8 +508,9 @@ async function recordRelationship(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const first = await saveRelatedAgent(input);
   if (first.ok) return first;
-  onStep?.("Activating your vault to record this…");
-  const act = await activateVaultKey(input.person, input.via, input.token);
+  const owner = input.recordIn ? (input.recordIn.kind === "self" ? input.recordIn.personSA : input.recordIn.orgSA) : input.person;
+  onStep?.("Activating the vault to record this…");
+  const act = await activateVaultKey(owner, input.via, input.token);
   if (!act.ok) return { ok: false, error: act.error };
   return saveRelatedAgent(input);
 }
@@ -578,7 +582,7 @@ function managedSalt(kind: ManagedKind): bigint {
  *  deploys with the SA as its canonical id. Either way it's recorded in the home vault under its
  *  `kind` with a stewardship grant agent→parent, so it's detected from the vault, not the name. */
 export async function createManagedAgent(
-  opts: { name: string | null; kind: ManagedKind; nameSuffix?: string; purpose?: string; parent?: Address; personSA: Address; via: ConnectVia; token?: string },
+  opts: { name: string | null; kind: ManagedKind; nameSuffix?: string; purpose?: string; parent?: Address; personSA: Address; via: ConnectVia; token?: string; recordIn?: AccessContext },
   onStep?: Step,
 ): Promise<{ ok: true; agent: Address; name: string; warning?: string } | { ok: false; error: string }> {
   const suffix = opts.nameSuffix ?? "";
@@ -612,7 +616,7 @@ export async function createManagedAgent(
     onStep?.(`Saving your ${noun} to your vault…`);
     const saved = await recordRelationship({
       person: opts.personSA, orgAgent: b.agent, orgName: pick.name ?? "", purpose,
-      kind: opts.kind, parent, stewardshipDelegation: b.stewardshipDelegation, via: opts.via, token: opts.token,
+      kind: opts.kind, parent, stewardshipDelegation: b.stewardshipDelegation, via: opts.via, token: opts.token, recordIn: opts.recordIn,
     }, onStep);
     return { ok: true, agent: b.agent, name: pick.name ?? "", ...(saved.ok ? {} : { warning: `${noun} deployed, but recording it in your vault failed: ${saved.error}. Re-activate your vault key (Account → Activate vault key), then reopen Organizations.` }) };
   }
@@ -643,7 +647,7 @@ export async function createManagedAgent(
       onStep?.(`Saving your ${noun} to your vault…`);
       const saved = await recordRelationship({
         person: opts.personSA, orgAgent: dep.agent, orgName: agentName, purpose,
-        kind: opts.kind, parent, stewardshipDelegation: toWire(stewardship.delegation), via: opts.via, token: opts.token,
+        kind: opts.kind, parent, stewardshipDelegation: toWire(stewardship.delegation), via: opts.via, token: opts.token, recordIn: opts.recordIn,
       }, onStep);
       if (!saved.ok) warning = `${noun} deployed, but recording it in your vault failed: ${saved.error}. Re-activate your vault key (Account → Activate vault key), then reopen Organizations.`;
     }
@@ -666,6 +670,20 @@ export function createOrg(
   onStep?: Step,
 ) {
   return createManagedAgent({ ...opts, kind: "org", purpose: "org" }, onStep);
+}
+
+/** An organization's money agent: a SEPARATE Smart Agent (kind org-treasury, parent = the org), with
+ *  a stewardship grant treasury→org. The relationship + that access grant are recorded in the ORG's
+ *  vault — so the org's treasury hangs off the org, not the person. Funded like a person treasury. */
+export function createOrgTreasury(
+  opts: { name: string | null; orgSA: Address; orgStewardship: DelegationWire; personSA: Address; via: ConnectVia; token?: string },
+  onStep?: Step,
+) {
+  const recordIn: AccessContext = { kind: "org", orgSA: opts.orgSA, requester: opts.personSA, stewardship: opts.orgStewardship };
+  return createManagedAgent(
+    { name: opts.name, kind: "org-treasury", nameSuffix: "-treasury", purpose: "treasury", parent: opts.orgSA, personSA: opts.personSA, via: opts.via, token: opts.token, recordIn },
+    onStep,
+  );
 }
 
 /** Mint mock USDC into a treasury (testnet faucet) via the person SA's relayer-sponsored call. */

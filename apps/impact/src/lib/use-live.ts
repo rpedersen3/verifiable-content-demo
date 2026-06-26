@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { erc20BalanceOf, getEthBalance, formatUnits } from "./backend";
 import { CONTRACTS } from "./chain";
 import { listMyOrgs, cachedMyOrgs } from "./related";
-import { useSession } from "@/context/session";
+import { useSession, type LiveOrgRef } from "@/context/session";
 import type { AccessContext } from "./access";
 import type { DelegationWire } from "./delegation";
 import type { Address } from "./types";
@@ -96,6 +96,39 @@ export function usePersonTreasury(enabled = true, refreshKey = 0): TreasuryInfo 
     })();
     return () => { alive = false; };
   }, [enabled, ctx, refreshKey]);
+
+  return state;
+}
+
+/** An ORG's money agent — a separate Smart Agent recorded in the ORG'S vault (kind 'org-treasury'),
+ *  read over the org→person stewardship grant. Mirrors usePersonTreasury, rooted in the org's vault. */
+export function useOrgTreasury(live: LiveOrgRef | null | undefined, refreshKey = 0): TreasuryInfo {
+  const ctx = useMemo<AccessContext | null>(
+    () => (live && live.stewardship ? { kind: "org", orgSA: live.address, requester: live.custodian, stewardship: live.stewardship } : null),
+    [live?.address, live?.custodian, live?.stewardship],
+  );
+  const [state, setState] = useState<TreasuryInfo>({ exists: false, name: null, address: null, usdc: null, loading: true });
+
+  useEffect(() => {
+    let alive = true;
+    if (!ctx) { setState({ exists: false, name: null, address: null, usdc: null, loading: false }); return; }
+    setState((s) => ({ ...s, loading: true }));
+    (async () => {
+      try {
+        const rels = await listMyOrgs(ctx);
+        if (!alive) return;
+        const t = rels.find((o) => o.kind === "org-treasury");
+        if (!t) { setState({ exists: false, name: null, address: null, usdc: null, loading: false }); return; }
+        const addr = t.orgAgent as Address;
+        const bal = await erc20BalanceOf(CONTRACTS.mockUsdc as Address, addr);
+        if (!alive) return;
+        setState({ exists: true, name: t.orgName?.trim() || null, address: addr, usdc: formatUnits(bal, 6, 2), loading: false });
+      } catch {
+        if (alive) setState({ exists: false, name: null, address: null, usdc: null, loading: false });
+      }
+    })();
+    return () => { alive = false; };
+  }, [ctx, refreshKey]);
 
   return state;
 }
