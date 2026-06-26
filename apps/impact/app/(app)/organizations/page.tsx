@@ -10,13 +10,14 @@ import { IconPlus, IconOrg } from "@/components/Icons";
 import { usePersonOrgs, type LiveOrg } from "@/lib/use-live";
 import { createOrg } from "@/lib/connect";
 import { activateVaultKey } from "@/lib/vault-key";
+import { orgHome } from "@/lib/workspace";
 import type { Organization } from "@/lib/types";
 import type { Via } from "@/context/session";
 
 const EXPLORER = "https://sepolia.basescan.org/address/";
 
 export default function OrganizationsPage() {
-  const { person, identity, token, setActive, setDefaultOrg, defaultOrgId } = useSession();
+  const { person, identity, token, setDefaultOrg, defaultOrgId } = useSession();
   const router = useRouter();
   const isOrg = false; // this page always renders the person's own org list
   const via = identity?.via ?? "passkey";
@@ -36,14 +37,13 @@ export default function OrganizationsPage() {
   const custody = person.custodyOf.map(orgById).filter(Boolean) as Organization[];
   const member = person.membershipIds.map(orgById).filter(Boolean) as Organization[];
 
+  // Entering a workspace = navigating to its URL; the AppShell derives `active` from the path.
   function enterAsCustodian(orgId: string) {
-    setActive({ mode: "org", orgId });
-    router.push("/home");
+    router.push(orgHome(orgId));
   }
 
   function enterLiveAsCustodian(org: LiveOrg) {
-    setActive({ mode: "org", orgId: org.agent, live: { address: org.agent, name: org.name, via, stewardship: org.stewardship, custodian: person!.address } });
-    router.push("/home");
+    router.push(orgHome(org.agent));
   }
 
   async function onCreate() {

@@ -7,18 +7,20 @@ import { orgById } from "@/lib/seed";
 import { Glyph } from "@/components/ui";
 import { IconChevron, IconCheck, IconPlus } from "@/components/Icons";
 import { usePersonOrgs } from "@/lib/use-live";
+import { orgHome } from "@/lib/workspace";
 
 // The WORKSPACE switcher (top-left). Picks what the left nav is scoped to: "Personal" (you) or one
 // of the orgs you steward. Your person IDENTITY + admin live in the top-right AccountMenu, not here.
 // A pinned default workspace is where you land on arrival.
 export default function ContextSwitcher() {
-  const { person, identity, token, active, setActive, defaultOrgId, setDefaultOrg } = useSession();
+  const { person, active, token, defaultOrgId, setDefaultOrg } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const live = usePersonOrgs(token);
   if (!person) return null;
 
-  const via = identity?.via ?? "passkey";
+  // Switching = navigating to the workspace's URL; the AppShell derives `active` from the path.
+  const go = (href: string) => { router.push(href); setOpen(false); };
   const custodyOrgs = person.custodyOf.map(orgById).filter(Boolean);
   const activeOrg = active.mode === "org" ? orgById(active.orgId) : undefined;
   const liveActive = active.mode === "org" ? active.live : undefined;
@@ -54,7 +56,7 @@ export default function ContextSwitcher() {
             <div className="nav-group-label" style={{ padding: ".3rem .55rem" }}>Switch workspace</div>
             <button
               className={`ctx-opt ${active.mode === "person" ? "active" : ""}`}
-              onClick={() => { setActive({ mode: "person" }); setOpen(false); }}
+              onClick={() => go("/home")}
             >
               <Glyph kind="person" name={person.name} size="sm" />
               <span className="col" style={{ gap: 0, flex: 1 }}>
@@ -78,7 +80,7 @@ export default function ContextSwitcher() {
                   <button
                     className="row"
                     style={{ background: "transparent", border: 0, flex: 1, textAlign: "left", padding: 0 }}
-                    onClick={() => { setActive({ mode: "org", orgId: o.id }); setOpen(false); }}
+                    onClick={() => go(orgHome(o.id))}
                   >
                     <Glyph kind="org" name={o.name} size="sm" />
                     <span className="col" style={{ gap: 0, flex: 1 }}>
@@ -110,7 +112,7 @@ export default function ContextSwitcher() {
                 <button
                   key={o.agent}
                   className={`ctx-opt ${isActive ? "active" : ""}`}
-                  onClick={() => { setActive({ mode: "org", orgId: o.agent, live: { address: o.agent, name: o.name, via, stewardship: o.stewardship, custodian: person.address } }); setOpen(false); }}
+                  onClick={() => go(orgHome(o.agent))}
                 >
                   <Glyph kind="org" name={name} size="sm" />
                   <span className="col" style={{ gap: 0, flex: 1 }}>
@@ -125,7 +127,7 @@ export default function ContextSwitcher() {
             <div className="hr" style={{ margin: ".4rem 0" }} />
             <button
               className="ctx-opt"
-              onClick={() => { setActive({ mode: "person" }); router.push("/organizations"); setOpen(false); }}
+              onClick={() => go("/organizations")}
             >
               <IconPlus width={15} height={15} style={{ color: "var(--amber-700)" }} />
               <span style={{ fontSize: ".84rem", padding: "0 .2rem", color: "var(--amber-700)", fontWeight: 600 }}>
@@ -134,7 +136,7 @@ export default function ContextSwitcher() {
             </button>
             <button
               className="ctx-opt"
-              onClick={() => { setDefaultOrg(null); setActive({ mode: "person" }); setOpen(false); }}
+              onClick={() => { setDefaultOrg(null); go("/home"); }}
             >
               <span className="faint" style={{ fontSize: ".8rem", padding: "0 .3rem" }}>
                 Make Personal my default workspace

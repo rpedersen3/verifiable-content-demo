@@ -10,6 +10,7 @@ import {
   IconActivity,
 } from "@/components/Icons";
 import type { ActiveContext } from "@/context/session";
+import { orgHref } from "@/lib/workspace";
 
 export interface NavItem {
   href: string;
@@ -30,23 +31,24 @@ export interface NavGroup {
 // of the primary nav (still reachable by direct URL).
 export function buildNav(active: ActiveContext, orgName?: string): NavGroup[] {
   if (active.mode === "org") {
+    const id = active.orgId; // scope every org page under /org/<id>/… so the URL carries context
     return [
-      { label: "Overview", items: [{ href: "/home", label: "Dashboard", icon: IconHome }] },
+      { label: "Overview", items: [{ href: orgHref(id, "dashboard"), label: "Dashboard", icon: IconHome }] },
       {
         label: orgName ?? "Organization",
         items: [
-          { href: "/organization", label: "Organization", icon: IconOrg },
-          { href: "/service-agents", label: "Service agents", icon: IconBot },
-          { href: "/vault", label: "Vault", icon: IconVault },
-          { href: "/treasury", label: "Treasury", icon: IconWallet },
-          { href: "/security", label: "Security", icon: IconShield },
+          { href: orgHref(id, "organization"), label: "Organization", icon: IconOrg },
+          { href: orgHref(id, "service-agents"), label: "Service agents", icon: IconBot },
+          { href: orgHref(id, "vault"), label: "Vault", icon: IconVault },
+          { href: orgHref(id, "treasury"), label: "Treasury", icon: IconWallet },
+          { href: orgHref(id, "security"), label: "Security", icon: IconShield },
         ],
       },
       {
         label: "Trust",
         items: [
-          { href: "/trust-graph", label: "Trust graph", icon: IconGraph },
-          { href: "/activity", label: "Activity", icon: IconActivity },
+          { href: orgHref(id, "trust-graph"), label: "Trust graph", icon: IconGraph },
+          { href: orgHref(id, "activity"), label: "Activity", icon: IconActivity },
         ],
       },
     ];
@@ -75,12 +77,13 @@ export function buildNav(active: ActiveContext, orgName?: string): NavGroup[] {
  *  in the top bar; this is page nav within the selected workspace. */
 export function mobileNav(active: ActiveContext): NavItem[] {
   if (active.mode === "org") {
+    const id = active.orgId;
     return [
-      { href: "/home", label: "Home", icon: IconHome },
-      { href: "/organization", label: "Org", icon: IconOrg },
-      { href: "/service-agents", label: "Agents", icon: IconBot },
-      { href: "/vault", label: "Vault", icon: IconVault },
-      { href: "/treasury", label: "Treasury", icon: IconWallet },
+      { href: orgHref(id, "dashboard"), label: "Home", icon: IconHome },
+      { href: orgHref(id, "organization"), label: "Org", icon: IconOrg },
+      { href: orgHref(id, "service-agents"), label: "Agents", icon: IconBot },
+      { href: orgHref(id, "vault"), label: "Vault", icon: IconVault },
+      { href: orgHref(id, "treasury"), label: "Treasury", icon: IconWallet },
     ];
   }
   return [

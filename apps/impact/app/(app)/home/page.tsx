@@ -6,6 +6,7 @@ import { ACTIVITY, orgById, servicesForOrg } from "@/lib/seed";
 import { Glyph, SectionHead, StatTile, TrustMeter, DimensionBadges, Pill, EmptyNote } from "@/components/ui";
 import { IconVault, IconWallet, IconShield, IconGraph, IconBot, IconOrg, IconPlus } from "@/components/Icons";
 import { useAgentBalances, usePersonTreasury } from "@/lib/use-live";
+import { orgHref } from "@/lib/workspace";
 import type { LiveOrgRef } from "@/context/session";
 
 const EXPLORER = "https://sepolia.basescan.org/address/";
@@ -56,10 +57,10 @@ function LiveOrgDashboard({ live }: { live: LiveOrgRef }) {
 
       <SectionHead title="Manage this organization" sub="Its vault, security, and trust — acting as custodian." />
       <div className="grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", marginBottom: "1.6rem" }}>
-        <QuickLink href="/vault" icon={<IconVault />} title="Organization vault" sub="PII, credentials, delegations — under the org's key" />
-        <QuickLink href="/treasury" icon={<IconWallet />} title="Treasury" sub="Org balance & giving" />
-        <QuickLink href="/trust-graph" icon={<IconGraph />} title="Trust graph" sub="The org's relationships" />
-        <QuickLink href="/security" icon={<IconShield />} title="Security" sub="Custody & sessions" />
+        <QuickLink href={orgHref(live.address, "vault")} icon={<IconVault />} title="Organization vault" sub="PII, credentials, delegations — under the org's key" />
+        <QuickLink href={orgHref(live.address, "treasury")} icon={<IconWallet />} title="Treasury" sub="Org balance & giving" />
+        <QuickLink href={orgHref(live.address, "trust-graph")} icon={<IconGraph />} title="Trust graph" sub="The org's relationships" />
+        <QuickLink href={orgHref(live.address, "security")} icon={<IconShield />} title="Security" sub="Custody & sessions" />
       </div>
     </>
   );
@@ -227,10 +228,10 @@ function OrgDashboard({ orgId }: { orgId: string }) {
         <StatTile num={org.attestations.length} label="Partner attestations" />
       </div>
 
-      <SectionHead title="Service smart agents" sub="The agents this organization manages — the trust graph applies to these." action={<Link href="/service-agents" className="btn btn-ghost btn-sm">Manage all</Link>} />
+      <SectionHead title="Service smart agents" sub="The agents this organization manages — the trust graph applies to these." action={<Link href={orgHref(org.id, "service-agents")} className="btn btn-ghost btn-sm">Manage all</Link>} />
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", marginBottom: "1.6rem" }}>
         {services.map((s) => (
-          <Link key={s.id} href="/service-agents" className="card card-pad card-hover">
+          <Link key={s.id} href={orgHref(org.id, "service-agents")} className="card card-pad card-hover">
             <div className="row" style={{ gap: ".7rem" }}>
               <Glyph kind="service" name={s.name} size="md" />
               <div style={{ flex: 1 }}>

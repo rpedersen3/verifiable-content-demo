@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSession } from "@/context/session";
 import { orgById, PERSON, PEERS } from "@/lib/seed";
 import { Glyph, SectionHead, Pill } from "@/components/ui";
+import { orgHref } from "@/lib/workspace";
 
 export default function OrganizationPage() {
   const { active } = useSession();
@@ -24,9 +25,9 @@ export default function OrganizationPage() {
         <div className="h2" style={{ marginBottom: ".5rem" }}>{liveName}</div>
         <p className="muted" style={{ marginBottom: "1rem" }}>
           This is a live on-chain organization you steward. Its public profile (mission, sector, members) isn&apos;t
-          set up yet — for now, manage its encrypted records in the <Link href="/vault">organization vault</Link>.
+          set up yet — for now, manage its encrypted records in the <Link href={orgHref(active.orgId, "vault")}>organization vault</Link>.
         </p>
-        <Link href="/vault" className="btn btn-primary btn-sm">Open the organization vault</Link>
+        <Link href={orgHref(active.orgId, "vault")} className="btn btn-primary btn-sm">Open the organization vault</Link>
       </div>
     );
   }
