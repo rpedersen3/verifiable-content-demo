@@ -11,7 +11,6 @@ import {
 import type { AccessContext } from "@/lib/access";
 import { displayNameFromContact } from "@/lib/profile-name";
 import { listMyOrgs, listMyReceivedDelegations, flattenDelegations, type LiveDelegation } from "@/lib/related";
-import { useSelfCtx } from "@/lib/use-live";
 import { revokeDelegation } from "@/lib/connect";
 import { activateVaultKey, isVaultKeyBound } from "@/lib/vault-key";
 import { loadImpactEntitlements, saveImpactEntitlements, type ImpactEntitlement } from "@/lib/entitlements-store";
@@ -111,24 +110,21 @@ export default function VaultPage() {
     else setActivateErr(out.error);
   }
 
-  // Delegations are the person's relationships, read from THEIR vault (custody ≠ access).
-  const personCtx = useSelfCtx();
+  // The Delegations tab shows the SUBJECT'S OWN relationships, read from the subject's vault (the
+  // person's, or — in an org's vault — the ORG'S, e.g. its org→org-treasury stewardship grant).
   useEffect(() => {
-    if (!personCtx) { setDelLoading(false); return; }
+    if (bound !== true || !accessCtx) { setDelLoading(false); return; }
     let cancelled = false;
     setDelLoading(true);
-    Promise.all([listMyOrgs(personCtx), listMyReceivedDelegations(personCtx)])
+    Promise.all([listMyOrgs(accessCtx), listMyReceivedDelegations(accessCtx)])
       .then(([orgs, received]) => {
         if (cancelled) return;
-        const all = flattenDelegations(orgs, received);
-        // In an org's vault, show only the grants that bind THIS org (e.g. the stewardship grant
-        // org→you that makes you its custodian); in your own vault, show them all.
-        setDelegations(isOrg && address ? all.filter((d) => d.counterpartyAddr.toLowerCase() === address.toLowerCase()) : all);
+        setDelegations(flattenDelegations(orgs, received));
       })
       .catch(() => { if (!cancelled) setDelegations([]); })
       .finally(() => { if (!cancelled) setDelLoading(false); });
     return () => { cancelled = true; };
-  }, [personCtx, delRefresh, isOrg, address]);
+  }, [bound, accessCtx, delRefresh]);
 
   async function onRevoke(d: LiveDelegation) {
     if (!d.wire) return;
