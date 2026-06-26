@@ -11,6 +11,7 @@ import { usePersonOrgs, type LiveOrg } from "@/lib/use-live";
 import { createOrg } from "@/lib/connect";
 import { activateVaultKey } from "@/lib/vault-key";
 import { orgHome } from "@/lib/workspace";
+import { orgDisplay } from "@/lib/org-name";
 import type { Organization } from "@/lib/types";
 import type { Via } from "@/context/session";
 
@@ -158,7 +159,7 @@ export default function OrganizationsPage() {
 
 /** A live, on-chain organization the person created — custodied by you, with its own vault. */
 function LiveOrgCard({ org, onManage }: { org: LiveOrg; onManage: () => void }) {
-  const display = org.name ?? `${org.agent.slice(0, 6)}…${org.agent.slice(-4)}`;
+  const display = orgDisplay(org.agent, org.name);
   return (
     <div className="card card-pad">
       <div className="row" style={{ gap: ".8rem" }}>

@@ -13,6 +13,7 @@ import LiveStatus from "@/components/LiveStatus";
 import AccountMenu from "@/components/AccountMenu";
 import { usePersonOrgs } from "@/lib/use-live";
 import { parseWorkspacePath } from "@/lib/workspace";
+import { orgDisplay } from "@/lib/org-name";
 import type { Address } from "@agenticprimitives/types";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -59,7 +60,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const orgName = active.mode === "org"
-    ? (active.live ? (active.live.name ?? `${active.live.address.slice(0, 6)}…${active.live.address.slice(-4)}`) : orgById(active.orgId)?.name)
+    ? (active.live ? orgDisplay(active.live.address, active.live.name) : orgById(active.orgId)?.name)
     : undefined;
   const groups = buildNav(active, orgName);
   const mobile = mobileNav(active);

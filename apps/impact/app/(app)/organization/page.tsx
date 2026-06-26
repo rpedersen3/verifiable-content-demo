@@ -7,6 +7,7 @@ import { orgById, PERSON, PEERS } from "@/lib/seed";
 import { Glyph, SectionHead, Pill, EmptyNote } from "@/components/ui";
 import { IconOrg } from "@/components/Icons";
 import { orgHref } from "@/lib/workspace";
+import { orgDisplay } from "@/lib/org-name";
 import type { AccessContext } from "@/lib/access";
 import { activateVaultKey } from "@/lib/vault-key";
 import {
@@ -119,7 +120,6 @@ const inputStyle: React.CSSProperties = {
  *  the org→person stewardship delegation. */
 function LiveOrgProfile({ live }: { live: LiveOrgRef }) {
   const { token } = useSession();
-  const display = live.name ?? `${live.address.slice(0, 6)}…${live.address.slice(-4)}`;
   const accessCtx = useMemo<AccessContext | null>(
     () => (live.stewardship ? { kind: "org", orgSA: live.address, requester: live.custodian, stewardship: live.stewardship } : null),
     [live.address, live.custodian, live.stewardship],
@@ -167,6 +167,8 @@ function LiveOrgProfile({ live }: { live: LiveOrgRef }) {
   }
 
   const filled = ORG_PROFILE_FIELDS.filter((f) => ((profile[f.key] ?? "") as string).trim());
+  // Prefer the org's display name (from its vault profile) over its .impact name / address.
+  const display = (profile.displayName && profile.displayName.trim()) || orgDisplay(live.address, live.name);
 
   return (
     <>

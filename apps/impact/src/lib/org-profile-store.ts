@@ -5,6 +5,7 @@
 // Mirrors src/lib/profile-store.ts, but org-shaped. No binding (org vault not activated) ⇒ fail-closed.
 
 import { readVaultRecord, writeVaultRecord, VaultKeyUnauthorizedError, type AccessContext } from "./access";
+import { setCachedOrgDisplayName } from "./org-name";
 
 export { VaultKeyUnauthorizedError };
 
@@ -39,10 +40,13 @@ const ORG_PROFILE_RECORD = "impact-org-profile";
  *  `VaultKeyUnauthorizedError` if the org's vault isn't activated (for this resource). */
 export async function loadImpactOrgProfile(ctx: AccessContext): Promise<ImpactOrgProfile> {
   const record = await readVaultRecord<ImpactStoredOrgProfile>(ctx, ORG_PROFILE_RECORD);
-  return record && record.v === 1 && record.profile ? record.profile : {};
+  const profile = record && record.v === 1 && record.profile ? record.profile : {};
+  if (ctx.kind === "org") setCachedOrgDisplayName(ctx.orgSA, profile.displayName);
+  return profile;
 }
 
 /** Seal the org's profile into its vault over a presented stewardship delegation. */
 export async function saveImpactOrgProfile(ctx: AccessContext, profile: ImpactOrgProfile): Promise<void> {
   await writeVaultRecord(ctx, ORG_PROFILE_RECORD, { v: 1, profile } satisfies ImpactStoredOrgProfile);
+  if (ctx.kind === "org") setCachedOrgDisplayName(ctx.orgSA, profile.displayName);
 }

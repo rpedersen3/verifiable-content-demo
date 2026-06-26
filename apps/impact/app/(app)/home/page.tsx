@@ -7,6 +7,7 @@ import { Glyph, SectionHead, StatTile, TrustMeter, DimensionBadges, Pill, EmptyN
 import { IconVault, IconWallet, IconShield, IconGraph, IconBot, IconOrg, IconPlus } from "@/components/Icons";
 import { useAgentBalances, usePersonTreasury } from "@/lib/use-live";
 import { orgHref } from "@/lib/workspace";
+import { useOrgDisplay } from "@/lib/org-name";
 import type { LiveOrgRef } from "@/context/session";
 
 const EXPLORER = "https://sepolia.basescan.org/address/";
@@ -24,7 +25,7 @@ export default function HomePage() {
  *  its own vault (keyed by the org SA). Seeded trust/services/members don't apply yet. */
 function LiveOrgDashboard({ live }: { live: LiveOrgRef }) {
   const bal = useAgentBalances(live.address);
-  const display = live.name ?? `${live.address.slice(0, 6)}…${live.address.slice(-4)}`;
+  const display = useOrgDisplay(live.address, live.name);
   return (
     <>
       <SectionHead eyebrow="Acting as custodian" title={display} sub="An organization you steward. It has its own Smart Agent, vault, and treasury — and you hold its key only by signing as its custodian." />

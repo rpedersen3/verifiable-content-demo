@@ -8,6 +8,7 @@ import { Glyph } from "@/components/ui";
 import { IconChevron, IconCheck, IconPlus } from "@/components/Icons";
 import { usePersonOrgs } from "@/lib/use-live";
 import { orgHome } from "@/lib/workspace";
+import { orgDisplay, useOrgDisplay } from "@/lib/org-name";
 
 // The WORKSPACE switcher (top-left). Picks what the left nav is scoped to: "Personal" (you) or one
 // of the orgs you steward. Your person IDENTITY + admin live in the top-right AccountMenu, not here.
@@ -24,8 +25,10 @@ export default function ContextSwitcher() {
   const custodyOrgs = person.custodyOf.map(orgById).filter(Boolean);
   const activeOrg = active.mode === "org" ? orgById(active.orgId) : undefined;
   const liveActive = active.mode === "org" ? active.live : undefined;
-  const liveLabel = liveActive ? (liveActive.name ?? `${liveActive.address.slice(0, 6)}…${liveActive.address.slice(-4)}`) : undefined;
-  const triggerName = liveLabel ?? (activeOrg ? activeOrg.name : person.name);
+  // Prefer the org's display name (from its vault profile) over its .impact name / address. Reactive,
+  // so saving the profile updates the trigger live.
+  const liveLabel = useOrgDisplay(liveActive?.address ?? "", liveActive?.name);
+  const triggerName = liveActive ? liveLabel : (activeOrg ? activeOrg.name : person.name);
 
   return (
     <div className="ctx-switch" style={{ minWidth: 220 }}>
@@ -106,7 +109,7 @@ export default function ContextSwitcher() {
               </div>
             )}
             {live.orgs.map((o) => {
-              const name = o.name ?? `${o.agent.slice(0, 6)}…${o.agent.slice(-4)}`;
+              const name = orgDisplay(o.agent, o.name);
               const isActive = active.mode === "org" && active.live?.address.toLowerCase() === o.agent.toLowerCase();
               return (
                 <button
