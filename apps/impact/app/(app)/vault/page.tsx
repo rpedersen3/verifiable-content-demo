@@ -15,6 +15,8 @@ import { revokeDelegation } from "@/lib/connect";
 import { activateVaultKey, isVaultKeyBound } from "@/lib/vault-key";
 import { loadImpactEntitlements, saveImpactEntitlements, type ImpactEntitlement } from "@/lib/entitlements-store";
 import { issueOrgEntitlement, listOrgEntitlements, revokeOrgEntitlement, readOrgAsMember, type IssuedEntitlement } from "@/lib/entitlements-admin";
+import { loadImpactOrgProfile, ORG_PROFILE_FIELDS, type ImpactOrgProfile } from "@/lib/org-profile-store";
+import { orgHref } from "@/lib/workspace";
 import type { DelegationWire } from "@/lib/delegation";
 import type { ConnectVia } from "@/lib/connect";
 import type { Address } from "@agenticprimitives/types";
@@ -85,6 +87,15 @@ export default function VaultPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [bound, accessCtx, isOrg, keyRefresh]);
+
+  // The org's standard profile (org mode) — surfaced as a vault record that links to the editor.
+  const [orgProfile, setOrgProfile] = useState<ImpactOrgProfile | null>(null);
+  useEffect(() => {
+    if (bound !== true || !isOrg || !accessCtx) { setOrgProfile(null); return; }
+    let alive = true;
+    loadImpactOrgProfile(accessCtx).then((p) => { if (alive) setOrgProfile(p); }).catch(() => { if (alive) setOrgProfile(null); });
+    return () => { alive = false; };
+  }, [bound, isOrg, accessCtx, keyRefresh]);
 
   /** Activate the active subject's vault key. For a live org, the connected person signs the org's
    *  VaultKeyAuthorization as its on-chain custodian (ERC-1271) — this is what gives the org a vault. */
@@ -187,7 +198,20 @@ export default function VaultPage() {
   // any seeded records. The profile is the member's PII vault record (spec 278 `vault:impact-profile`).
   const filled = contact ? PROFILE_FIELDS.filter((f) => ((contact[f.key] ?? "") as string).trim()) : [];
   const records: { type: string; label: string; class: string; summary: string; href?: string }[] = [];
-  if (filled.length > 0) {
+  // Org mode: the organization's standard profile (edited on the Organization page).
+  if (isOrg && liveOrg) {
+    const orgFilled = orgProfile ? ORG_PROFILE_FIELDS.filter((f) => ((orgProfile[f.key] ?? "") as string).trim()) : [];
+    records.push({
+      type: "vault:impact-org-profile",
+      label: "Organization profile",
+      class: "internal",
+      summary: orgFilled.length > 0
+        ? `${(orgProfile?.displayName ?? liveOrg.name ?? "This organization")} · ${orgFilled.length} field${orgFilled.length === 1 ? "" : "s"} (${orgFilled.map((f) => f.label.toLowerCase()).join(", ")})`
+        : "Not set up yet — add the organization's display name, mission, sector, and contact.",
+      href: orgHref(liveOrg.address, "organization"),
+    });
+  }
+  if (!isOrg && filled.length > 0) {
     records.push({
       type: "vault:impact-profile",
       label: "Community profile",

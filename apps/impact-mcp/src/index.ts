@@ -1102,7 +1102,7 @@ app.get('/custody/vault-key/server-info', (c) =>
     serverId: VAULT_SERVER_ID,
     vaultId: VAULT_SERVER_ID,
     serverKey: (c.env.VAULT_KEY_SERVER_DELEGATE ?? '').trim() || '0x0000000000000000000000000000000000000001',
-    defaultResources: [RESOURCE_PERSON_PII, RESOURCE_ORG_SENSITIVE, RESOURCE_PROFILE, `${VAULT_RECORD_PREFIX}impact-profile`, `${VAULT_RECORD_PREFIX}impact-entitlements`],
+    defaultResources: [RESOURCE_PERSON_PII, RESOURCE_ORG_SENSITIVE, RESOURCE_PROFILE, `${VAULT_RECORD_PREFIX}impact-profile`, `${VAULT_RECORD_PREFIX}impact-entitlements`, `${VAULT_RECORD_PREFIX}impact-org-profile`],
     classificationCeiling: 'regulated.high',
     ops: ['read', 'write'],
   }),

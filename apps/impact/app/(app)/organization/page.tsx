@@ -1,10 +1,20 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSession } from "@/context/session";
+import { useSession, type LiveOrgRef } from "@/context/session";
 import { orgById, PERSON, PEERS } from "@/lib/seed";
-import { Glyph, SectionHead, Pill } from "@/components/ui";
+import { Glyph, SectionHead, Pill, EmptyNote } from "@/components/ui";
+import { IconOrg } from "@/components/Icons";
 import { orgHref } from "@/lib/workspace";
+import type { AccessContext } from "@/lib/access";
+import { activateVaultKey } from "@/lib/vault-key";
+import {
+  loadImpactOrgProfile, saveImpactOrgProfile, ORG_PROFILE_FIELDS, VaultKeyUnauthorizedError,
+  type ImpactOrgProfile,
+} from "@/lib/org-profile-store";
+
+const EXPLORER = "https://sepolia.basescan.org/address/";
 
 export default function OrganizationPage() {
   const { active } = useSession();
@@ -19,15 +29,11 @@ export default function OrganizationPage() {
   }
   const org = orgById(active.orgId);
   if (!org) {
-    const liveName = active.live ? (active.live.name ?? "This organization") : "This organization";
+    // A LIVE org: its profile is editable + sealed in the org's own vault (vault:impact-org-profile).
+    if (active.live) return <LiveOrgProfile live={active.live} />;
     return (
       <div className="card card-pad" style={{ textAlign: "center", padding: "2.5rem" }}>
-        <div className="h2" style={{ marginBottom: ".5rem" }}>{liveName}</div>
-        <p className="muted" style={{ marginBottom: "1rem" }}>
-          This is a live on-chain organization you steward. Its public profile (mission, sector, members) isn&apos;t
-          set up yet — for now, manage its encrypted records in the <Link href={orgHref(active.orgId, "vault")}>organization vault</Link>.
-        </p>
-        <Link href={orgHref(active.orgId, "vault")} className="btn btn-primary btn-sm">Open the organization vault</Link>
+        <div className="muted">Loading this organization…</div>
       </div>
     );
   }
@@ -99,6 +105,141 @@ export default function OrganizationPage() {
           </div>
         </div>
       </div>
+    </>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "100%", padding: ".55rem .7rem", fontSize: ".9rem", borderRadius: "var(--r-sm)",
+  border: "1px solid var(--border-strong)", background: "var(--surface)", color: "var(--ink)", fontFamily: "inherit",
+};
+
+/** A live org's standard profile — display name, mission, sector, website, contact, location —
+ *  sealed in the ORG's own vault (vault:impact-org-profile) and read/written by the custodian over
+ *  the org→person stewardship delegation. */
+function LiveOrgProfile({ live }: { live: LiveOrgRef }) {
+  const { token } = useSession();
+  const display = live.name ?? `${live.address.slice(0, 6)}…${live.address.slice(-4)}`;
+  const accessCtx = useMemo<AccessContext | null>(
+    () => (live.stewardship ? { kind: "org", orgSA: live.address, requester: live.custodian, stewardship: live.stewardship } : null),
+    [live.address, live.custodian, live.stewardship],
+  );
+
+  const [profile, setProfile] = useState<ImpactOrgProfile>({});
+  const [form, setForm] = useState<ImpactOrgProfile>({});
+  const [loading, setLoading] = useState(true);
+  const [needsKey, setNeedsKey] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [activating, setActivating] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => {
+    if (!accessCtx) { setLoading(false); return; }
+    let alive = true;
+    setLoading(true); setNeedsKey(false); setErr(null);
+    loadImpactOrgProfile(accessCtx)
+      .then((p) => { if (alive) { setProfile(p); setForm(p); } })
+      .catch((e) => { if (alive) { if (e instanceof VaultKeyUnauthorizedError) setNeedsKey(true); else setErr("Could not load this org's profile from its vault."); } })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [accessCtx, refresh]);
+
+  async function onSave() {
+    if (!accessCtx) return;
+    setSaving(true); setErr(null); setSaved(false);
+    try {
+      await saveImpactOrgProfile(accessCtx, form);
+      setProfile(form); setEditing(false); setSaved(true);
+    } catch (e) {
+      if (e instanceof VaultKeyUnauthorizedError) setNeedsKey(true);
+      else setErr(e instanceof Error ? e.message : "Could not save to the org's vault.");
+    } finally { setSaving(false); }
+  }
+
+  async function onActivate() {
+    setActivating(true); setErr(null);
+    const out = await activateVaultKey(live.address, live.via, token ?? undefined);
+    setActivating(false);
+    if (out.ok) { setNeedsKey(false); setRefresh((k) => k + 1); } else setErr(out.error);
+  }
+
+  const filled = ORG_PROFILE_FIELDS.filter((f) => ((profile[f.key] ?? "") as string).trim());
+
+  return (
+    <>
+      <SectionHead
+        eyebrow="Organization"
+        title={display}
+        sub="This organization's public profile, sealed in its own vault (vault:impact-org-profile) and read by you over a stewardship delegation — never via custody."
+        action={!needsKey && !loading ? <button className="btn btn-ghost btn-sm" onClick={() => { setForm(profile); setEditing((e) => !e); setSaved(false); }}>{editing ? "Cancel" : "Edit profile"}</button> : undefined}
+      />
+
+      <div className="card card-pad" style={{ marginBottom: "1.4rem" }}>
+        <div className="row" style={{ gap: "1rem" }}>
+          <Glyph kind="org" name={display} size="lg" />
+          <div className="row wrap" style={{ gap: ".4rem" }}>
+            {live.name && <span className="addr">{live.name}</span>}
+            <a href={`${EXPLORER}${live.address}`} target="_blank" rel="noreferrer" className="addr">
+              {live.address.slice(0, 10)}…{live.address.slice(-6)} · explorer ↗
+            </a>
+            <Pill tone="amber">you are custodian</Pill>
+          </div>
+        </div>
+      </div>
+
+      {err && <div className="muted" style={{ marginBottom: "1rem", color: "var(--danger)" }}>{err}</div>}
+      {saved && <div className="muted" style={{ marginBottom: "1rem", color: "var(--emerald-700)" }}>Saved to the org&apos;s vault.</div>}
+
+      {!accessCtx ? (
+        <EmptyNote>This org&apos;s stewardship grant isn&apos;t loaded, so its profile can&apos;t be managed here. Re-enter it from <Link href="/organizations">Organizations</Link>.</EmptyNote>
+      ) : needsKey ? (
+        <EmptyNote>
+          <div style={{ marginBottom: ".7rem" }}>
+            To store {display}&apos;s profile, activate its vault for this record. As its custodian you sign the
+            authorization with your own credential — its profile is then encrypted under the org&apos;s own key.
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={onActivate} disabled={activating}>
+            <IconOrg width={15} height={15} /> {activating ? "Activating…" : "Activate the organization vault"}
+          </button>
+        </EmptyNote>
+      ) : loading ? (
+        <div className="muted">Reading the org&apos;s vault…</div>
+      ) : editing ? (
+        <div className="card card-pad col" style={{ gap: ".9rem", maxWidth: 640 }}>
+          {ORG_PROFILE_FIELDS.map((f) => (
+            <label key={f.key} className="col" style={{ gap: ".3rem" }}>
+              <span style={{ fontWeight: 600, fontSize: ".86rem" }}>{f.label}</span>
+              {f.type === "textarea" ? (
+                <textarea value={(form[f.key] ?? "") as string} onChange={(e) => setForm((s) => ({ ...s, [f.key]: e.target.value }))} placeholder={f.placeholder} rows={3} style={inputStyle} />
+              ) : (
+                <input type={f.type} value={(form[f.key] ?? "") as string} onChange={(e) => setForm((s) => ({ ...s, [f.key]: e.target.value }))} placeholder={f.placeholder} style={inputStyle} />
+              )}
+              <span className="faint" style={{ fontSize: ".72rem" }}>{f.help}</span>
+            </label>
+          ))}
+          <div className="row" style={{ gap: ".5rem" }}>
+            <button className="btn btn-primary btn-sm" onClick={onSave} disabled={saving}>{saving ? "Sealing…" : "Save to vault"}</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setEditing(false); setForm(profile); }} disabled={saving}>Cancel</button>
+          </div>
+        </div>
+      ) : filled.length === 0 ? (
+        <EmptyNote>
+          <div style={{ marginBottom: ".7rem" }}>{display} doesn&apos;t have a profile yet.</div>
+          <button className="btn btn-primary btn-sm" onClick={() => { setForm(profile); setEditing(true); }}>Add the organization profile</button>
+        </EmptyNote>
+      ) : (
+        <div className="card" style={{ overflow: "hidden", maxWidth: 640 }}>
+          {filled.map((f, i) => (
+            <div key={f.key} style={{ padding: ".85rem 1.1rem", borderTop: i ? "1px solid var(--border)" : undefined }}>
+              <div className="faint" style={{ fontSize: ".72rem" }}>{f.label}</div>
+              <div style={{ fontWeight: 550, fontSize: ".9rem", whiteSpace: "pre-wrap" }}>{(profile[f.key] ?? "") as string}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }
