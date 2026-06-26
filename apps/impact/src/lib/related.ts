@@ -1,11 +1,13 @@
 // Client read-side for the person's related-agent links + delegations (spec 246/247/275).
-// Same-origin fetches against the ported broker routes (/connect/related-orgs,
-// /connect/received-delegations), authorized by the home AgentSession token (aud = 'impact').
-// The Vault Delegations tab renders the FLATTENED view these produce — live, not seeded.
+// Relationships now live in the PERSON'S VAULT (vault:impact-relationships, durable D1), read over
+// the delegation-presented access layer — NOT the (ephemeral) broker KV, and never inferred from
+// custody. The Vault Delegations tab renders the FLATTENED view these produce.
 import type { Address } from "./types";
 import type { DelegationWire } from "./delegation";
+import type { AccessContext } from "./access";
+import { loadRelationships, cachedRelationships, type AgentRelationship } from "./relationships-store";
 
-export type AgentKind = "person-treasury" | "org" | "org-treasury";
+export type AgentKind = "person-treasury" | "org" | "org-treasury" | "server" | "person";
 
 /** One of the connected person's home-managed agents (private vault link). */
 export interface MyOrg {
@@ -33,21 +35,42 @@ export interface ReceivedDelegation {
   delegation?: DelegationWire | null;
 }
 
-/** List ALL the connected person's home-managed agents (private vault links). Same-origin,
- *  authorized by the home session token. Returns [] on any non-200 (fail-closed). */
-export async function listMyOrgs(token: string): Promise<MyOrg[]> {
-  const r = await fetch("/connect/related-orgs", { headers: { authorization: `Bearer ${token}` } });
-  if (!r.ok) return [];
-  const b = (await r.json().catch(() => ({}))) as { orgs?: MyOrg[] };
-  return b.orgs ?? [];
+/** Map a vault AgentRelationship onto the MyOrg shape the UI consumes. */
+function toMyOrg(r: AgentRelationship): MyOrg {
+  return {
+    orgAgent: r.agent,
+    orgName: r.agentName ?? "",
+    purpose: r.purpose ?? "",
+    requestedBy: "",
+    createdAt: r.createdAt ?? null,
+    kind: r.kind,
+    delegation: r.grants?.site ?? null,
+    membershipDelegation: r.grants?.membership ?? null,
+    stewardshipDelegation: r.grants?.stewardship ?? null,
+  };
 }
 
-/** List the inbound delegations the person's agents received. Same-origin, home-session-authorized. */
-export async function listMyReceivedDelegations(token: string): Promise<ReceivedDelegation[]> {
-  const r = await fetch("/connect/received-delegations", { headers: { authorization: `Bearer ${token}` } });
-  if (!r.ok) return [];
-  const b = (await r.json().catch(() => ({}))) as { received?: ReceivedDelegation[] };
-  return b.received ?? [];
+/** Instant, NON-blocking view of the person's relationships from the local cache (no vault read).
+ *  Used for first paint; `listMyOrgs` refreshes from the vault. */
+export function cachedMyOrgs(personSA: string): MyOrg[] {
+  return cachedRelationships(personSA).map(toMyOrg);
+}
+
+/** List ALL the connected person's related agents, read from their VAULT over a presented self
+ *  delegation. Returns [] (and falls back to the cache via the caller) on any failure (fail-closed). */
+export async function listMyOrgs(ctx: AccessContext): Promise<MyOrg[]> {
+  try {
+    const rels = await loadRelationships(ctx);
+    return rels.map(toMyOrg);
+  } catch {
+    return [];
+  }
+}
+
+/** Inbound org↔org delegations are not modelled in the person's relationship vault — return none
+ *  for now (the cross-principal entitlement path covers member access). */
+export async function listMyReceivedDelegations(_ctx: AccessContext): Promise<ReceivedDelegation[]> {
+  return [];
 }
 
 // ── Flattened view model for the Vault Delegations tab ────────────────────────────────────────

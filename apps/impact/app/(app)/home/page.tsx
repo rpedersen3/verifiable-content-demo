@@ -72,7 +72,7 @@ function PersonDashboard() {
   const bal = useAgentBalances(identity?.address);
   // The "Treasury USDC" tile reflects the person's MONEY agent (their treasury), detected from
   // the home vault — same source as /treasury — falling back to the person SA before one exists.
-  const treas = usePersonTreasury(token);
+  const treas = usePersonTreasury();
   if (!person) return null;
   const treasuryUsdc = treas.exists ? treas.usdc : bal.usdc;
   const treasuryLoading = treas.loading || bal.loading;

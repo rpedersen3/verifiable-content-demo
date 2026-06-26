@@ -31,7 +31,7 @@ export default function OrganizationsPage() {
   const [err, setErr] = useState<string | null>(null);
 
   // Live organizations the person governs, read from the home vault (kind 'org').
-  const live = usePersonOrgs(isOrg ? null : token, refreshKey);
+  const live = usePersonOrgs(refreshKey);
 
   if (!person) return null;
 

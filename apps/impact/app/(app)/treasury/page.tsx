@@ -24,7 +24,7 @@ export default function TreasuryPage() {
   const [fundAmt, setFundAmt] = useState("25");
   // The person's money agent — detected live from the home vault (the canonical
   // person-treasury record written at create time), with its on-chain balance.
-  const treas = usePersonTreasury(isOrg ? null : token, refreshKey);
+  const treas = usePersonTreasury(!isOrg, refreshKey);
   // Fallback: the person SA's own balance, used only if there's no treasury agent yet.
   const selfBal = useAgentBalances(isOrg && !liveOrg ? undefined : liveOrg ? liveOrg.address : person?.address);
   if (!person) return null;

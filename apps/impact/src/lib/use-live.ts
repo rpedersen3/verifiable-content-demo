@@ -2,12 +2,24 @@
 
 // Live on-chain reads for the connected agent, through the same /a2a proxy the rest of
 // the app uses. No vault/delegation infra needed — just real balances from Base Sepolia.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { erc20BalanceOf, getEthBalance, formatUnits } from "./backend";
 import { CONTRACTS } from "./chain";
-import { listMyOrgs } from "./related";
+import { listMyOrgs, cachedMyOrgs } from "./related";
+import { useSession } from "@/context/session";
+import type { AccessContext } from "./access";
 import type { DelegationWire } from "./delegation";
 import type { Address } from "./types";
+
+/** The connected person's self AccessContext — used to read/write their OWN vault (relationships,
+ *  profile, entitlements) over a presented session delegation. null until an identity is connected. */
+export function useSelfCtx(): AccessContext | null {
+  const { identity, token } = useSession();
+  return useMemo<AccessContext | null>(
+    () => (identity?.address ? { kind: "self", personSA: identity.address as Address, via: identity.via, token } : null),
+    [identity?.address, identity?.via, token],
+  );
+}
 
 export interface AgentBalances {
   usdc: string | null; // formatted, 2dp (mock USDC, 6 decimals)
@@ -57,16 +69,17 @@ export interface TreasuryInfo {
  *  time (related-orgs, kind:'person-treasury'), NOT a naming convention. This works for NAMELESS
  *  homes/treasuries too (the SA address is the canonical id; a name is an optional facet). Reads
  *  the treasury SA's live USDC balance. Returns exists:false when the person has no treasury yet. */
-export function usePersonTreasury(token?: string | null, refreshKey = 0): TreasuryInfo {
+export function usePersonTreasury(enabled = true, refreshKey = 0): TreasuryInfo {
+  const ctx = useSelfCtx();
   const [state, setState] = useState<TreasuryInfo>({ exists: false, name: null, address: null, usdc: null, loading: true });
 
   useEffect(() => {
     let alive = true;
-    if (!token) { setState({ exists: false, name: null, address: null, usdc: null, loading: false }); return; }
+    if (!enabled || !ctx) { setState({ exists: false, name: null, address: null, usdc: null, loading: false }); return; }
     setState((s) => ({ ...s, loading: true }));
     (async () => {
       try {
-        const orgs = await listMyOrgs(token);
+        const orgs = await listMyOrgs(ctx);
         if (!alive) return;
         const treasury = orgs.find((o) => o.kind === "person-treasury");
         if (!treasury) {
@@ -82,7 +95,7 @@ export function usePersonTreasury(token?: string | null, refreshKey = 0): Treasu
       }
     })();
     return () => { alive = false; };
-  }, [token, refreshKey]);
+  }, [enabled, ctx, refreshKey]);
 
   return state;
 }
@@ -100,26 +113,27 @@ export interface LiveOrgs {
   loading: boolean;
 }
 
-/** The organizations the person governs, read from the home vault (related-orgs, kind 'org') —
- *  the same source the Vault Delegations tab uses. Live, not seeded. */
-export function usePersonOrgs(token?: string | null, refreshKey = 0): LiveOrgs {
-  const [state, setState] = useState<LiveOrgs>({ orgs: [], loading: true });
+/** The organizations the person governs, read from the person's VAULT (vault:impact-relationships,
+ *  kind 'org'). Renders the local cache instantly, then refreshes from the vault. Live, not seeded. */
+export function usePersonOrgs(refreshKey = 0): LiveOrgs {
+  const ctx = useSelfCtx();
+  const personSA = ctx?.kind === "self" ? ctx.personSA : null;
+  const toLive = (mine: { orgAgent: string; orgName: string; createdAt: number | null; kind?: string; stewardshipDelegation?: DelegationWire | null }[]): LiveOrg[] =>
+    mine.filter((o) => o.kind === "org").map((o) => ({ agent: o.orgAgent as Address, name: o.orgName?.trim() || null, createdAt: o.createdAt, stewardship: o.stewardshipDelegation ?? null }));
+
+  const [state, setState] = useState<LiveOrgs>(() => ({ orgs: personSA ? toLive(cachedMyOrgs(personSA)) : [], loading: true }));
 
   useEffect(() => {
     let alive = true;
-    if (!token) { setState({ orgs: [], loading: false }); return; }
-    setState((s) => ({ ...s, loading: true }));
-    listMyOrgs(token)
-      .then((all) => {
-        if (!alive) return;
-        const orgs = all
-          .filter((o) => o.kind === "org")
-          .map((o) => ({ agent: o.orgAgent as Address, name: o.orgName?.trim() || null, createdAt: o.createdAt, stewardship: o.stewardshipDelegation ?? null }));
-        setState({ orgs, loading: false });
-      })
-      .catch(() => { if (alive) setState({ orgs: [], loading: false }); });
+    if (!ctx || !personSA) { setState({ orgs: [], loading: false }); return; }
+    // Instant: show the cached set while the vault read is in flight.
+    setState({ orgs: toLive(cachedMyOrgs(personSA)), loading: true });
+    listMyOrgs(ctx)
+      .then((all) => { if (alive) setState({ orgs: toLive(all), loading: false }); })
+      .catch(() => { if (alive) setState((s) => ({ orgs: s.orgs, loading: false })); });
     return () => { alive = false; };
-  }, [token, refreshKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx, personSA, refreshKey]);
 
   return state;
 }

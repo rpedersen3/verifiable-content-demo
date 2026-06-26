@@ -17,7 +17,7 @@ export default function ContextSwitcher() {
   const { person, active, token, defaultOrgId, setDefaultOrg } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const live = usePersonOrgs(token);
+  const live = usePersonOrgs();
   if (!person) return null;
 
   // Switching = navigating to the workspace's URL; the AppShell derives `active` from the path.

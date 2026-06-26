@@ -30,6 +30,8 @@ import { ensureCsrfToken, csrfHeaders } from "../csrf";
 import { CONTRACTS, DEFAULT_RPC_URL } from "./chain";
 import { nameLabel } from "./domain";
 import { buildApprovedSiteDelegation, toWire, type DelegationWire } from "./delegation";
+import { upsertRelationship, type AgentRelationship } from "./relationships-store";
+import type { AccessContext } from "./access";
 
 export type SignHash = (hash: Hex) => Promise<Hex>;
 export const AUD = "impact";
@@ -464,22 +466,33 @@ const REVOKE_DELEGATION_ABI = [
 /** Persist a person→agent link (+ its read delegations) into the home vault via the
  *  session-authorized POST /connect/related-orgs. Best-effort: the agent is already deployed,
  *  so a save failure is surfaced but non-fatal to the deploy. */
+/** Record a person→agent relationship in the PERSON'S VAULT (vault:impact-relationships), over a
+ *  presented self delegation — durable, custody-independent, trust-ontology-modelled. Replaces the
+ *  old broker-KV /connect/related-orgs write (the ephemeral store that lost data on every deploy). */
 async function saveRelatedAgent(input: {
   person: Address; orgAgent: Address; orgName: string; purpose: string; kind: string; parent: Address;
-  stewardshipDelegation?: DelegationWire; token: string;
+  stewardshipDelegation?: DelegationWire; via: ConnectVia; token: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const r = await fetch("/connect/related-orgs", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${input.token}` },
-    body: JSON.stringify({
-      person: input.person, orgAgent: input.orgAgent, orgName: input.orgName,
-      purpose: input.purpose, kind: input.kind, parent: input.parent,
-      ...(input.stewardshipDelegation ? { stewardshipDelegation: input.stewardshipDelegation } : {}),
-    }),
-  });
-  if (r.ok) return { ok: true };
-  const e = (await r.json().catch(() => ({}))) as { error?: string };
-  return { ok: false, error: e.error ?? `save failed (HTTP ${r.status})` };
+  try {
+    const ctx: AccessContext = { kind: "self", personSA: input.person, via: input.via, token: input.token };
+    const kind = input.kind as AgentRelationship["kind"];
+    const relation: AgentRelationship["relation"] =
+      kind === "person-treasury" || kind === "org" || kind === "org-treasury" ? "steward" : "peer";
+    await upsertRelationship(ctx, {
+      agent: input.orgAgent,
+      agentName: input.orgName?.trim() || null,
+      kind,
+      relation,
+      purpose: input.purpose ?? "",
+      parent: input.parent ?? input.person,
+      createdAt: Date.now(),
+      grants: { stewardship: input.stewardshipDelegation ?? null },
+      attestation: { type: "gc:Attestation", confidence: 1.0, method: "self-issued", basis: "person deployed and stewards this agent" },
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "could not save the relationship to your vault" };
+  }
 }
 
 /** Revoke a delegation the person granted (ADR-0019: a grant is a revocable scoped delegation).
@@ -583,7 +596,7 @@ export async function createManagedAgent(
     onStep?.(`Saving your ${noun} to your vault…`);
     await saveRelatedAgent({
       person: opts.personSA, orgAgent: b.agent, orgName: pick.name ?? "", purpose,
-      kind: opts.kind, parent, stewardshipDelegation: b.stewardshipDelegation, token: opts.token,
+      kind: opts.kind, parent, stewardshipDelegation: b.stewardshipDelegation, via: opts.via, token: opts.token,
     });
     return { ok: true, agent: b.agent, name: pick.name ?? "" };
   }
@@ -613,7 +626,7 @@ export async function createManagedAgent(
       onStep?.(`Saving your ${noun} to your vault…`);
       await saveRelatedAgent({
         person: opts.personSA, orgAgent: dep.agent, orgName: agentName, purpose,
-        kind: opts.kind, parent, stewardshipDelegation: toWire(stewardship.delegation), token: opts.token,
+        kind: opts.kind, parent, stewardshipDelegation: toWire(stewardship.delegation), via: opts.via, token: opts.token,
       });
     }
     return { ok: true, agent: dep.agent, name: agentName };

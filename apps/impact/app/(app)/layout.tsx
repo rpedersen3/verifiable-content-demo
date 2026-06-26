@@ -23,7 +23,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // The URL is the source of truth for the active workspace (IA phase 2). `/org/<id>/…` selects that
   // org; anything else is Personal. We resolve the org's live descriptor (stewardship etc.) from the
   // home vault and sync it into `active`, so a deep-link / refresh / new tab lands in the right scope.
-  const live = usePersonOrgs(token);
+  const live = usePersonOrgs();
   const ws = parseWorkspacePath(pathname);
   const wsOrgId = ws.kind === "org" ? ws.orgId : null;
 

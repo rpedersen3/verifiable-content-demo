@@ -11,6 +11,7 @@ import {
 import type { AccessContext } from "@/lib/access";
 import { displayNameFromContact } from "@/lib/profile-name";
 import { listMyOrgs, listMyReceivedDelegations, flattenDelegations, type LiveDelegation } from "@/lib/related";
+import { useSelfCtx } from "@/lib/use-live";
 import { revokeDelegation } from "@/lib/connect";
 import { activateVaultKey, isVaultKeyBound } from "@/lib/vault-key";
 import { loadImpactEntitlements, saveImpactEntitlements, type ImpactEntitlement } from "@/lib/entitlements-store";
@@ -110,11 +111,13 @@ export default function VaultPage() {
     else setActivateErr(out.error);
   }
 
+  // Delegations are the person's relationships, read from THEIR vault (custody ≠ access).
+  const personCtx = useSelfCtx();
   useEffect(() => {
-    if (!token) { setDelLoading(false); return; }
+    if (!personCtx) { setDelLoading(false); return; }
     let cancelled = false;
     setDelLoading(true);
-    Promise.all([listMyOrgs(token), listMyReceivedDelegations(token)])
+    Promise.all([listMyOrgs(personCtx), listMyReceivedDelegations(personCtx)])
       .then(([orgs, received]) => {
         if (cancelled) return;
         const all = flattenDelegations(orgs, received);
@@ -125,7 +128,7 @@ export default function VaultPage() {
       .catch(() => { if (!cancelled) setDelegations([]); })
       .finally(() => { if (!cancelled) setDelLoading(false); });
     return () => { cancelled = true; };
-  }, [token, delRefresh, isOrg, address]);
+  }, [personCtx, delRefresh, isOrg, address]);
 
   async function onRevoke(d: LiveDelegation) {
     if (!d.wire) return;
