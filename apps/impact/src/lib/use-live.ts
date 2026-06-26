@@ -63,6 +63,8 @@ export interface TreasuryInfo {
   address: Address | null;
   usdc: string | null;
   loading: boolean;
+  /** entitlement-credential ids securing this treasury's access in its owner's relationship. */
+  entitlements?: string[];
 }
 
 /** Detect the person's treasury from their HOME VAULT — the canonical record written at create
@@ -122,7 +124,7 @@ export function useOrgTreasury(live: LiveOrgRef | null | undefined, refreshKey =
         const addr = t.orgAgent as Address;
         const bal = await erc20BalanceOf(CONTRACTS.mockUsdc as Address, addr);
         if (!alive) return;
-        setState({ exists: true, name: t.orgName?.trim() || null, address: addr, usdc: formatUnits(bal, 6, 2), loading: false });
+        setState({ exists: true, name: t.orgName?.trim() || null, address: addr, usdc: formatUnits(bal, 6, 2), loading: false, entitlements: t.entitlements ?? [] });
       } catch {
         if (alive) setState({ exists: false, name: null, address: null, usdc: null, loading: false });
       }

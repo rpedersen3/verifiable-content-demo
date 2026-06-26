@@ -133,9 +133,14 @@ export default function TreasuryPage() {
                 <IconWallet width={16} height={16} />
               </div>
               <div>
-                <div className="row" style={{ gap: ".5rem" }}>
+                <div className="row wrap" style={{ gap: ".5rem" }}>
                   <strong style={{ fontSize: ".9rem" }}>{treasuryName}</strong>
                   {cur?.exists && <Pill tone="amber">{liveOrg ? "org money agent" : "your money agent"}</Pill>}
+                  {liveOrg && cur?.exists && (
+                    orgTreas.entitlements && orgTreas.entitlements.length > 0
+                      ? <Pill tone="emerald">delegation + entitlement</Pill>
+                      : <Pill tone="plum">stewardship delegation</Pill>
+                  )}
                 </div>
                 {treasuryAddr && (
                   <a href={`${EXPLORER}${treasuryAddr}`} target="_blank" rel="noreferrer" className="addr" style={{ marginTop: 3, display: "inline-block" }}>

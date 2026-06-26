@@ -52,6 +52,23 @@ export async function issueOrgEntitlement(
   return { ok: false, error: [j.error, j.detail].filter(Boolean).join(" — ") || "issue failed" };
 }
 
+/** Issue the org an entitlement to access its TREASURY, with the TREASURY as the issuer: present the
+ *  treasury→org stewardship grant (delegator = treasury) so impact-mcp recovers principal = the
+ *  treasury, and grant the org (subject) the `treasury` resource. Recorded in entitlements_issued —
+ *  so org→treasury access is gated by an entitlement AND the stewardship delegation. */
+export async function issueTreasuryEntitlement(
+  opts: { treasurySA: Address; treasuryStewardship: DelegationWire; orgSA: Address; recordType?: string },
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const j = await post("entitlement/issue", {
+    delegation: opts.treasuryStewardship,
+    requester: opts.orgSA,
+    subject: opts.orgSA,
+    recordType: opts.recordType ?? "treasury",
+  });
+  if (j.ok === true && typeof j.id === "string") return { ok: true, id: j.id };
+  return { ok: false, error: [j.error, j.detail].filter(Boolean).join(" — ") || "treasury entitlement issue failed" };
+}
+
 export async function listOrgEntitlements(auth: OrgAuthority): Promise<IssuedEntitlement[]> {
   const j = await post("entitlement/list", { delegation: auth.stewardship, requester: auth.requester });
   return Array.isArray(j.entitlements) ? (j.entitlements as IssuedEntitlement[]) : [];

@@ -24,6 +24,8 @@ export interface MyOrg {
   membershipDelegation?: DelegationWire | null;
   /** stewardship = agent→person (the person reads/oversees the agent). */
   stewardshipDelegation?: DelegationWire | null;
+  /** entitlement-credential ids gating access in this relationship (e.g. a treasury-access grant). */
+  entitlements?: string[];
 }
 
 /** An inbound grant one of the person's agents RECEIVED (org↔org only — ADR-0025). */
@@ -47,6 +49,7 @@ function toMyOrg(r: AgentRelationship): MyOrg {
     delegation: r.grants?.site ?? null,
     membershipDelegation: r.grants?.membership ?? null,
     stewardshipDelegation: r.grants?.stewardship ?? null,
+    entitlements: r.entitlements ?? [],
   };
 }
 

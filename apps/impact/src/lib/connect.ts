@@ -30,8 +30,9 @@ import { ensureCsrfToken, csrfHeaders } from "../csrf";
 import { CONTRACTS, DEFAULT_RPC_URL } from "./chain";
 import { nameLabel } from "./domain";
 import { buildApprovedSiteDelegation, toWire, type DelegationWire } from "./delegation";
-import { upsertRelationship, type AgentRelationship } from "./relationships-store";
+import { upsertRelationship, addRelationshipEntitlement, type AgentRelationship } from "./relationships-store";
 import { activateVaultKey } from "./vault-key";
+import { issueTreasuryEntitlement } from "./entitlements-admin";
 import type { AccessContext } from "./access";
 
 export type SignHash = (hash: Hex) => Promise<Hex>;
@@ -515,6 +516,25 @@ async function recordRelationship(
   return saveRelatedAgent(input);
 }
 
+/** Two-factor org→treasury access (best-effort): on top of the stewardship DELEGATION, issue an
+ *  ENTITLEMENT — the treasury (issuer) grants the org access to the `treasury` resource — and pin its
+ *  id on the org→org-treasury relationship in the org's vault. Failures are non-fatal: the stewardship
+ *  delegation already establishes access; the entitlement is the additive credential layer. */
+async function linkTreasuryEntitlement(
+  recordIn: AccessContext | undefined,
+  orgSA: Address,
+  treasury: Address,
+  treasuryStewardship: DelegationWire | undefined,
+  onStep?: Step,
+): Promise<void> {
+  if (!recordIn || recordIn.kind !== "org" || !treasuryStewardship) return;
+  try {
+    onStep?.("Issuing the treasury access entitlement…");
+    const ent = await issueTreasuryEntitlement({ treasurySA: treasury, treasuryStewardship, orgSA });
+    if (ent.ok) await addRelationshipEntitlement(recordIn, treasury, ent.id);
+  } catch { /* the stewardship delegation already provides access */ }
+}
+
 /** Revoke a delegation the person granted (ADR-0019: a grant is a revocable scoped delegation).
  *  The DELEGATOR SA — an agent the person controls (their treasury / the person SA) — signs
  *  `execute(DelegationManager, revokeDelegationByOwner(d))`, so `msg.sender` is the delegator and
@@ -618,6 +638,7 @@ export async function createManagedAgent(
       person: opts.personSA, orgAgent: b.agent, orgName: pick.name ?? "", purpose,
       kind: opts.kind, parent, stewardshipDelegation: b.stewardshipDelegation, via: opts.via, token: opts.token, recordIn: opts.recordIn,
     }, onStep);
+    if (saved.ok && opts.kind === "org-treasury") await linkTreasuryEntitlement(opts.recordIn, parent, b.agent, b.stewardshipDelegation, onStep);
     return { ok: true, agent: b.agent, name: pick.name ?? "", ...(saved.ok ? {} : { warning: `${noun} deployed, but recording it in your vault failed: ${saved.error}. Re-activate your vault key (Account → Activate vault key), then reopen Organizations.` }) };
   }
   if (opts.via === "passkey") {
@@ -650,6 +671,7 @@ export async function createManagedAgent(
         kind: opts.kind, parent, stewardshipDelegation: toWire(stewardship.delegation), via: opts.via, token: opts.token, recordIn: opts.recordIn,
       }, onStep);
       if (!saved.ok) warning = `${noun} deployed, but recording it in your vault failed: ${saved.error}. Re-activate your vault key (Account → Activate vault key), then reopen Organizations.`;
+      else if (opts.kind === "org-treasury") await linkTreasuryEntitlement(opts.recordIn, parent, dep.agent, toWire(stewardship.delegation), onStep);
     }
     return { ok: true, agent: dep.agent, name: agentName, ...(warning ? { warning } : {}) };
   }

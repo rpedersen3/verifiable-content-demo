@@ -98,3 +98,15 @@ export async function removeRelationship(ctx: AccessContext, agent: Address): Pr
   const list = await loadRelationships(ctx);
   await saveRelationships(ctx, list.filter((r) => r.agent.toLowerCase() !== agent.toLowerCase()));
 }
+
+/** Attach an entitlement-credential id to an existing relationship (e.g. the treasury-access
+ *  entitlement on the org→org-treasury link) — so access is established by delegation AND entitlement. */
+export async function addRelationshipEntitlement(ctx: AccessContext, agent: Address, entitlementId: string): Promise<void> {
+  const list = await loadRelationships(ctx);
+  const i = list.findIndex((r) => r.agent.toLowerCase() === agent.toLowerCase());
+  if (i < 0) return;
+  const prev = list[i]!;
+  const entitlements = Array.from(new Set([...(prev.entitlements ?? []), entitlementId]));
+  list[i] = { ...prev, entitlements };
+  await saveRelationships(ctx, list);
+}
