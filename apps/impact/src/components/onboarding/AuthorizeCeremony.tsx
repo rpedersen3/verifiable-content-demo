@@ -88,6 +88,16 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
     deliverEnrollError(enroll, "access_denied");
   }
 
+  // "Not you?" — the home may hold a RESTORED session for a different custodian (you disconnected in
+  // the relying app, not here). Sign out of the home and drop to the credential picker so you can
+  // authorize as someone else, WITHOUT bouncing back to the app with an error.
+  function switchAccount() {
+    setError("");
+    ran.current = false;
+    clearPendingEnroll();
+    signOut();
+  }
+
   const connected = phase === "authed" && identity;
 
   return (
@@ -118,18 +128,30 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
           <div>
             {status || justConnected ? (
               <div className="muted">{status || "Authorizing…"}</div>
-            ) : error ? (
-              <>
-                <button className="ap" onClick={() => { ran.current = false; void authorize(); }}>Try again</button>{" "}
-                <button className="ap" onClick={deny}>Cancel</button>
-              </>
             ) : (
               <>
-                <p className="muted" style={{ margin: "8px 0" }}>
-                  Connected as <b>{identity.name ?? identity.address.slice(0, 10) + "…"}</b>.
-                </p>
-                <button className="ap" onClick={() => void authorize()}>Approve</button>{" "}
-                <button className="ap" onClick={deny}>Deny</button>
+                {error ? (
+                  <>
+                    <button className="ap" onClick={() => { ran.current = false; void authorize(); }}>Try again</button>{" "}
+                    <button className="ap" onClick={deny}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="muted" style={{ margin: "8px 0" }}>
+                      Connected as <b>{identity.name ?? identity.address.slice(0, 10) + "…"}</b>.
+                    </p>
+                    <button className="ap" onClick={() => void authorize()}>Approve</button>{" "}
+                    <button className="ap" onClick={deny}>Deny</button>
+                  </>
+                )}
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    onClick={switchAccount}
+                    style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: 12, textDecoration: "underline" }}
+                  >
+                    Not you? Use a different account
+                  </button>
+                </div>
               </>
             )}
           </div>

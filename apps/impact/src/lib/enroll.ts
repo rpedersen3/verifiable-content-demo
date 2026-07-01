@@ -56,13 +56,23 @@ export function parseEnrollReq(): EnrollReq | null {
 /** Social sign-in redirects the whole page to the IdP and returns to `/?code=…&via=…`, which the
  *  session provider consumes and strips the query — losing the authorize params. Stash them first
  *  so the ceremony can resume on return. Passkey/wallet run inline and never need this. */
+// The stash only needs to survive the social IdP full-page round-trip (seconds to ~a minute).
+// A freshness bound prevents an abandoned in-flight auth from hijacking a LATER visit to the home.
+const PENDING_TTL_MS = 5 * 60_000;
+
 export function stashPendingEnroll(enroll: EnrollReq): void {
-  try { sessionStorage.setItem(PENDING_KEY, JSON.stringify(enroll)); } catch { /* ignore */ }
+  try { sessionStorage.setItem(PENDING_KEY, JSON.stringify({ enroll, ts: Date.now() })); } catch { /* ignore */ }
 }
 export function loadPendingEnroll(): EnrollReq | null {
   try {
     const raw = sessionStorage.getItem(PENDING_KEY);
-    return raw ? (JSON.parse(raw) as EnrollReq) : null;
+    if (!raw) return null;
+    const p = JSON.parse(raw) as { enroll?: EnrollReq; ts?: number };
+    if (!p?.enroll || typeof p.ts !== "number" || Date.now() - p.ts > PENDING_TTL_MS) {
+      sessionStorage.removeItem(PENDING_KEY);
+      return null;
+    }
+    return p.enroll;
   } catch { return null; }
 }
 export function clearPendingEnroll(): void {
