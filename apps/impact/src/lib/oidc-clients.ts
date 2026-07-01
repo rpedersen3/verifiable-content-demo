@@ -42,6 +42,7 @@ const RELYING_APPS: RelyingApp[] = [
     client_id: 'demo-corpus',
     redirect_uris: [
       'https://demo-corpus.richardpedersen3.workers.dev/',
+      'https://demo-corpus-production.richardpedersen3.workers.dev/',
       'http://localhost:8796/',
     ],
     allowed_scopes: ['openid', 'agent'],
