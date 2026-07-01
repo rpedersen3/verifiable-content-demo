@@ -20,7 +20,7 @@ function mcp(env: Env, path: string, body: unknown): Promise<Record<string, unkn
 }
 
 // ── server-side id_token verification (ES256 vs the home JWKS, iss-allowlisted, aud, exp) ──
-const CONNECT_DOMAIN = 'impact-agent.me';
+const CONNECT_DOMAIN = 'churchcore.me';
 function isAllowedIssuer(origin: string): boolean {
   try { const u = new URL(origin); if (u.protocol !== 'https:' && u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') return false; if (u.pathname !== '/' && u.pathname !== '') return false; const h = u.hostname; return h === CONNECT_DOMAIN || h.endsWith(`.${CONNECT_DOMAIN}`) || h === 'localhost' || h === '127.0.0.1'; } catch { return false; }
 }
@@ -260,7 +260,7 @@ main{max-width:760px;margin:22px auto;padding:0 16px}
 </main>
 <script>
 const esc=(s)=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const CONNECT_DOMAIN='impact-agent.me',CLIENT_ID='demo-corpus',CENTRAL_AUTH_ORIGIN='https://www.'+CONNECT_DOMAIN,CONNECT_DELEGATE='0x89D13c596c45E4eE80Af5ae06C727FE9A820ffD0';
+const CONNECT_DOMAIN='churchcore.me',CLIENT_ID='demo-corpus',CENTRAL_AUTH_ORIGIN='https://www.'+CONNECT_DOMAIN,CONNECT_DELEGATE='0x89D13c596c45E4eE80Af5ae06C727FE9A820ffD0';
 // The content service exposing the owner-gated subscription due/collected endpoints (verified on-chain).
 const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
 // Corpus → licensed edition the subscriptions live under (matches the a2a EDITION_SERVICE map).

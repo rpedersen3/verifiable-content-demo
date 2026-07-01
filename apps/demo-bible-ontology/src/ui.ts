@@ -259,7 +259,7 @@ const V=document.getElementById('view');
 const A2A_BASE='https://demo-bible-a2a-production.richardpedersen3.workers.dev';
 // The generic agenticprimitives relayer (per-agent PII vault) — reads the connected user's own
 // demo-mcp vault via the delegation their Global.Church home minted at sign-in.
-const DEMO_A2A_BASE='https://demo-a2a-production.richardpedersen3.workers.dev';
+const DEMO_A2A_BASE='https://impact-a2a-production.richardpedersen3.workers.dev';
 // All knowledge-graph reads go through the Scripture Agent → MCP vault (not the data Worker directly).
 // Active Bible source. Public 'bsb' is open; a licensed source (e.g. 'lbsb') makes EVERY backend query
 // carry the reader's edition + id_token so the agent can gate on their entitlement.
@@ -429,7 +429,7 @@ const BOOKS=[['Gen','Genesis'],['Exod','Exodus'],['Lev','Leviticus'],['Num','Num
   sel.onchange=async()=>{bookFilter=sel.value;await loadFacets();if(tab==='explore'){if(exploreRun)exploreRun();}else if(tab==='geo'||tab==='timeline'){nav(tab);}else nav('explore');};})();
 
 // ── Connect: OIDC sign-in via the Impact central-auth home (mirrors demo-gs) ──
-const CONNECT_DOMAIN='impact-agent.me',CLIENT_ID='bible-explorer',CENTRAL_AUTH_ORIGIN='https://www.'+CONNECT_DOMAIN,CONNECT_DELEGATE='0x89D13c596c45E4eE80Af5ae06C727FE9A820ffD0';
+const CONNECT_DOMAIN='churchcore.me',CLIENT_ID='bible-explorer',CENTRAL_AUTH_ORIGIN='https://www.'+CONNECT_DOMAIN,CONNECT_DELEGATE='0x89D13c596c45E4eE80Af5ae06C727FE9A820ffD0';
 let session=null;
 function loadSession(){try{const j=JSON.parse(localStorage.getItem('sa.session')||'null');session=(j&&j.exp*1000>Date.now())?j:null;if(!session)localStorage.removeItem('sa.session');}catch(e){session=null;}}
 function isConnected(){return !!session;}
@@ -1096,10 +1096,10 @@ async function loadAccount(){
     const blob=((e&&e.raw)||'')+' '+msg;
     if(blob.indexOf('vault_key_unauthorized')>=0){
       // No spec-278 vault-key binding yet. The binding needs YOUR signature (this app signs nothing), so hand
-      // off to your Global.Church home /vault-key page: it provisions your per-person KMS key, you sign the
-      // one-time VAULT_KEY_USE authorization with your own credential, and it binds it to this server.
+      // off to your Global.Church home: reconnecting there provisions your per-person KMS key and self-heals
+      // the binding to this server (activateVaultKey at connect). You sign once with your own credential.
       el.innerHTML='<div style="font-size:13px">Your personal vault is not set up yet.</div>'+
-        '<div class="hint" style="margin:6px 0">Authorize this server to use your encrypted vault key — a one-time setup at your Global.Church home. You sign once with your own credential; this app signs nothing and your data stays encrypted under your key.</div>'+
+        '<div class="hint" style="margin:6px 0">Open your Global.Church home and connect — it provisions your encrypted vault key and binds it (you sign once with your own credential; this app signs nothing and your data stays encrypted under your key).</div>'+
         '<button class="ap" onclick="setupVault()">Set up my vault</button> <button class="ap" onclick="loadAccount()">Re-read</button>';
     }else{
       el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read your vault: '+esc(msg)+'</div>'+
@@ -1109,7 +1109,7 @@ async function loadAccount(){
 }
 // Hand off to the home's standalone vault-key activation page (spec 278): opens in a new tab; the reader
 // activates with their own custodian there, then returns and clicks Re-read. The app never signs.
-function setupVault(){window.open(CENTRAL_AUTH_ORIGIN+'/vault-key','_blank','noopener');}
+function setupVault(){window.open(portalUrl(),'_blank','noopener');}
 async function loadIntegrity(max){
   const d=await api('/integrity?max='+encodeURIComponent(max));
   document.getElementById('ibands').innerHTML=bandChips(d.bands);

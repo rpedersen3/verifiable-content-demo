@@ -18,7 +18,7 @@ SCHEME_ID = "bible-verse"
 ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 # The agenticprimitives relayer + the (already allow-listed) origin used to mint its CSRF token,
 # for delivering a granted entitlement into the reader's demo-mcp vault.
-RELAY_URL = "https://demo-a2a-production.richardpedersen3.workers.dev"
+RELAY_URL = "https://impact-a2a-production.richardpedersen3.workers.dev"
 RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 
 [env.production]
@@ -35,7 +35,7 @@ SCHEME_ID = "bible-verse"
 # buildDelegated is resilient — unconfigured issuers (e.g. demo-licensed.impact) degrade per-edition, no crash.
 TRUST_MODE = "delegated"
 ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
-RELAY_URL = "https://demo-a2a-production.richardpedersen3.workers.dev"
+RELAY_URL = "https://impact-a2a-production.richardpedersen3.workers.dev"
 RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 # A2A bus (spec 269) — Base Sepolia contracts. INERT until A2A_AGENT_SA (claimed fbsb.impact) +
 # A2A_RPC_URL (a Base Sepolia RPC, set as a secret) are configured: on-chain checks fail closed.
@@ -71,11 +71,11 @@ database_id = "25fcf315-c1d8-45ae-aa41-16bf21697d20"
 binding = "ONT"
 service = "demo-bible-ontology-production"
 
-# The agenticprimitives demo-a2a relayer — to deliver a granted entitlement into the reader's
-# personal demo-mcp vault (set_vault_record under the reader's namespace). Avoids CF error 1042.
+# The churchcore impact-a2a relayer — to deliver a granted entitlement into the reader's
+# personal impact-mcp vault (set_vault_record under the reader's namespace). Avoids CF error 1042.
 [[env.production.services]]
 binding = "A2A_RELAY"
-service = "demo-a2a-production"
+service = "impact-a2a-production"
 
 # A2A async task mailbox — one Durable Object instance per agent SA (idFromName). Persists tasks
 # + drives processing via alarm() (spec 269 FR-3.2).

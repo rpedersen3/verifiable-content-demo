@@ -50,10 +50,16 @@ const MCP_DIR = join(REPO_ROOT, 'apps', 'impact-mcp');
 const A2A_DIR = join(REPO_ROOT, 'apps', 'impact-a2a');
 const STATE_PATH = join(REPO_ROOT, 'impact-cloudflare-urls.json');
 
-// Browser origins cleared for CORS/CSRF on impact-a2a (the impact homes that call it).
+// Browser origins cleared for CORS/CSRF on impact-a2a (the impact homes that call it, PLUS the
+// first-party demo relying apps — Bible Explorer + corpus — that read their vault via the relayer).
 const ALLOWED_ORIGINS =
   process.env.IMPACT_ALLOWED_ORIGINS ??
-  'https://churchcore.me,https://*.churchcore.me';
+  [
+    'https://churchcore.me',
+    'https://*.churchcore.me',
+    'https://demo-bible-ontology-production.richardpedersen3.workers.dev',
+    'https://demo-corpus.richardpedersen3.workers.dev',
+  ].join(',');
 // Custody-gate issuer (only matters for Google/YouVersion KMS-custody sign-in). Must be the
 // impact home origin whose broker mints the session. Override per deployment.
 const BROKER_ORIGIN = process.env.IMPACT_BROKER_ORIGIN ?? 'https://www.churchcore.me';

@@ -455,14 +455,14 @@ app.post('/pay/treasury-status', async (c) => {
 });
 
 // ── Entitlements (P1): subjects come ONLY from a server-side-verified id_token, never client input ──
-const CONNECT_DOMAIN = 'impact-agent.me';
+const CONNECT_DOMAIN = 'churchcore.me';
 const ALLOWED_AUD = ['bible-explorer', 'demo-corpus'];
 function isAllowedIssuer(origin: string): boolean {
   try { const u = new URL(origin); if (u.protocol !== 'https:' && u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') return false; if (u.pathname !== '/' && u.pathname !== '') return false; const h = u.hostname; return h === CONNECT_DOMAIN || h.endsWith(`.${CONNECT_DOMAIN}`) || h === 'localhost' || h === '127.0.0.1'; } catch { return false; }
 }
 function b64urlBytes(seg: string): Uint8Array { const bin = atob(seg.replace(/-/g, '+').replace(/_/g, '/')); const o = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) o[i] = bin.charCodeAt(i); return o; }
 function decodeSeg<T>(seg: string): T { return JSON.parse(new TextDecoder().decode(b64urlBytes(seg))) as T; }
-/** Verify an OIDC id_token against its home JWKS (ES256, iss-allowlisted *.impact-agent.me, aud, exp). */
+/** Verify an OIDC id_token against its home JWKS (ES256, iss-allowlisted *.churchcore.me, aud, exp). */
 async function verifyIdToken(idToken: string): Promise<{ sub: string; name: string }> {
   const parts = idToken.split('.');
   if (parts.length !== 3) throw new Error('id_token malformed');
