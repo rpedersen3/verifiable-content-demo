@@ -318,11 +318,31 @@ export async function claimHomeName(
   base: string,
   onStep?: Step,
 ): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+  // Self-heal: the naming subregistry is ONE-name-per-home. If this home already OWNS a name, adopt
+  // it instead of submitting a doomed re-claim (register() would revert `AlreadyClaimed` → the
+  // relayer 500s). This also recovers the case where the session showed the home as nameless.
+  onStep?.("Checking your home…");
+  const existing = await reverseResolveName(agent);
+  if (existing) return { ok: true, name: existing };
   const clean = sanitizeBase(base);
   if (!clean) return { ok: false, error: "Enter a valid name (letters, numbers, hyphens)." };
   onStep?.("Claiming your name…");
   const signHash = await signHashForVia(via, agent, token);
   return claimName(agent, signHash, clean);
+}
+
+/** Reverse-resolve a home's on-chain primary `.impact` name via the relayer's naming surface
+ *  (impact-a2a `/name/reverse`, the same single `reverseResolveString` view the workers use).
+ *  Returns null when the SA has no primary name (or on any read error — best-effort). */
+export async function reverseResolveName(agent: Address): Promise<string | null> {
+  try {
+    const r = await fetch(`/a2a/name/reverse?address=${agent}`);
+    if (!r.ok) return null;
+    const b = (await r.json()) as { name?: string | null };
+    return b.name ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Profile ──────────────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ import { PERSON } from "@/lib/seed";
 import type { Address, Person } from "@/lib/types";
 import type { DelegationWire } from "@/lib/delegation";
 import { nameLabel } from "@/lib/domain";
-import { connectPasskey, connectWalletSiwe, exchangeCode, startGoogleSignIn, startYouVersionSignIn } from "@/lib/connect";
+import { connectPasskey, connectWalletSiwe, exchangeCode, reverseResolveName, startGoogleSignIn, startYouVersionSignIn } from "@/lib/connect";
 import { clearSsoCookie } from "@/lib/sso-cookie";
 
 export type Via = "passkey" | "wallet" | "google" | "youversion";
@@ -220,6 +220,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return { ...s, identity, person: personFromIdentity(identity) };
     });
   }, [persist]);
+
+  // After a RESTORE, a home that was named on-chain but whose persisted session predates name
+  // resolution reads `name:null`. Reverse-resolve once and adopt it, so a plain RELOAD (not only a
+  // full sign-out+reconnect) surfaces the name — and hides the "Claim a public name" card for an
+  // already-named home. Best-effort; a nameless home just stays nameless.
+  useEffect(() => {
+    const id = state.identity;
+    if (state.phase !== "authed" || !id || id.name || !id.deployed) return;
+    let cancelled = false;
+    void (async () => {
+      const name = await reverseResolveName(id.address as Address);
+      if (!cancelled && name) markNamed(name);
+    })();
+    return () => { cancelled = true; };
+  }, [state.phase, state.identity, markNamed]);
 
   const setActive = useCallback((ctx: ActiveContext) => {
     setState((s) => {
