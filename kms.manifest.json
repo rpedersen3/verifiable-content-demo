@@ -12,16 +12,81 @@
   },
   "bindingsUrl": "https://demo-bible-mcp-production.richardpedersen3.workers.dev",
   "deployments": {
-    "mcp": { "platform": "cloudflare", "worker": "demo-bible-mcp", "dir": "apps/demo-bible-mcp", "env": "production" },
-    "validator": { "platform": "vercel", "project": "scripture-validator", "env": "production" }
+    "mcp": {
+      "platform": "cloudflare",
+      "worker": "demo-bible-mcp",
+      "dir": "apps/demo-bible-mcp",
+      "env": "production"
+    },
+    "validator": {
+      "platform": "vercel",
+      "project": "scripture-validator",
+      "env": "production"
+    }
   },
   "identities": [
-    { "name": "fbsb.impact", "targets": [{ "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } }] },
-    { "name": "lbsb.impact", "targets": [{ "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } }] },
-    { "name": "scripture-resolver.impact", "targets": [{ "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } }] },
-    { "name": "demo-validator.impact", "targets": [
-      { "deployment": "mcp", "wire": { "keyMapSecret": "CONTENT_SIGNER_KEYS" } },
-      { "deployment": "validator", "wire": { "keySecret": "VALIDATOR_KMS_KEY", "saSecret": "VALIDATOR_SA", "leafSecret": "VALIDATOR_DELEGATION_LEAF" } }
-    ] }
+    {
+      "name": "fbsb.impact",
+      "targets": [
+        {
+          "deployment": "mcp",
+          "wire": {
+            "keyMapSecret": "CONTENT_SIGNER_KEYS"
+          }
+        }
+      ]
+    },
+    {
+      "name": "qbsb.impact",
+      "targets": [
+        {
+          "deployment": "mcp",
+          "wire": {
+            "keyMapSecret": "CONTENT_SIGNER_KEYS"
+          }
+        }
+      ]
+    },
+    {
+      "name": "lbsb.impact",
+      "targets": [
+        {
+          "deployment": "mcp",
+          "wire": {
+            "keyMapSecret": "CONTENT_SIGNER_KEYS"
+          }
+        }
+      ]
+    },
+    {
+      "name": "scripture-resolver.impact",
+      "targets": [
+        {
+          "deployment": "mcp",
+          "wire": {
+            "keyMapSecret": "CONTENT_SIGNER_KEYS"
+          }
+        }
+      ]
+    },
+    {
+      "name": "demo-validator.impact",
+      "targets": [
+        {
+          "deployment": "mcp",
+          "wire": {
+            "keyMapSecret": "CONTENT_SIGNER_KEYS"
+          }
+        },
+        {
+          "deployment": "validator",
+          "wire": {
+            "keySecret": "VALIDATOR_KMS_KEY",
+            "saSecret": "VALIDATOR_SA",
+            "leafSecret": "VALIDATOR_DELEGATION_LEAF"
+          }
+        }
+      ]
+    }
   ]
 }
