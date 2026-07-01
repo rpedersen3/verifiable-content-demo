@@ -96,8 +96,11 @@ export default function EntryExperience() {
 
   async function enter(via: Via) {
     const label = isNamed ? name.trim().toLowerCase().replace(/\.impact$/, "").replace(/[^a-z0-9-]/g, "") : "";
-    // A NAMED passkey home binds to its own subdomain — switch there first.
-    if (via === "passkey" && label && onHandle !== label) {
+    // A NAMED home lives on its OWN subdomain (`<label>.<domain>`) — switch there before connecting,
+    // for EVERY credential, not just passkey. Passkey additionally REQUIRES it (the SA address bakes
+    // in the host's rpIdHash); wallet/social work on the apex too, but the home is expected to open on
+    // its per-handle origin (its own SSO scope). Skip only when we're already on that handle's subdomain.
+    if (label && onHandle !== label) {
       setBusy(via);
       setStep(`Switching to ${label}’s home…`);
       window.location.href = `${homeOrigin(label)}/`;
