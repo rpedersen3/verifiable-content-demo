@@ -453,13 +453,22 @@ export async function connectWalletSiwe(nameHint?: string, onStep?: Step): Promi
       // stay silently nameless (no claim userOp ever fires). Best-effort — a failed claim still signs in.
       const base = nameHint && nameHint.trim() ? sanitizeBase(nameHint) : null;
       if (base) {
-        onStep?.("Claiming your name…");
-        rememberHomeEoa(base, first.address);
-        const signHash: SignHash = (h) => personalSign(first.address, h);
-        const claimed = await claimName(first.agent, signHash, base);
-        if (!claimed.ok) {
-          console.error("[connect] wallet name claim failed:", claimed.error);
-          onStep?.(`Signed in, but the name couldn't be claimed: ${claimed.error}`);
+        // Self-heal (same guard as `claimHomeName`): the naming subregistry is ONE-name-per-home.
+        // An already-deployed home reconnecting may ALREADY own a name — re-registering reverts
+        // `AlreadyClaimed` and the relayer 500s (live-debug 2026-07-01: wallet home `lbsb` re-claiming
+        // `lbsb2`). If a name already exists on-chain, adopt it and skip the doomed re-claim.
+        const existing = await reverseResolveName(first.agent);
+        if (existing) {
+          rememberHomeEoa(existing.replace(/\.impact$/, ""), first.address);
+        } else {
+          onStep?.("Claiming your name…");
+          rememberHomeEoa(base, first.address);
+          const signHash: SignHash = (h) => personalSign(first.address, h);
+          const claimed = await claimName(first.agent, signHash, base);
+          if (!claimed.ok) {
+            console.error("[connect] wallet name claim failed:", claimed.error);
+            onStep?.(`Signed in, but the name couldn't be claimed: ${claimed.error}`);
+          }
         }
       }
       onStep?.("Opening your home…");
