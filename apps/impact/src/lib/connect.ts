@@ -420,7 +420,13 @@ export async function connectWalletSiwe(nameHint?: string, onStep?: Step): Promi
         rememberHomeEoa(base, first.address);
         onStep?.("Claiming your name…");
         const signHash: SignHash = (h) => personalSign(first.address, h);
-        await claimName(dep.agent, signHash, base, 1n); // best-effort name
+        const claimed = await claimName(dep.agent, signHash, base, 1n); // best-effort name
+        if (!claimed.ok) {
+          // Best-effort: a failed claim leaves a nameless (still-usable) home, but SURFACE why so the
+          // member isn't silently left unnamed (this was failing invisibly for wallet homes).
+          console.error("[connect] wallet name claim failed:", claimed.error);
+          onStep?.(`Home secured, but the name couldn't be claimed: ${claimed.error}`);
+        }
       } // else → nameless home (claim a name later)
       onStep?.("Signing you in…");
       const again = await siweLogin(onStep);
