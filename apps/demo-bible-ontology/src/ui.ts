@@ -589,7 +589,11 @@ async function connectCallback(){const p=new URLSearchParams(location.search);co
     session={idToken:tr.id_token,delegation:tr.delegation||null,name:claims.agent_name||pend.name||'',sub:claims.canonical_agent_id||claims.sub||'',exp:claims.exp};
     localStorage.setItem('sa.session',JSON.stringify(session));sessionStorage.removeItem('sa.pending');return true;
   }catch(e){alert('Connect failed: '+(e&&e.message?e.message:e));sessionStorage.removeItem('sa.pending');return false;}}
-function disconnect(){session=null;localStorage.removeItem('sa.session');renderConnect();}
+function disconnect(){session=null;localStorage.removeItem('sa.session');
+  // Also sign out of the Global.Church home (cross-origin) so a reconnect starts fresh — otherwise
+  // the home keeps you recognized and you can't switch custodian. The home clears its session and
+  // redirects back here (ac_return), landing you disconnected on both sides.
+  var lo=new URL('/',CENTRAL_AUTH_ORIGIN);lo.searchParams.set('ac_logout','1');lo.searchParams.set('ac_return',location.origin+'/');location.href=lo.toString();}
 function closeConnectGate(){const m=document.getElementById('connectGate');if(m)m.style.display='none';}
 function openConnectGate(reason){const m=document.getElementById('connectGate');if(!m)return;
   document.getElementById('cg-body').innerHTML=
