@@ -1086,14 +1086,15 @@ async function loadAccount(){
     // 'impact-profile') via the relayer's generic vault-record API. (NOT /mcp/person/pii, which is a
     // separate, seed-only demo fixture.) Same record + KMS encryption the home's "Your profile" shows.
     const r=await fetch(DEMO_A2A_BASE+'/mcp/vault/get',{method:'POST',credentials:'include',headers:{'content-type':'application/json','X-CSRF-Token':tok},body:JSON.stringify({delegation:session.delegation,requester:session.delegation.delegate,recordType:'impact-profile'})}).then(x=>x.json());
-    if(!r||!r.ok)throw new Error((r&&(r.detail||r.error))||'vault read failed');
+    if(!r||!r.ok){const raw=JSON.stringify(r||{});const er=r&&r.error;const reason=(r&&r.detail)||(typeof er==='string'?er:(er&&(er.message||er.reason||er.code)))||raw||'vault read failed';const ve=new Error(String(reason));ve.raw=raw;throw ve;}
     const prof=(r.data||r.record)||{};const ct=prof.contact||prof;
     const rows=[['First name',ct.firstName],['Last name',ct.lastName],['Email',ct.email],['Phone',ct.phone],['City',ct.city],['Country',ct.country],['Organization',ct.organizationName],['Org country',ct.organizationCountry]].filter(x=>x[1]);
     el.innerHTML=(rows.length?'<table class="acct">'+rows.map(x=>'<tr><td class="muted">'+esc(x[0])+'</td><td>'+esc(String(x[1]))+'</td></tr>').join('')+'</table>':'<div class="muted" style="font-size:13px">Your profile is empty — set it at your Global.Church home, then <button class="ap" onclick="loadAccount()">Re-read</button>.</div>')+
       '<div class="hint" style="margin-top:6px">record <span class="mono">vault:impact-profile</span> · 🔐 encrypted under your own KMS key · via delegation '+esc((session.delegation.delegator||'').slice(0,10))+'…→'+esc((session.delegation.delegate||'').slice(0,10))+'…</div>';
   }catch(e){
-    const msg=e&&e.message?e.message:String(e);
-    if(msg.indexOf('vault_key_unauthorized')>=0){
+    const msg=e&&e.message?String(e.message):String(e);
+    const blob=((e&&e.raw)||'')+' '+msg;
+    if(blob.indexOf('vault_key_unauthorized')>=0){
       // No spec-278 vault-key binding yet. The binding needs YOUR signature (this app signs nothing), so hand
       // off to your Global.Church home /vault-key page: it provisions your per-person KMS key, you sign the
       // one-time VAULT_KEY_USE authorization with your own credential, and it binds it to this server.
@@ -1102,7 +1103,7 @@ async function loadAccount(){
         '<button class="ap" onclick="setupVault()">Set up my vault</button> <button class="ap" onclick="loadAccount()">Re-read</button>';
     }else{
       el.innerHTML='<div style="color:#c0392b;font-size:13px">Could not read your vault: '+esc(msg)+'</div>'+
-        '<div class="hint" style="margin-top:5px">For this to work, the deployed <b>demo-a2a</b> must allow-list this app\\'s origin (<span class="mono">'+esc(location.origin)+'</span>) in its <span class="mono">ALLOWED_ORIGINS</span> (CSRF + CORS).</div>';
+        '<div class="hint" style="margin-top:5px">The relayer accepted this app\\'s origin (CORS/CSRF ok). This is a downstream error. If it mentions your <b>vault key</b>, click <button class="ap" onclick="setupVault()">Set up my vault</button>. If it mentions a <b>delegation</b> or <b>entitlement</b>, Disconnect &amp; Connect again at your home (<span class="mono">'+esc(CENTRAL_AUTH_ORIGIN)+'</span>) to re-mint the delegation.</div>';
     }
   }
 }
