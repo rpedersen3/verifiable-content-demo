@@ -8,16 +8,19 @@
 // `?token=`. Exact `aud` match (P1-F); fail-closed everywhere.
 import { importJwks, verifyAgentSession } from '@agenticprimitives/connect';
 import { AgentAccountClient } from '@agenticprimitives/agent-account';
+import { toCanonicalAgentId } from '@agenticprimitives/identity-directory-adapters';
 import type { Address } from '@agenticprimitives/types';
 import { getServer, json, type FnContext } from '../_lib/server-broker';
 import { basicProfile, sensitivePii } from '../../src/lib/pii';
 import { CONNECT_DOMAIN } from '../../src/lib/domain';
 import { CHAIN_ID, CONTRACTS, DEFAULT_RPC_URL } from '../../src/lib/chain';
 
-/** Parse the SA address out of a CAIP-10 `eip155:<chain>:0x…` subject; null if it isn't one. */
+/** Extract the SA address from a subject that may be CAIP-10 (`eip155:<chain>:0x…`) OR a bare
+ *  `0x…` address. Permissive on purpose: `directory.agent()` REQUIRES a canonical eip155 id and
+ *  throws on a bare address, which would otherwise be swallowed into a nameless home. */
 function addressFromSub(sub: string | undefined): Address | null {
-  if (!sub || !/^eip155:\d+:0x[0-9a-fA-F]{40}$/.test(sub)) return null;
-  return sub.split(':').pop() as Address;
+  const m = sub?.match(/0x[0-9a-fA-F]{40}/);
+  return (m?.[0] as Address) ?? null;
 }
 
 /** The person MCP's own audience — MUST match the aud the connect client mints with
@@ -64,10 +67,14 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
     return json({ error: 'invalid AgentSession: issuer not trusted' }, 401);
   }
 
-  // Best-effort .impact name for the basic profile (on-chain reverse-resolve).
+  // Best-effort .impact name for the basic profile (on-chain reverse-resolve). `directory.agent()`
+  // requires a CANONICAL eip155 id — pass a bare-address sub through and it throws, silently
+  // rendering an on-chain-named home as nameless. Canonicalize first so either sub shape resolves.
   let name: string | null = null;
   try {
-    const view = await directory.agent(session.sub);
+    const addr = addressFromSub(session.sub);
+    const canonicalSub = addr ? toCanonicalAgentId(CHAIN_ID, addr) : session.sub;
+    const view = await directory.agent(canonicalSub);
     name = view?.facets?.name ?? null;
   } catch {
     name = null;
@@ -85,7 +92,7 @@ export const onRequestGet = async ({ request, env }: FnContext): Promise<Respons
     if (addr) {
       try {
         const accounts = new AgentAccountClient({
-          rpcUrl: env.RPC_URL ?? DEFAULT_RPC_URL,
+          rpcUrl: env.RPC_URL && env.RPC_URL.trim() ? env.RPC_URL : DEFAULT_RPC_URL,
           chainId: CHAIN_ID,
           entryPoint: CONTRACTS.entryPoint,
           factory: CONTRACTS.agentAccountFactory,

@@ -42,7 +42,10 @@ export interface RealDirectoryOpts {
 
 /** Build the real, on-chain-backed Base Sepolia directory (spec 227 §5). */
 export function buildRealDirectory(opts: RealDirectoryOpts = {}): IdentityDirectory {
-  const rpcUrl = opts.rpcUrl ?? DEFAULT_RPC_URL;
+  // `?? DEFAULT_RPC_URL` would NOT catch an empty-string env (`RPC_URL=""`), leaving the naming
+  // client with a blank URL → every on-chain read throws → homes resolve as nameless. Treat blank
+  // as unset.
+  const rpcUrl = opts.rpcUrl && opts.rpcUrl.trim() ? opts.rpcUrl : DEFAULT_RPC_URL;
 
   const naming = new AgentNamingClient({
     rpcUrl,
