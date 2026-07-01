@@ -410,7 +410,24 @@ export async function exchangeCode(code: string, via: ConnectVia): Promise<Conne
 export async function connectWalletSiwe(nameHint?: string, onStep?: Step): Promise<ConnectOutcome> {
   try {
     const first = await siweLogin(onStep);
-    if (first.status === "issued") { onStep?.("Opening your home…"); return finish(first.token, "wallet", false); }
+    if (first.status === "issued") {
+      // Existing (already-deployed) home + a chosen name: claim the name NOW. The bootstrap branch only
+      // ran claimName on FIRST deploy, so a nameless home reconnecting to "secure <name>" would otherwise
+      // stay silently nameless (no claim userOp ever fires). Best-effort — a failed claim still signs in.
+      const base = nameHint && nameHint.trim() ? sanitizeBase(nameHint) : null;
+      if (base) {
+        onStep?.("Claiming your name…");
+        rememberHomeEoa(base, first.address);
+        const signHash: SignHash = (h) => personalSign(first.address, h);
+        const claimed = await claimName(first.agent, signHash, base);
+        if (!claimed.ok) {
+          console.error("[connect] wallet name claim failed:", claimed.error);
+          onStep?.(`Signed in, but the name couldn't be claimed: ${claimed.error}`);
+        }
+      }
+      onStep?.("Opening your home…");
+      return finish(first.token, "wallet", false);
+    }
     if (first.status === "bootstrap") {
       onStep?.("Securing your home on the network…");
       const dep = await bootstrapWithWallet(first.address, onStep);
