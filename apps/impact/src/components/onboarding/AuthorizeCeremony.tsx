@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession, type Via } from "@/context/session";
 import type { Address } from "@/lib/types";
+import { secureSocialHome } from "@/lib/vault-key";
 import {
   beginEnrollmentGrant,
   submitEnrollGrant,
@@ -30,7 +31,7 @@ const CREDENTIALS: { via: Via; label: string }[] = [
 const SESSION_STALE = /expired|invalid session|custody session|sign in again|no live custody/i;
 
 export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
-  const { phase, identity, token, signIn, signOut, justConnected } = useSession();
+  const { phase, identity, token, signIn, signOut, markDeployed, justConnected } = useSession();
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const ran = useRef(false);
@@ -42,7 +43,18 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
     try {
       if (!identity) throw new Error("not connected");
       if (!identity.deployed) {
-        throw new Error("Your home isn't deployed on-chain yet — open your home once, then retry.");
+        // The delegation is signed via ERC-1271, which needs the delegator SA deployed on-chain.
+        // Social homes are counterfactual until secured — deploy it now (paymaster-sponsored,
+        // signed server-side by the custody session; no user gesture). Passkey/wallet homes deploy
+        // at connect, so an undeployed one there is unexpected → tell the member to open their home.
+        if (identity.via === "google" || identity.via === "youversion") {
+          setStatus("Securing your home on-chain…");
+          const sec = await secureSocialHome(token ?? "");
+          if (!sec.ok) throw new Error(sec.error);
+          markDeployed();
+        } else {
+          throw new Error("Your home isn't deployed on-chain yet — open your home once, then retry.");
+        }
       }
       setStatus("Requesting authorization…");
       const { grant_id, delegate } = await beginEnrollmentGrant(enroll, identity.name ?? "");

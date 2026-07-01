@@ -15,6 +15,7 @@ agent-to-agent flows, entitlement lifecycle, and payment plans.
 - [Corpus Ownership and Entitlements](./corpus-ownership-and-entitlements.md) - corpus-owner onboarding, KMS/delegation trust chain, request/grant/deliver entitlement flow, and security audit.
 - [Social Connect Hardening](./social-connect-hardening.md) - future production hardening for OAuth/OIDC token custody, KMS envelope encryption, recovery wrapping, and Smart Account custody.
 - [Impact Apps Setup](./impact-apps-setup.md) - from-blank-repo guide to create + configure the three Impact apps (impact, impact-a2a, impact-mcp) on `@agenticprimitives/*`: workspace/overrides, Cloudflare KV/D1, GCP KMS signer/envelope/vault keys, secrets, deploy, and Vercel env.
+- [OpenBook](./openbook.md) - product/architecture draft mapping the OpenBook PRD to this repo's Bible Web, corpus admin, A2A, MCP, validator, and ontology/explorer stack.
 
 ## A2A, Entitlements, And Payments
 

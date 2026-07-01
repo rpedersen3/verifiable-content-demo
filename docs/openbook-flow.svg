@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="820" viewBox="0 0 1320 820" role="img" aria-labelledby="title desc">
+  <title id="title">OpenBook Flow Using Verifiable Content Demo Technology</title>
+  <desc id="desc">Flow diagram showing author publishing through demo-corpus, reader verification through bible-web and A2A, MCP corpus and vault storage, ontology explorer, and independent validator.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#24415f"/>
+    </marker>
+    <style>
+      .bg { fill: #f6f8fb; }
+      .lane { fill: #ffffff; stroke: #d6dee8; stroke-width: 1.5; rx: 18; }
+      .box { fill: #ffffff; stroke: #24415f; stroke-width: 2; rx: 12; }
+      .box-blue { fill: #eaf3ff; stroke: #24415f; stroke-width: 2; rx: 12; }
+      .box-green { fill: #ecf8f0; stroke: #256348; stroke-width: 2; rx: 12; }
+      .box-gold { fill: #fff7df; stroke: #8a6418; stroke-width: 2; rx: 12; }
+      .box-purple { fill: #f3edff; stroke: #61428f; stroke-width: 2; rx: 12; }
+      .box-red { fill: #fff0ee; stroke: #8d3b2f; stroke-width: 2; rx: 12; }
+      .title { font: 700 24px Arial, sans-serif; fill: #17283b; }
+      .subtitle { font: 400 14px Arial, sans-serif; fill: #516173; }
+      .lane-title { font: 700 15px Arial, sans-serif; fill: #516173; letter-spacing: .04em; }
+      .h { font: 700 16px Arial, sans-serif; fill: #17283b; }
+      .t { font: 400 13px Arial, sans-serif; fill: #24364a; }
+      .small { font: 400 12px Arial, sans-serif; fill: #516173; }
+      .arrow { stroke: #24415f; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .arrow-soft { stroke: #5a6c80; stroke-width: 1.8; fill: none; marker-end: url(#arrow); stroke-dasharray: 6 5; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1320" height="820"/>
+  <text class="title" x="48" y="48">OpenBook, mapped to our verifiable scripture stack</text>
+  <text class="subtitle" x="48" y="73">Author-owned publishing, passage verification, usage signals, entitlement grants, and independent validation using Bible Web, demo-corpus, MCP, A2A, ontology, and validator.</text>
+
+  <rect class="lane" x="40" y="105" width="1240" height="160" rx="18"/>
+  <text class="lane-title" x="62" y="132">PUBLISH AND ADMINISTER</text>
+
+  <rect class="box-blue" x="70" y="155" width="175" height="78" rx="12"/>
+  <text class="h" x="92" y="184">Author / Owner</text>
+  <text class="t" x="92" y="207">connects as named</text>
+  <text class="t" x="92" y="224">Smart Agent</text>
+
+  <rect class="box-blue" x="300" y="150" width="205" height="88" rx="12"/>
+  <text class="h" x="324" y="179">demo-corpus</text>
+  <text class="t" x="324" y="202">admin, corpus import,</text>
+  <text class="t" x="324" y="219">requests, grants</text>
+
+  <rect class="box-green" x="570" y="150" width="225" height="88" rx="12"/>
+  <text class="h" x="593" y="179">demo-bible-mcp</text>
+  <text class="t" x="593" y="202">canonical text, descriptors,</text>
+  <text class="t" x="593" y="219">commitments, vault ledger</text>
+
+  <rect class="box-gold" x="860" y="150" width="195" height="88" rx="12"/>
+  <text class="h" x="884" y="179">Issuer Smart Agents</text>
+  <text class="t" x="884" y="202">bsb.impact / lbsb.impact</text>
+  <text class="t" x="884" y="219">authorize KMS signers</text>
+
+  <rect class="box-gold" x="1110" y="150" width="135" height="88" rx="12"/>
+  <text class="h" x="1138" y="179">KMS / HSM</text>
+  <text class="t" x="1132" y="202">signs proofs</text>
+  <text class="t" x="1132" y="219">no held key</text>
+
+  <path class="arrow" d="M245 194 H300"/>
+  <path class="arrow" d="M505 194 H570"/>
+  <path class="arrow" d="M795 194 H860"/>
+  <path class="arrow" d="M1055 194 H1110"/>
+
+  <rect class="lane" x="40" y="300" width="1240" height="205" rx="18"/>
+  <text class="lane-title" x="62" y="327">READ, VERIFY, AND CITE</text>
+
+  <rect class="box-blue" x="70" y="360" width="175" height="88" rx="12"/>
+  <text class="h" x="106" y="389">Reader</text>
+  <text class="t" x="94" y="412">searches, reads, asks,</text>
+  <text class="t" x="94" y="429">requests access</text>
+
+  <rect class="box-blue" x="300" y="345" width="205" height="118" rx="12"/>
+  <text class="h" x="329" y="374">bible-web</text>
+  <text class="t" x="329" y="397">reader UI, provenance,</text>
+  <text class="t" x="329" y="414">payment/access prompts,</text>
+  <text class="t" x="329" y="431">citation display</text>
+
+  <rect class="box-purple" x="570" y="345" width="205" height="118" rx="12"/>
+  <text class="h" x="603" y="374">demo-bible-a2a</text>
+  <text class="t" x="603" y="397">Scripture Agent API,</text>
+  <text class="t" x="603" y="414">OIDC checks, x402,</text>
+  <text class="t" x="603" y="431">CitationAssertions</text>
+
+  <rect class="box-green" x="840" y="345" width="205" height="118" rx="12"/>
+  <text class="h" x="869" y="374">demo-bible-mcp</text>
+  <text class="t" x="869" y="397">resolve, retrieve, gate,</text>
+  <text class="t" x="869" y="414">verify commitment,</text>
+  <text class="t" x="869" y="431">return evidence</text>
+
+  <rect class="box-red" x="1100" y="345" width="145" height="118" rx="12"/>
+  <text class="h" x="1128" y="374">Validator</text>
+  <text class="t" x="1120" y="397">checks evidence</text>
+  <text class="t" x="1120" y="414">signs attestation</text>
+  <text class="t" x="1120" y="431">trust graph</text>
+
+  <path class="arrow" d="M245 404 H300"/>
+  <path class="arrow" d="M505 404 H570"/>
+  <path class="arrow" d="M775 404 H840"/>
+  <path class="arrow" d="M1045 404 H1100"/>
+  <path class="arrow-soft" d="M942 345 V262"/>
+  <path class="arrow-soft" d="M672 345 V238"/>
+
+  <rect class="lane" x="40" y="540" width="1240" height="190" rx="18"/>
+  <text class="lane-title" x="62" y="567">EXPLORER, SIGNALS, AND FEEDBACK</text>
+
+  <rect class="box-blue" x="70" y="605" width="215" height="86" rx="12"/>
+  <text class="h" x="97" y="633">ontology / explorer</text>
+  <text class="t" x="97" y="656">entities, passages, maps,</text>
+  <text class="t" x="97" y="673">lineage, trust signals</text>
+
+  <rect class="box-green" x="350" y="605" width="205" height="86" rx="12"/>
+  <text class="h" x="386" y="633">Ontology D1</text>
+  <text class="t" x="386" y="656">people, edges, scores,</text>
+  <text class="t" x="386" y="673">feedback threads</text>
+
+  <rect class="box-purple" x="620" y="605" width="205" height="86" rx="12"/>
+  <text class="h" x="649" y="633">signed feedback</text>
+  <text class="t" x="649" y="656">reader challenges,</text>
+  <text class="t" x="649" y="673">Signal-Court assertions</text>
+
+  <rect class="box-gold" x="890" y="605" width="185" height="86" rx="12"/>
+  <text class="h" x="919" y="633">author analytics</text>
+  <text class="t" x="919" y="656">reads, citations,</text>
+  <text class="t" x="919" y="673">usage signals</text>
+
+  <rect class="box-gold" x="1120" y="605" width="125" height="86" rx="12"/>
+  <text class="h" x="1142" y="633">Base</text>
+  <text class="t" x="1138" y="656">optional</text>
+  <text class="t" x="1138" y="673">anchors</text>
+
+  <path class="arrow" d="M285 648 H350"/>
+  <path class="arrow" d="M555 648 H620"/>
+  <path class="arrow" d="M825 648 H890"/>
+  <path class="arrow-soft" d="M1075 648 H1120"/>
+  <path class="arrow-soft" d="M672 463 V605"/>
+  <path class="arrow-soft" d="M402 463 V605"/>
+
+  <text class="small" x="48" y="774">OpenBook idea: author-owned publication and verifiable citations. Our stack: D1 corpus + content descriptors + Merkle commitments + Smart Agent/KMS signatures + A2A orchestration + independent validator + ontology signal graph.</text>
+</svg>
