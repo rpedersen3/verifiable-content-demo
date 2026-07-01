@@ -10,9 +10,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@agenticprimitives/content-primitives": "^1.0.0-alpha.6",
-    "@agenticprimitives/key-custody": "^1.0.0-alpha.10",
-    "@agenticprimitives/verifiable-credentials": "^0.0.0-alpha.6",
+    "@agenticprimitives/content-primitives": "1.0.0-alpha.14",
+    "@agenticprimitives/key-custody": "1.0.0-alpha.13",
+    "@agenticprimitives/verifiable-credentials": "0.0.0-alpha.10",
     "@hono/node-server": "^1.13.0",
     "circomlibjs": "^0.1.7",
     "hono": "^4.6.0",

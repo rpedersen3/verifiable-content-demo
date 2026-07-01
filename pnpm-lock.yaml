@@ -158,8 +158,8 @@ importers:
         specifier: 0.0.0-alpha.2
         version: 0.0.0-alpha.2
       '@agenticprimitives/scripture-content-extension':
-        specifier: ^1.0.0-alpha.6
-        version: 1.0.0-alpha.6(@agenticprimitives/content-primitives@1.0.0-alpha.14(@agenticprimitives/types@1.0.0-alpha.13)(@agenticprimitives/verifiable-credentials@0.0.0-alpha.10(@agenticprimitives/ontology@1.0.0-alpha.13)(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))
+        specifier: 1.0.0-alpha.8
+        version: 1.0.0-alpha.8(@agenticprimitives/content-primitives@1.0.0-alpha.14(@agenticprimitives/types@1.0.0-alpha.13)(@agenticprimitives/verifiable-credentials@0.0.0-alpha.10(@agenticprimitives/ontology@1.0.0-alpha.13)(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))
       '@agenticprimitives/tool-policy':
         specifier: 1.0.0-alpha.13
         version: 1.0.0-alpha.13(@agenticprimitives/types@1.0.0-alpha.13)
@@ -663,8 +663,8 @@ packages:
     peerDependencies:
       viem: ^2.52.2
 
-  '@agenticprimitives/scripture-content-extension@1.0.0-alpha.6':
-    resolution: {integrity: sha512-GSIKDSVHO23cRa6NoCKIX/nAJRXByPwmLefkh5CTy1nlROhRc1LPr892q3hIZpz303qJRf58qplocbZvu2DEGg==}
+  '@agenticprimitives/scripture-content-extension@1.0.0-alpha.8':
+    resolution: {integrity: sha512-Neij5CdWVcXUxdLujY4kyDPo4n0Fle+jqc7ZiSAruYeAVABK+pTkZ7dPqu2vFAa7cWGcft4Mq15j3zwMjZHMEQ==}
     peerDependencies:
       '@agenticprimitives/content-primitives': 1.0.0-alpha.14
 
@@ -2734,7 +2734,7 @@ snapshots:
       - '@agenticprimitives/key-custody'
       - '@agenticprimitives/ontology'
 
-  '@agenticprimitives/scripture-content-extension@1.0.0-alpha.6(@agenticprimitives/content-primitives@1.0.0-alpha.14(@agenticprimitives/types@1.0.0-alpha.13)(@agenticprimitives/verifiable-credentials@0.0.0-alpha.10(@agenticprimitives/ontology@1.0.0-alpha.13)(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))':
+  '@agenticprimitives/scripture-content-extension@1.0.0-alpha.8(@agenticprimitives/content-primitives@1.0.0-alpha.14(@agenticprimitives/types@1.0.0-alpha.13)(@agenticprimitives/verifiable-credentials@0.0.0-alpha.10(@agenticprimitives/ontology@1.0.0-alpha.13)(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))':
     dependencies:
       '@agenticprimitives/content-primitives': 1.0.0-alpha.14(@agenticprimitives/types@1.0.0-alpha.13)(@agenticprimitives/verifiable-credentials@0.0.0-alpha.10(@agenticprimitives/ontology@1.0.0-alpha.13)(@agenticprimitives/types@1.0.0-alpha.13)(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(viem@2.52.2(typescript@5.9.3)(zod@4.4.3))
 
