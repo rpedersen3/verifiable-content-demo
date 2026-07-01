@@ -23,6 +23,7 @@ import type { Address, Person } from "@/lib/types";
 import type { DelegationWire } from "@/lib/delegation";
 import { nameLabel } from "@/lib/domain";
 import { connectPasskey, connectWalletSiwe, exchangeCode, startGoogleSignIn, startYouVersionSignIn } from "@/lib/connect";
+import { clearSsoCookie } from "@/lib/sso-cookie";
 
 export type Via = "passkey" | "wallet" | "google" | "youversion";
 export type Phase = "restoring" | "anon" | "authed";
@@ -188,6 +189,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+    try { clearSsoCookie(); } catch { /* ignore */ }
+    // TRUE disconnect: also clear the httpOnly server session cookie (the browser can't delete it
+    // itself, so a plain localStorage clear would let the relayer re-recognize you). Fire-and-forget;
+    // the local state reset below is what the UI reacts to.
+    try { void fetch("/a2a/session/logout", { method: "POST", credentials: "include" }); } catch { /* ignore */ }
     setState({ phase: "anon", identity: null, person: null, token: null, active: { mode: "person" }, defaultOrgId: null, justConnected: null });
   }, []);
 

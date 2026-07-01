@@ -15,3 +15,4 @@ packages/zk-membership/build/*
 .data/
 apps/demo-bible-mcp/.faucet-mock.json
 .vercel
+.env*

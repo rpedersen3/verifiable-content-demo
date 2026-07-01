@@ -7,7 +7,7 @@
 // Env bindings come from c.env (typed via the Bindings interface below).
 
 import { Hono, type Context } from 'hono';
-import { setCookie, getCookie } from 'hono/cookie';
+import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import { cors } from 'hono/cors';
 import {
   verify as siweVerifyLegacy,
@@ -521,6 +521,9 @@ app.use('*', async (c, next) => {
   // /api/a2a is the machine-to-machine A2A endpoint (spec 231) — no browser
   // cookie/CSRF; authorization is per the A2A protocol, not double-submit.
   if (c.req.path === '/api/a2a') return next();
+  // /session/logout only DELETES the caller's own cookies (safe, no state change) — CSRF-exempt so a
+  // Disconnect fully clears the session even without a live CSRF token.
+  if (c.req.path === '/session/logout') return next();
   // /custody/google/resolve + /custody/google/sign-site-delegation are server-to-server calls from the
   // Connect broker (no browser cookie). They're authenticated by the bridge HMAC envelope, not CSRF.
   // (bootstrap-and-claim + the browser /custody/google/sign ARE browser-facing and KEEP CSRF.)
@@ -1207,6 +1210,15 @@ app.post('/auth/siwe-verify', async (c) => {
   });
 
   return c.json({ ok: true, walletAddress, smartAccountAddress, isDeployed });
+});
+
+// POST /session/logout — a TRUE disconnect: clear the caller's httpOnly session + CSRF cookies. The
+// browser can't delete an httpOnly cookie itself, so the home's Disconnect (and the authorize
+// screen's "Not you?") post here. Idempotent; always returns ok.
+app.post('/session/logout', (c) => {
+  deleteCookie(c, SESSION_COOKIE, { path: '/' });
+  deleteCookie(c, CSRF_COOKIE, { path: '/' });
+  return c.json({ ok: true });
 });
 
 // ─── STEP 1.5 (optional): deploy smart account via paymaster-sponsored UserOp ─────
