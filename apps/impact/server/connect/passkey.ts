@@ -32,16 +32,25 @@ async function isDeployedSoon(accounts: AgentAccountClient, sa: Address): Promis
 
 export const onRequestPost = async ({ request, env }: FnContext): Promise<Response> => {
   const body = (await request.json().catch(() => null)) as
-    | { credentialIdDigest?: string; pubKeyX?: string; pubKeyY?: string; rpIdHash?: string; challenge?: string; signature?: string; aud?: string }
+    | { credentialIdDigest?: string; pubKeyX?: string; pubKeyY?: string; rpIdHash?: string; challenge?: string; signature?: string; aud?: string; agent?: string }
     | null;
-  if (!body?.credentialIdDigest || !body.pubKeyX || !body.pubKeyY || !body.rpIdHash || !body.challenge || !body.signature || !body.aud) {
-    return json({ error: 'credentialIdDigest, pubKeyX, pubKeyY, rpIdHash, challenge, signature, aud required' }, 400);
+  // A RECOVERY passkey reconnect targets a KNOWN home SA (`agent`): the passkey was added as a
+  // custodian of a social/wallet home via `addPasskey`, so it does NOT derive a passkey-native SA.
+  // In that mode we skip rpIdHash/pubkey derivation entirely and gate purely on hasPasskey(agent,·)
+  // + proof-of-possession against that SA. Otherwise (bootstrap/deploy path) the SA is DERIVED from
+  // the passkey and rpIdHash is required (it's committed into the CREATE2 address).
+  const target = body?.agent && /^0x[0-9a-fA-F]{40}$/.test(body.agent) ? (body.agent as Address) : null;
+  if (!body?.credentialIdDigest || !body.challenge || !body.signature || !body.aud) {
+    return json({ error: 'credentialIdDigest, challenge, signature, aud required' }, 400);
+  }
+  if (!target && (!body.pubKeyX || !body.pubKeyY || !body.rpIdHash)) {
+    return json({ error: 'pubKeyX, pubKeyY, rpIdHash required (or pass a target agent for a recovery-passkey login)' }, 400);
   }
   // rpIdHash is part of the passkey SA's CREATE2 address; the client sends the same value
   // it baked at deploy (sha256 of the browser host). It only LOCATES the account — trust is
   // gated below by hasPasskey + proof-of-possession (isValidSignature), so a forged rpIdHash
   // can only ever resolve to an SA the caller already controls. Validate it's a bytes32.
-  if (!/^0x[0-9a-fA-F]{64}$/.test(body.rpIdHash)) {
+  if (!target && !/^0x[0-9a-fA-F]{64}$/.test(body.rpIdHash!)) {
     return json({ error: 'rpIdHash must be a 32-byte hex string' }, 400);
   }
   // SEC-024: gate iss through the Host allowlist (closes the gap SEC-006 left on the
@@ -67,23 +76,34 @@ export const onRequestPost = async ({ request, env }: FnContext): Promise<Respon
     factory: CONTRACTS.agentAccountFactory,
   });
 
-  // Derive the deterministic passkey SA (mode 0, no custodians, passkey set, salt 0).
-  // rpIdHash is committed into the CREATE2 by the factory, so it MUST be included to match
-  // the deployed address — use the client-supplied value (the exact one baked at deploy).
+  // Recovery-passkey login → the SA is the caller-supplied home directly (verified below by
+  // hasPasskey + proof-of-possession). Otherwise derive the deterministic passkey-native SA
+  // (mode 0, no custodians, passkey set, salt 0). rpIdHash is committed into the CREATE2 by the
+  // factory, so it MUST be included to match the deployed address — use the client-supplied value.
   let sa: Address;
-  try {
-    sa = await accounts.getAddressForAgentAccount({
-      mode: 0,
-      custodians: [],
-      passkey: { credentialIdDigest: body.credentialIdDigest as Hex, x: BigInt(body.pubKeyX), y: BigInt(body.pubKeyY), rpIdHash: body.rpIdHash as Hex },
-      salt: 0n,
-    });
-  } catch (e) {
-    return json({ error: 'SA address derivation failed', detail: String(e) }, 502);
+  if (target) {
+    sa = target;
+  } else {
+    try {
+      sa = await accounts.getAddressForAgentAccount({
+        mode: 0,
+        custodians: [],
+        passkey: { credentialIdDigest: body.credentialIdDigest as Hex, x: BigInt(body.pubKeyX!), y: BigInt(body.pubKeyY!), rpIdHash: body.rpIdHash as Hex },
+        salt: 0n,
+      });
+    } catch (e) {
+      return json({ error: 'SA address derivation failed', detail: String(e) }, 502);
+    }
   }
 
-  if (!(await isDeployedSoon(accounts, sa))) return json({ status: 'bootstrap' });
-  if (!(await accounts.hasPasskey(sa, body.credentialIdDigest as Hex))) return json({ status: 'bootstrap' });
+  // For a recovery target the home is already deployed; a false "not deployed" here would be a
+  // stale RPC read, not a bootstrap signal — a targeted login never deploys, so surface it as an error.
+  if (!(await isDeployedSoon(accounts, sa))) {
+    return target ? json({ error: 'target home is not deployed on-chain' }, 409) : json({ status: 'bootstrap' });
+  }
+  if (!(await accounts.hasPasskey(sa, body.credentialIdDigest as Hex))) {
+    return target ? json({ error: 'this passkey is not a registered custodian of the target home' }, 403) : json({ status: 'bootstrap' });
+  }
 
   // Proof-of-possession: the registered passkey must have signed THIS challenge.
   const valid = await accounts.isValidSignature(sa, body.challenge as Hex, body.signature as Hex);

@@ -93,6 +93,9 @@ export default function EntryExperience() {
   const shown = isOpen
     ? credentialMethods.filter((m) => (lookup as { vias: Via[] }).vias.includes(m.via))
     : credentialMethods;
+  // Social-first: social is the primary way in; passkey/wallet are offered as secondary "more ways".
+  const socialShown = shown.filter((m) => m.via === "google" || m.via === "youversion");
+  const secondaryShown = shown.filter((m) => m.via === "passkey" || m.via === "wallet");
 
   async function enter(via: Via) {
     const label = isNamed ? name.trim().toLowerCase().replace(/\.impact$/, "").replace(/[^a-z0-9-]/g, "") : "";
@@ -113,6 +116,26 @@ export default function EntryExperience() {
     const err = await signIn(via, nameHint, (s) => setStep(s));
     if (err) { setError(err); setBusy(null); setStep(null); }
   }
+
+  const renderMethod = (m: { via: Via; label: string; hint: string }) => (
+    <button key={m.via} className="method-btn" onClick={() => enter(m.via)} disabled={busy !== null}>
+      <span
+        className="glyph glyph-sm"
+        style={{
+          background: m.via === "passkey" ? "var(--grad-amber)" : m.via === "wallet" ? "var(--grad-plum)" : "var(--surface-inset)",
+          color: m.via === "wallet" ? "#fff" : "#1c1917",
+        }}
+      >
+        {busy === m.via ? <span className="spin" aria-hidden /> : <IconKey width={15} height={15} />}
+      </span>
+      <span className="col" style={{ gap: 1, minWidth: 0 }}>
+        <span>{isOpen ? openLabel(m.via) : m.label}</span>
+        <span className="faint" style={{ fontSize: ".74rem", fontWeight: 500 }}>
+          {busy === m.via ? (step ?? "Working…") : m.hint}
+        </span>
+      </span>
+    </button>
+  );
 
   return (
     <div className="entry">
@@ -209,26 +232,17 @@ export default function EntryExperience() {
         )}
 
         <div className="col" style={{ gap: ".7rem" }}>
-          {shown.map((m) => (
-            <button key={m.via} className="method-btn" onClick={() => enter(m.via)} disabled={busy !== null}>
-              <span
-                className="glyph glyph-sm"
-                style={{
-                  background: m.via === "passkey" ? "var(--grad-amber)" : m.via === "wallet" ? "var(--grad-plum)" : "var(--surface-inset)",
-                  color: m.via === "wallet" ? "#fff" : "#1c1917",
-                }}
-              >
-                {busy === m.via ? <span className="spin" aria-hidden /> : <IconKey width={15} height={15} />}
-              </span>
-              <span className="col" style={{ gap: 1, minWidth: 0 }}>
-                <span>{isOpen ? openLabel(m.via) : m.label}</span>
-                <span className="faint" style={{ fontSize: ".74rem", fontWeight: 500 }}>
-                  {busy === m.via ? (step ?? "Working…") : m.hint}
-                </span>
-              </span>
-            </button>
-          ))}
+          {/* Primary: social (or, when only passkey/wallet are available for an existing home, those). */}
+          {(socialShown.length ? socialShown : secondaryShown).map(renderMethod)}
         </div>
+        {socialShown.length > 0 && secondaryShown.length > 0 && (
+          <>
+            <div className="eyebrow" style={{ margin: "1rem 0 .4rem" }}>More ways to connect</div>
+            <div className="col" style={{ gap: ".7rem" }}>
+              {secondaryShown.map(renderMethod)}
+            </div>
+          </>
+        )}
         </>
         )}
 

@@ -12,6 +12,7 @@ import {
 import {
   buildExecuteBatchCallData,
   AgentAccountClient,
+  agentAccountAbi,
   type ContractCall,
 } from "@agenticprimitives/agent-account";
 import type { Address, Hex } from "@agenticprimitives/types";
@@ -24,6 +25,9 @@ import {
   registerPasskey,
   signWithPasskey,
   loadPasskey,
+  rememberRecoveryHome,
+  recallRecoveryHome,
+  clearRecoveryHome,
   type Passkey,
 } from "./passkey";
 import { ensureCsrfToken, csrfHeaders } from "../csrf";
@@ -176,7 +180,7 @@ type PasskeyOutcome =
 
 type Step = (s: string) => void;
 
-async function passkeyLogin(registerIfMissing = true, onStep?: Step): Promise<PasskeyOutcome> {
+async function passkeyLogin(registerIfMissing = true, onStep?: Step, targetAgent?: Address): Promise<PasskeyOutcome> {
   let passkey = loadPasskey();
   if (!passkey) {
     if (!registerIfMissing) return { status: "rejected", reason: "no passkey on this device" };
@@ -191,6 +195,9 @@ async function passkeyLogin(registerIfMissing = true, onStep?: Step): Promise<Pa
   // rpIdHash is part of the passkey SA's CREATE2 address (the deploy bakes sha256 of THIS
   // browser's host). Send the same value so the server resolves the exact deployed SA —
   // server-side Host derivation can drift behind a proxy/alias and miss the account.
+  // A `targetAgent` (recovery-passkey login) instead resolves the KNOWN home SA server-side,
+  // so rpIdHash/pubkey are unused there (the passkey is a custodian of an existing home, not the
+  // seed of a derived one) — but they're harmless to send.
   const rpIdHash = await derivePasskeyRpIdHash();
   const r = await fetch("/connect/passkey", {
     method: "POST", headers: { "content-type": "application/json" },
@@ -198,6 +205,7 @@ async function passkeyLogin(registerIfMissing = true, onStep?: Step): Promise<Pa
       credentialIdDigest: passkey.credentialIdDigest,
       pubKeyX: passkey.pubKeyX.toString(), pubKeyY: passkey.pubKeyY.toString(),
       rpIdHash, challenge, signature, aud: AUD,
+      ...(targetAgent ? { agent: targetAgent } : {}),
     }),
   });
   const body = await readJson<{ status?: string; token?: string }>(r);
@@ -345,6 +353,42 @@ export async function reverseResolveName(agent: Address): Promise<string | null>
   }
 }
 
+// ── Recovery passkey ───────────────────────────────────────────────────────────
+/** Add a passkey on THIS device as a custodian of an already-connected home (`homeSA`), so the
+ *  member can reconnect instantly with the passkey next time (no social redirect). Registers a
+ *  device passkey, then submits a gasless `addPasskey(digest,x,y)` self-call signed with the home's
+ *  CURRENT credential (the home holds no key — every action is member-authorized). On success the
+ *  home SA is remembered so `connectPasskey` fast-reconnects to it. Best-effort: a failure leaves the
+ *  home fully usable via its original credential. The home MUST be deployed (addPasskey is a
+ *  post-deploy self-call). */
+export async function enrollRecoveryPasskey(
+  homeSA: Address,
+  via: ConnectVia,
+  token: string | undefined,
+  onStep?: Step,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    onStep?.("Create a passkey on this device — confirm with your authenticator…");
+    const passkey = await registerPasskey("Impact recovery passkey");
+    const addData = encodeFunctionData({
+      abi: agentAccountAbi,
+      functionName: "addPasskey",
+      args: [passkey.credentialIdDigest, passkey.pubKeyX, passkey.pubKeyY],
+    });
+    // addPasskey is an admin self-call: the account executes a call to ITSELF invoking addPasskey.
+    const call: ContractCall = { to: homeSA, value: 0n, data: addData };
+    const callData = buildExecuteBatchCallData([call]);
+    onStep?.("Registering your passkey on your home…");
+    const signHash = await signHashForVia(via, homeSA, token);
+    const res = await executeCall(homeSA, signHash, callData, { attempts: 10 });
+    if (!res.ok) return { ok: false, error: res.error };
+    rememberRecoveryHome(homeSA);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "passkey enrollment failed" };
+  }
+}
+
 // ── Profile ──────────────────────────────────────────────────────────────────
 export async function fetchProfile(token: string): Promise<BasicProfile | null> {
   const r = await fetch("/me/profile", { headers: { authorization: `Bearer ${token}` } });
@@ -377,6 +421,17 @@ function sanitizeBase(nameHint?: string): string {
 // ── High-level entry flows the UI calls ─────────────────────────────────────────
 export async function connectPasskey(nameHint?: string, onStep?: Step): Promise<ConnectOutcome> {
   try {
+    // FAST reconnect: this device holds a recovery passkey that was added as a custodian of an
+    // existing (social/wallet) home. Sign in straight to that home — one passkey tap, no social
+    // redirect, no name flow. If the mapping is stale (passkey no longer a custodian) drop it and
+    // fall through to the normal passkey flow.
+    const recovery = recallRecoveryHome();
+    if (recovery) {
+      onStep?.("Opening your home with your passkey…");
+      const fast = await passkeyLogin(false, onStep, recovery);
+      if (fast.status === "issued") { onStep?.("Opening your home…"); return finish(fast.token, "passkey", false); }
+      clearRecoveryHome();
+    }
     const login = await passkeyLogin(true, onStep);
     if (login.status === "issued") { onStep?.("Opening your home…"); return finish(login.token, "passkey", false); }
     if (login.status === "bootstrap") {

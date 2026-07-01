@@ -8,7 +8,8 @@ import { useEffect, useRef, useState } from "react";
 import { useSession, type Via } from "@/context/session";
 import type { Address } from "@/lib/types";
 import { secureSocialHome } from "@/lib/vault-key";
-import { createPersonTreasury, signHashForVia } from "@/lib/connect";
+import { createPersonTreasury, signHashForVia, enrollRecoveryPasskey } from "@/lib/connect";
+import { recallRecoveryHome } from "@/lib/passkey";
 import { buildUnsignedPaymentDelegation, OPEN_DELEGATION, toWire, type DelegationWire } from "@/lib/delegation";
 import { getClient, getClientPaymentConfig, getClientContentSignerConfig } from "@/lib/oidc-clients";
 import { chargePayment } from "@/lib/pay";
@@ -27,10 +28,14 @@ import {
   type EnrollReq,
 } from "@/lib/enroll";
 
-const CREDENTIALS: { via: Via; label: string }[] = [
+// Social-first: the default way in is your social source. Passkey/wallet are offered as secondary
+// "more ways" so most members never touch a wallet or manage a passkey to get started.
+const SOCIAL: { via: Via; label: string; hint: string }[] = [
+  { via: "google", label: "Continue with Google", hint: "We derive your agent — no password to manage" },
+  { via: "youversion", label: "Continue with YouVersion", hint: "Bring your Bible app identity" },
+];
+const SECONDARY: { via: Via; label: string }[] = [
   { via: "passkey", label: "Passkey" },
-  { via: "google", label: "Google" },
-  { via: "youversion", label: "YouVersion" },
   { via: "wallet", label: "Wallet" },
 ];
 
@@ -42,7 +47,43 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
   const { phase, identity, token, signIn, signOut, markDeployed, justConnected } = useSession();
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  // Optional naming (opt-in, never the default): most members stay nameless and can claim a public
+  // name later. Only surfaced when they open "Name your agent".
+  const [nameInput, setNameInput] = useState("");
+  const [showName, setShowName] = useState(false);
+  // Recovery-passkey offer: once the auth code is minted we hold it here and offer to add a fast
+  // passkey BEFORE redirecting back. Skipping (or adding) delivers the code.
+  const [offer, setOffer] = useState<{ code: string } | null>(null);
+  const [busy, setBusy] = useState<Via | null>(null);
   const ran = useRef(false);
+
+  // Offer a fast passkey to social/wallet homes that don't already recover to a passkey on THIS
+  // device. Passkey homes already have one; a home we've already enrolled here is skipped.
+  function shouldOfferPasskey(): boolean {
+    if (!identity) return false;
+    if (identity.via === "passkey") return false;
+    return recallRecoveryHome() !== (identity.address as Address);
+  }
+
+  function returnToApp(code: string) {
+    clearPendingEnroll();
+    setStatus("Returning to the app…");
+    deliverEnrollCode(enroll, code); // navigates away
+  }
+
+  async function addRecoveryPasskey(code: string) {
+    if (!identity) return;
+    setError("");
+    const res = await enrollRecoveryPasskey(identity.address as Address, identity.via, token ?? undefined, setStatus);
+    if (!res.ok) {
+      // Best-effort: the authorization already succeeded — surface the reason but let them retry or
+      // skip. We keep the code so either path still returns them to the app.
+      setStatus("");
+      setError(`Couldn't add the passkey: ${res.error}`);
+      return;
+    }
+    returnToApp(code);
+  }
 
   // x402 (spec 272): for the `x402-pay` template, provision/resolve the reader's person-treasury,
   // mint + sign a capped person-treasury → payee payment delegation, run the first charge in the
@@ -135,9 +176,10 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
       const payExtra = enroll.delegationTemplate === "x402-pay" ? await runPayment() : undefined;
       setStatus("Finishing…");
       const code = await submitEnrollGrant(grant_id, wire, payExtra);
-      clearPendingEnroll();
-      setStatus("Returning to the app…");
-      deliverEnrollCode(enroll, code); // navigates away
+      // Before redirecting back, offer a fast recovery passkey (skippable). Passkey/already-enrolled
+      // homes skip straight through.
+      if (shouldOfferPasskey()) { setStatus(""); setOffer({ code }); return; }
+      returnToApp(code);
     } catch (e) {
       ran.current = false;
       setStatus("");
@@ -161,11 +203,15 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, identity, justConnected]);
 
-  function pick(via: Via) {
+  async function pick(via: Via) {
     setError("");
+    // Optional name (opt-in) overrides the request's agent_name hint; empty ⇒ nameless home.
+    const nameHint = nameInput.trim() || enroll.name || undefined;
     // Social redirects the whole page out → stash the request so we can resume on return.
     if (via === "google" || via === "youversion") stashPendingEnroll(enroll);
-    void signIn(via, enroll.name || undefined);
+    setBusy(via);
+    const err = await signIn(via, nameHint, setStatus); // social never resolves (page navigates)
+    if (err) { setError(err); setBusy(null); setStatus(""); }
   }
 
   function deny() {
@@ -198,18 +244,100 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
 
         {phase === "restoring" && <div className="muted">Checking your session…</div>}
 
-        {phase !== "restoring" && !connected && (
-          <div>
-            <p className="muted" style={{ marginBottom: 8 }}>Continue with your home credential:</p>
-            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-              {CREDENTIALS.map((c) => (
-                <button key={c.via} className="ap" onClick={() => pick(c.via)}>{c.label}</button>
+        {/* Recovery-passkey offer — shown after the auth code is minted, before redirecting back. */}
+        {offer && (
+          <div style={{ textAlign: "left", marginTop: 8 }}>
+            {status ? (
+              <div className="muted" style={{ textAlign: "center" }}>{status}</div>
+            ) : (
+              <>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Add a fast passkey to this device?</div>
+                <p className="muted" style={{ marginTop: 0 }}>
+                  Next time you can open your home with one tap — no {viaLabel(identity?.via)} redirect. Your
+                  {" "}{viaLabel(identity?.via)} sign-in keeps working too.
+                </p>
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <button className="ap" onClick={() => void addRecoveryPasskey(offer.code)}>Add passkey</button>
+                  <button
+                    onClick={() => returnToApp(offer.code)}
+                    style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: 13, textDecoration: "underline" }}
+                  >
+                    Skip for now
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {!offer && phase !== "restoring" && !connected && (
+          <div style={{ textAlign: "left" }}>
+            <p className="muted" style={{ marginBottom: 10, textAlign: "center" }}>Choose how to sign in:</p>
+            {/* Primary: social */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {SOCIAL.map((c) => (
+                <button
+                  key={c.via}
+                  className="ap"
+                  style={{ width: "100%", textAlign: "left", padding: "10px 14px", opacity: busy && busy !== c.via ? 0.5 : 1 }}
+                  disabled={busy !== null}
+                  onClick={() => void pick(c.via)}
+                >
+                  <span style={{ fontWeight: 600 }}>{busy === c.via ? (status || "Redirecting…") : c.label}</span>
+                  {busy !== c.via && <span className="muted" style={{ display: "block", fontSize: 12 }}>{c.hint}</span>}
+                </button>
               ))}
+            </div>
+
+            {/* Optional naming — opt-in, never the default */}
+            <div style={{ marginTop: 10 }}>
+              {!showName ? (
+                <button
+                  onClick={() => setShowName(true)}
+                  disabled={busy !== null}
+                  style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: 12, textDecoration: "underline" }}
+                >
+                  Name your agent (optional)
+                </button>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    placeholder="grace"
+                    disabled={busy !== null}
+                    autoFocus
+                    style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #d4d4d8", fontSize: 14 }}
+                  />
+                  <span className="muted" style={{ fontSize: 13 }}>.impact</span>
+                </div>
+              )}
+              <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                Optional — you can stay nameless and claim a public name anytime later.
+              </p>
+            </div>
+
+            {/* Secondary: passkey / wallet */}
+            <div style={{ marginTop: 12 }}>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>More ways to connect</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {SECONDARY.map((c) => (
+                  <button
+                    key={c.via}
+                    className="ap"
+                    style={{ flex: 1, opacity: busy && busy !== c.via ? 0.5 : 1 }}
+                    disabled={busy !== null}
+                    onClick={() => void pick(c.via)}
+                  >
+                    {busy === c.via ? (status || "Working…") : c.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        {connected && (
+        {!offer && connected && (
           <div>
             {status || justConnected ? (
               <div className="muted">{status || "Authorizing…"}</div>
@@ -244,4 +372,14 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
       </div>
     </div>
   );
+}
+
+function viaLabel(via?: Via): string {
+  switch (via) {
+    case "google": return "Google";
+    case "youversion": return "YouVersion";
+    case "wallet": return "wallet";
+    case "passkey": return "passkey";
+    default: return "sign-in";
+  }
 }

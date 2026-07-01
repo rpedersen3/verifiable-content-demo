@@ -41,6 +41,25 @@ const fromStored = (s: StoredPasskey): Passkey => ({
   label: s.label,
 });
 
+// Recovery-passkey → home mapping. When a passkey is ADDED as a custodian of a social/wallet home
+// (addPasskey), we remember which home SA it opens so the next visit can fast-reconnect straight to
+// that home (one passkey tap, no social redirect) instead of deriving a passkey-native SA.
+const RECOVERY_HOME_KEY = 'agenticprimitives:impact:recovery-home';
+export function rememberRecoveryHome(sa: string): void {
+  try { localStorage.setItem(RECOVERY_HOME_KEY, sa); } catch { /* storage blocked — fine */ }
+}
+export function recallRecoveryHome(): Hex | null {
+  try {
+    const v = localStorage.getItem(RECOVERY_HOME_KEY);
+    return v && /^0x[0-9a-fA-F]{40}$/.test(v) ? (v as Hex) : null;
+  } catch {
+    return null;
+  }
+}
+export function clearRecoveryHome(): void {
+  try { localStorage.removeItem(RECOVERY_HOME_KEY); } catch { /* ignore */ }
+}
+
 export function loadPasskey(): Passkey | null {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
