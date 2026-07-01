@@ -31,6 +31,8 @@ export interface RelyingApp {
     maxAmountPerCharge: string;
     maxAggregate: string;
   };
+  /** content-signer (spec 266): where the content-signer keys + store endpoints live (demo-bible-a2a). */
+  contentSigner?: { a2aBase: string };
 }
 
 // The shared demo delegate address the relayer re-presents on each vault read. The app never
@@ -63,8 +65,11 @@ const RELYING_APPS: RelyingApp[] = [
       'http://localhost:8796/',
     ],
     allowed_scopes: ['openid', 'agent'],
-    allowed_delegation_templates: ['site-login'],
+    // 'content-signer' (spec 266): the corpus owner authorizes each content issuer's Cloud-KMS signing key.
+    allowed_delegation_templates: ['site-login', 'content-signer'],
     delegate: DEMO_DELEGATE,
+    // The relayer that exposes /admin/content-signer-keys + /admin/store-content-signer (demo-bible-a2a).
+    contentSigner: { a2aBase: 'https://demo-bible-a2a-production.richardpedersen3.workers.dev' },
   },
 ];
 
@@ -96,6 +101,11 @@ export function getClientDelegate(client: OidcClient): `0x${string}` {
 /** The client's x402 payment config (payee + caps), or null if it can't take payments. */
 export function getClientPaymentConfig(client: OidcClient): RelyingApp["paymentConfig"] | null {
   return client.paymentConfig ?? null;
+}
+
+/** The client's content-signer config (a2a base), or null if it doesn't do content-signer authorization. */
+export function getClientContentSignerConfig(client: OidcClient): RelyingApp["contentSigner"] | null {
+  return client.contentSigner ?? null;
 }
 
 /** SEC-005: the single source of truth for "which relying-app origins this broker trusts" —

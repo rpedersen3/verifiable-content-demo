@@ -10,7 +10,7 @@ import type { Address } from "@/lib/types";
 import { secureSocialHome } from "@/lib/vault-key";
 import { createPersonTreasury, signHashForVia } from "@/lib/connect";
 import { buildUnsignedPaymentDelegation, OPEN_DELEGATION, toWire, type DelegationWire } from "@/lib/delegation";
-import { getClient, getClientPaymentConfig } from "@/lib/oidc-clients";
+import { getClient, getClientPaymentConfig, getClientContentSignerConfig } from "@/lib/oidc-clients";
 import { chargePayment } from "@/lib/pay";
 import { CONTRACTS } from "@/lib/chain";
 import {
@@ -20,6 +20,8 @@ import {
   deliverEnrollError,
   issueSiteDelegation,
   issuePaymentDelegation,
+  authorizeContentSigningForOwner,
+  deliverCollectResult,
   stashPendingEnroll,
   clearPendingEnroll,
   type EnrollReq,
@@ -91,6 +93,25 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
     setError("");
     try {
       if (!identity) throw new Error("not connected");
+      // content-signer (spec 266) is an OWNER-OP: no home-deploy, no site-login grant. The owner signs
+      // the issuer→KMS-key leaf(s) and the content service stores them; then redirect back with the result.
+      if (enroll.delegationTemplate === "content-signer") {
+        const csClient = getClient(enroll.clientId);
+        const cs = csClient ? getClientContentSignerConfig(csClient) : null;
+        if (!cs) throw new Error("This app isn't configured for content-signer authorization.");
+        if (!enroll.collectToken) throw new Error("Missing owner token for content-signer authorization.");
+        setStatus("Authorizing content signing…");
+        const res = await authorizeContentSigningForOwner(identity.via, token ?? undefined, {
+          a2aBase: cs.a2aBase,
+          idToken: enroll.collectToken,
+          targetSigner: enroll.contentSignerTarget,
+        });
+        if (!res.ok) throw new Error(res.error);
+        clearPendingEnroll();
+        setStatus("Returning…");
+        deliverCollectResult(enroll, { authorized: res.authorized, attempted: res.attempted }, "content-signer");
+        return; // navigates away
+      }
       if (!identity.deployed) {
         // The delegation is signed via ERC-1271, which needs the delegator SA deployed on-chain.
         // Social homes are counterfactual until secured — deploy it now (paymaster-sponsored,
