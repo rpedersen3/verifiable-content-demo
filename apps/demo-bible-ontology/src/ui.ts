@@ -547,7 +547,7 @@ async function verifyIdToken(authOrigin,idToken,expectedNonce){
   const parts=idToken.split('.');if(parts.length!==3)throw new Error('id_token malformed');
   const header=decodeSeg(parts[0]),claims=decodeSeg(parts[1]);
   // Verify against the token's OWN issuer (the user's home) provided it's a valid Global.Church home.
-  // An established user signing in at www gets a token issued by their personal *.impact-agent.me home,
+  // An established user signing in at www gets a token issued by their personal *.churchcore.me home,
   // so trusting claims.iss (allow-listed) rather than the origin we bounced through is correct.
   const iss=String(claims.iss||'');if(!isAllowedIssuer(iss))throw new Error('issuer not allowed: '+iss);
   const base=iss.endsWith('/')?iss.slice(0,-1):iss;
