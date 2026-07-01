@@ -25,8 +25,12 @@ const CREDENTIALS: { via: Via; label: string }[] = [
   { via: "wallet", label: "Wallet" },
 ];
 
+// A signing failure caused by a stale/expired custody session — the reader must reconnect for a
+// fresh AgentSession token (a restored localStorage session can hold an expired token).
+const SESSION_STALE = /expired|invalid session|custody session|sign in again|no live custody/i;
+
 export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
-  const { phase, identity, token, signIn, justConnected } = useSession();
+  const { phase, identity, token, signIn, signOut, justConnected } = useSession();
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const ran = useRef(false);
@@ -51,8 +55,17 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
       deliverEnrollCode(enroll, code); // navigates away
     } catch (e) {
       ran.current = false;
-      setError(e instanceof Error ? e.message : String(e));
       setStatus("");
+      const msg = e instanceof Error ? e.message : String(e);
+      if (SESSION_STALE.test(msg)) {
+        // Stale token — drop to a fresh connect (keeps the request stashed so a social
+        // reconnect resumes automatically on return).
+        stashPendingEnroll(enroll);
+        setError("Your home session expired — reconnect to authorize.");
+        signOut();
+      } else {
+        setError(msg);
+      }
     }
   }
 
@@ -64,6 +77,7 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
   }, [phase, identity, justConnected]);
 
   function pick(via: Via) {
+    setError("");
     // Social redirects the whole page out → stash the request so we can resume on return.
     if (via === "google" || via === "youversion") stashPendingEnroll(enroll);
     void signIn(via, enroll.name || undefined);
@@ -74,6 +88,8 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
     deliverEnrollError(enroll, "access_denied");
   }
 
+  const connected = phase === "authed" && identity;
+
   return (
     <div className="entry">
       <div style={{ maxWidth: 420, margin: "0 auto", textAlign: "center" }}>
@@ -83,9 +99,11 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
           Global.Church home. The app never sees your credential — you sign the authorization yourself.
         </p>
 
+        {error && <div style={{ color: "#c0392b", fontSize: 13, margin: "8px 0" }}>{error}</div>}
+
         {phase === "restoring" && <div className="muted">Checking your session…</div>}
 
-        {phase !== "restoring" && (phase !== "authed" || !identity) && (
+        {phase !== "restoring" && !connected && (
           <div>
             <p className="muted" style={{ marginBottom: 8 }}>Continue with your home credential:</p>
             <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
@@ -96,16 +114,15 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
           </div>
         )}
 
-        {phase === "authed" && identity && (
+        {connected && (
           <div>
-            {error ? (
+            {status || justConnected ? (
+              <div className="muted">{status || "Authorizing…"}</div>
+            ) : error ? (
               <>
-                <div style={{ color: "#c0392b", fontSize: 13, margin: "8px 0" }}>{error}</div>
                 <button className="ap" onClick={() => { ran.current = false; void authorize(); }}>Try again</button>{" "}
                 <button className="ap" onClick={deny}>Cancel</button>
               </>
-            ) : status || justConnected ? (
-              <div className="muted">{status || "Authorizing…"}</div>
             ) : (
               <>
                 <p className="muted" style={{ margin: "8px 0" }}>
