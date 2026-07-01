@@ -8,10 +8,28 @@
 import { Redis } from '@upstash/redis';
 import type { KVNamespace } from '../../server/_lib/server-broker';
 
-// Accept both the legacy "Vercel KV" names (KV_REST_API_*) and the current
-// Upstash Marketplace integration names (UPSTASH_REDIS_REST_*).
-const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL ?? '';
-const token = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN ?? '';
+// Resolve the Upstash/Vercel-KV REST credentials. Accepts, in order:
+//   1. the legacy "Vercel KV" names (KV_REST_API_*) + the Upstash Marketplace names (UPSTASH_REDIS_REST_*);
+//   2. a PREFIXED pair — Vercel's "Connect Store" injects vars under an integration prefix
+//      (e.g. `democorpus_KV_REST_API_URL` / `..._TOKEN`), which the unprefixed lookup above misses.
+// The prefixed fallback pairs a non-empty `<prefix>KV_REST_API_URL` with its matching `<prefix>KV_REST_API_TOKEN`
+// (never the READ_ONLY token), so a store connected under any prefix Just Works.
+function resolveKvCreds(): { url: string; token: string } {
+  const env = process.env;
+  const url0 = env.KV_REST_API_URL || env.UPSTASH_REDIS_REST_URL || '';
+  const token0 = env.KV_REST_API_TOKEN || env.UPSTASH_REDIS_REST_TOKEN || '';
+  if (url0 && token0) return { url: url0, token: token0 };
+  for (const key of Object.keys(env)) {
+    const m = /^(.*)(?:KV_REST_API_URL|UPSTASH_REDIS_REST_URL)$/.exec(key);
+    if (!m || !env[key]) continue;
+    const prefix = m[1];
+    const tKey = env[`${prefix}KV_REST_API_TOKEN`] ? `${prefix}KV_REST_API_TOKEN`
+      : env[`${prefix}UPSTASH_REDIS_REST_TOKEN`] ? `${prefix}UPSTASH_REDIS_REST_TOKEN` : '';
+    if (tKey && env[tKey]) return { url: env[key] as string, token: env[tKey] as string };
+  }
+  return { url: '', token: '' };
+}
+const { url, token } = resolveKvCreds();
 
 // Dev fallback: when no Upstash/Vercel-KV store is configured, use a process-local
 // in-memory store so the broker (single-use nonces/challenges) works for LOCAL dev.
