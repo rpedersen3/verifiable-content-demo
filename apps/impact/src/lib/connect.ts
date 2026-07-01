@@ -308,6 +308,23 @@ async function claimName(agent: Address, signHash: SignHash, base: string, minNo
   return { ok: true, name: claim.name };
 }
 
+/** Claim a public `<base>.impact` name for an ALREADY-connected, DEPLOYED home — the post-login naming
+ *  path (the connect ceremony only names at deploy time). Signs the claim userOp with the home's own
+ *  credential (passkey/wallet/social C_sub), gasless. `agent` = the connected SA. */
+export async function claimHomeName(
+  agent: Address,
+  via: ConnectVia,
+  token: string | undefined,
+  base: string,
+  onStep?: Step,
+): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+  const clean = sanitizeBase(base);
+  if (!clean) return { ok: false, error: "Enter a valid name (letters, numbers, hyphens)." };
+  onStep?.("Claiming your name…");
+  const signHash = await signHashForVia(via, agent, token);
+  return claimName(agent, signHash, clean);
+}
+
 // ── Profile ──────────────────────────────────────────────────────────────────
 export async function fetchProfile(token: string): Promise<BasicProfile | null> {
   const r = await fetch("/me/profile", { headers: { authorization: `Bearer ${token}` } });

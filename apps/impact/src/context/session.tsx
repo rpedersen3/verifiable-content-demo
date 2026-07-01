@@ -77,6 +77,8 @@ interface SessionApi extends SessionState {
   signOut: () => void;
   /** Mark the home as deployed on-chain (after a secure/deploy ceremony) so the UI reflects it. */
   markDeployed: () => void;
+  /** Record a just-claimed public name on the connected identity (post-login naming). */
+  markNamed: (name: string) => void;
   setActive: (ctx: ActiveContext) => void;
   setDefaultOrg: (orgId: string | null) => void;
   /** Dismiss the welcome beat (the gate calls this when the member enters their home). */
@@ -210,6 +212,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     });
   }, [persist]);
 
+  const markNamed = useCallback((name: string) => {
+    setState((s) => {
+      if (!s.identity) return s;
+      const identity: Identity = { ...s.identity, name };
+      if (s.token) persist({ token: s.token, identity, defaultOrgId: s.defaultOrgId, active: s.active });
+      return { ...s, identity, person: personFromIdentity(identity) };
+    });
+  }, [persist]);
+
   const setActive = useCallback((ctx: ActiveContext) => {
     setState((s) => {
       if (s.token && s.identity) persist({ token: s.token, identity: s.identity, defaultOrgId: s.defaultOrgId, active: ctx });
@@ -226,8 +237,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [persist]);
 
   const api = useMemo<SessionApi>(
-    () => ({ ...state, signIn, signOut, markDeployed, setActive, setDefaultOrg, clearJustConnected }),
-    [state, signIn, signOut, markDeployed, setActive, setDefaultOrg, clearJustConnected],
+    () => ({ ...state, signIn, signOut, markDeployed, markNamed, setActive, setDefaultOrg, clearJustConnected }),
+    [state, signIn, signOut, markDeployed, markNamed, setActive, setDefaultOrg, clearJustConnected],
   );
 
   return <SessionCtx.Provider value={api}>{children}</SessionCtx.Provider>;

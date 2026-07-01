@@ -10,12 +10,13 @@ import { useSession } from "@/context/session";
 import { SectionHead, Pill } from "@/components/ui";
 import { IconKey, IconShield, IconLink, IconSignOut, IconCheck } from "@/components/Icons";
 import { activateVaultKey, secureSocialHome, isVaultKeyBound } from "@/lib/vault-key";
+import { claimHomeName } from "@/lib/connect";
 
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const VIA_LABEL: Record<string, string> = { passkey: "Passkey", wallet: "Wallet", google: "Google", youversion: "YouVersion" };
 
 export default function AccountPage() {
-  const { identity, token, signOut, markDeployed } = useSession();
+  const { identity, token, signOut, markDeployed, markNamed } = useSession();
   const address = identity?.address;
   const via = identity?.via ?? "passkey";
   const isSocial = via === "google" || via === "youversion";
@@ -27,6 +28,11 @@ export default function AccountPage() {
   const [vaultStatus, setVaultStatus] = useState<"checking" | "active" | "inactive">("checking");
   const [activating, setActivating] = useState(false);
   const [activateError, setActivateError] = useState<string | null>(null);
+
+  const [nameInput, setNameInput] = useState("");
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [claimStep, setClaimStep] = useState<string | null>(null);
 
   useEffect(() => { setDeployed(!!identity?.deployed); }, [identity?.deployed]);
 
@@ -59,6 +65,15 @@ export default function AccountPage() {
     setActivating(false);
   }
 
+  async function onClaimName() {
+    if (!identity || !nameInput.trim()) return;
+    setClaiming(true); setClaimError(null); setClaimStep(null);
+    const out = await claimHomeName(identity.address as `0x${string}`, via, token ?? undefined, nameInput.trim(), (s) => setClaimStep(s));
+    if (out.ok) { markNamed(out.name); setNameInput(""); }
+    else setClaimError(out.error);
+    setClaiming(false); setClaimStep(null);
+  }
+
   if (!identity) return null;
   const display = identity.name ? (identity.name.endsWith(".impact") ? identity.name : `${identity.name}.impact`) : shortAddr(identity.address);
 
@@ -78,6 +93,36 @@ export default function AccountPage() {
           <Pill>signed in via {VIA_LABEL[via] ?? via}</Pill>
         </div>
       </div>
+
+      {/* Claim a public name — post-login naming for a nameless, deployed home (the connect ceremony
+          only names at deploy time; this assigns a name to an EXISTING agent). */}
+      {deployed && !identity.name && (
+        <div className="card card-pad" style={{ maxWidth: 720, marginBottom: "1.1rem", display: "flex", gap: "1rem", alignItems: "flex-start" }}>
+          <div className="glyph glyph-sm" style={{ background: "var(--grad-amber)", color: "#1c1917", flex: "0 0 auto" }}><IconLink width={18} height={18} /></div>
+          <div style={{ flex: 1 }}>
+            <div className="h3" style={{ marginBottom: ".25rem" }}>Claim a public name</div>
+            <p className="muted" style={{ marginBottom: ".7rem" }}>
+              Your home is nameless. Claim a public <span className="mono">.impact</span> name (e.g. a
+              content-issuer identity like <span className="mono">qbsb.impact</span>) — signed with your
+              {" "}{VIA_LABEL[via] ?? via}, gas-sponsored. This registers the name to <b>this</b> home on-chain.
+            </p>
+            <div className="row wrap" style={{ gap: ".5rem", alignItems: "center" }}>
+              <input
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                placeholder="name"
+                disabled={claiming}
+                style={{ padding: ".4rem .6rem", borderRadius: 8, border: "1px solid var(--line)", minWidth: 160 }}
+              />
+              <span className="muted">.impact</span>
+              <button className="btn btn-primary btn-sm" onClick={onClaimName} disabled={claiming || !nameInput.trim()}>
+                {claiming ? (claimStep ?? "Claiming…") : "Claim it"}
+              </button>
+            </div>
+            {claimError && <div className="muted" style={{ color: "var(--danger)", marginTop: ".5rem" }}>{claimError}</div>}
+          </div>
+        </div>
+      )}
 
       {/* Secure the home (deploy on-chain) — required before vault key / delegations */}
       {!deployed && (
