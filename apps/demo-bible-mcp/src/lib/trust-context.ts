@@ -41,6 +41,11 @@ export interface McpEnv {
   GCP_SERVICE_ACCOUNT_JSON?: string;
   /** JSON map: issuerName → Cloud KMS cryptoKeyVersion resource name. */
   CONTENT_SIGNER_KEYS?: string;
+  /** Demo/testnet bypass (EXT-DS-1): when "true", the delegated content signer is used WITHOUT
+   *  on-chain verification of the issuer→KMS delegation chain (verifyChainAuthorization is not yet
+   *  injected here). The leaf is still the owner-authorized one stored by the content-signing ceremony;
+   *  production MUST inject verifyChainAuthorization instead. Fail-closed default (unset ⇒ refuse). */
+  ALLOW_UNVERIFIED_CONTENT_CHAIN?: string;
   DB?: D1Database;
 }
 
@@ -218,6 +223,9 @@ async function buildDelegated(env: McpEnv): Promise<TrustContext> {
         verifyAccount: (sa) => aac.isDeployed(sa),
         chainId,
         delegationManager,
+        // Testnet demo: skip on-chain chain-authorization verification (verifyChainAuthorization is
+        // not yet injected). Fail-closed unless ALLOW_UNVERIFIED_CONTENT_CHAIN is explicitly "true".
+        allowUnverifiedChain: env.ALLOW_UNVERIFIED_CONTENT_CHAIN === 'true',
       });
       byIssuer.set(issuerName, {
         issuerSa: resolved.delegatorAgent,

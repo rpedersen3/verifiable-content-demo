@@ -34,6 +34,10 @@ SCHEME_ID = "bible-verse"
 # ceremony, then redeploy. CEREMONY DONE 2026-06-15: fbsb.impact + lbsb.impact delegations stored in D1.
 # buildDelegated is resilient — unconfigured issuers (e.g. demo-licensed.impact) degrade per-edition, no crash.
 TRUST_MODE = "delegated"
+# Testnet demo: use the delegated content signer WITHOUT on-chain chain-authorization verification
+# (verifyChainAuthorization not yet injected). The stored leaf is still the owner-authorized one; a
+# production deploy MUST verify the chain instead of setting this.
+ALLOW_UNVERIFIED_CONTENT_CHAIN = "true"
 ONT_URL = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
 RELAY_URL = "https://impact-a2a-production.richardpedersen3.workers.dev"
 RELAY_ORIGIN = "https://demo-bible-ontology-production.richardpedersen3.workers.dev"
