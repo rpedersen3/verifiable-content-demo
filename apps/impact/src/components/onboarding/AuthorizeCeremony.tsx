@@ -8,12 +8,18 @@ import { useEffect, useRef, useState } from "react";
 import { useSession, type Via } from "@/context/session";
 import type { Address } from "@/lib/types";
 import { secureSocialHome } from "@/lib/vault-key";
+import { createPersonTreasury, signHashForVia } from "@/lib/connect";
+import { buildUnsignedPaymentDelegation, OPEN_DELEGATION, toWire, type DelegationWire } from "@/lib/delegation";
+import { getClient, getClientPaymentConfig } from "@/lib/oidc-clients";
+import { chargePayment } from "@/lib/pay";
+import { CONTRACTS } from "@/lib/chain";
 import {
   beginEnrollmentGrant,
   submitEnrollGrant,
   deliverEnrollCode,
   deliverEnrollError,
   issueSiteDelegation,
+  issuePaymentDelegation,
   stashPendingEnroll,
   clearPendingEnroll,
   type EnrollReq,
@@ -35,6 +41,49 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const ran = useRef(false);
+
+  // x402 (spec 272): for the `x402-pay` template, provision/resolve the reader's person-treasury,
+  // mint + sign a capped person-treasury → payee payment delegation, run the first charge in the
+  // ceremony (all-custodian, gasless), and — for a subscription — mint a standing pull mandate. The
+  // payee + caps come from the SERVER registry (getClientPaymentConfig), not the Explorer.
+  async function runPayment(): Promise<{ paymentDelegation?: DelegationWire; pullDelegation?: DelegationWire; settlementHash?: string; treasury?: string }> {
+    const id = identity!;
+    const client = getClient(enroll.clientId);
+    const pc = client ? getClientPaymentConfig(client) : null;
+    if (!pc) throw new Error("This app isn't configured for payments.");
+    const requested = BigInt(enroll.payAmount || "0");
+    if (requested <= 0n) throw new Error("No payment amount was requested.");
+    const cap = BigInt(pc.maxAmountPerCharge);
+    const perCharge = requested < cap ? requested : cap; // never exceed the registry cap
+    const payee = pc.payee as Address;
+    const asset = CONTRACTS.mockUsdc as Address;
+
+    setStatus("Setting up your treasury…");
+    const t = await createPersonTreasury({ name: id.name ?? null, personSA: id.address as Address, via: id.via, token: token ?? undefined });
+    if (!t.ok) throw new Error(`Treasury setup failed: ${t.error}`);
+    const treasury = t.agent;
+
+    setStatus("Authorize the payment…");
+    const { delegation: payD, digest } = buildUnsignedPaymentDelegation(treasury, OPEN_DELEGATION, payee, {
+      maxAmountPerCharge: perCharge, maxAggregate: BigInt(pc.maxAggregate),
+    });
+    const signTreasury = await signHashForVia(id.via, treasury, token ?? undefined); // ERC-1271 vs the treasury
+    payD.signature = await signTreasury(digest);
+    const paymentDelegation = toWire(payD);
+
+    setStatus("Charging your treasury…");
+    const signPerson = await signHashForVia(id.via, id.address as Address, token ?? undefined); // person SA redeems
+    const charged = await chargePayment(id.address as Address, payD, signPerson, { payee, asset, amount: perCharge, edition: "lbsb" });
+    if (!charged.ok) throw new Error(`Charge failed: ${charged.error}`);
+
+    let pullDelegation: DelegationWire | undefined;
+    if (enroll.subPeriod) {
+      pullDelegation = await issuePaymentDelegation(treasury, payee, payee, id.via, token ?? undefined, {
+        maxAmountPerCharge: perCharge, maxAggregate: perCharge * 12n, windowSeconds: enroll.subPeriod, maxRedemptionsPerWindow: 1,
+      });
+    }
+    return { paymentDelegation, pullDelegation, settlementHash: charged.settlementHash, treasury };
+  }
 
   async function authorize() {
     if (ran.current) return;
@@ -60,8 +109,11 @@ export default function AuthorizeCeremony({ enroll }: { enroll: EnrollReq }) {
       const { grant_id, delegate } = await beginEnrollmentGrant(enroll, identity.name ?? "");
       setStatus("Sign to authorize this app to read your vault…");
       const wire = await issueSiteDelegation(identity.address as Address, delegate, identity.via, token ?? undefined);
+      // x402-pay ALSO mints a payment delegation + first charge on top of the site-login (vault-read)
+      // delegation. Any other template is site-login only.
+      const payExtra = enroll.delegationTemplate === "x402-pay" ? await runPayment() : undefined;
       setStatus("Finishing…");
-      const code = await submitEnrollGrant(grant_id, wire);
+      const code = await submitEnrollGrant(grant_id, wire, payExtra);
       clearPendingEnroll();
       setStatus("Returning to the app…");
       deliverEnrollCode(enroll, code); // navigates away

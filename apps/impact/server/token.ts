@@ -37,6 +37,9 @@ export const onRequestPost = async ({ request, env }: FnContext): Promise<Respon
     const grant = JSON.parse(raw) as {
       id_token: string;
       delegation: unknown;
+      paymentDelegation?: unknown;
+      pullDelegation?: unknown;
+      settlementHash?: string | null;
       code_challenge: string;
       client_id: string;
       redirect_uri: string;
@@ -47,7 +50,18 @@ export const onRequestPost = async ({ request, env }: FnContext): Promise<Respon
       return jsonCors({ error: "PKCE verification failed" }, request, 400);
     }
     return jsonCors(
-      { id_token: grant.id_token, token_type: "Bearer", expires_in: ID_TOKEN_TTL, delegation: grant.delegation ?? undefined },
+      {
+        id_token: grant.id_token,
+        token_type: "Bearer",
+        expires_in: ID_TOKEN_TTL,
+        delegation: grant.delegation ?? undefined,
+        // x402 (spec 272): the reader's payment delegation + first-charge settlement. The Explorer stores
+        // the delegation in the payee vault and forwards settlementHash to /pay/claim. PRIVACY: the
+        // treasury ADDRESS is NOT returned — the app derives it from paymentDelegation.delegator.
+        paymentDelegation: grant.paymentDelegation ?? undefined,
+        pullDelegation: grant.pullDelegation ?? undefined,
+        settlementHash: grant.settlementHash ?? undefined,
+      },
       request,
     );
   }

@@ -2,7 +2,7 @@
   "name": "@verifiable-content-demo/impact",
   "version": "0.0.1",
   "private": true,
-  "description": "Impact — a faith-based home where people and organizations connect and manage their agents. Redesigned agent home modeled after agenticprimitives/impact, with an agentic trust-graph. Talks to the live impact-a2a/impact-mcp deployments.",
+  "description": "Impact \u2014 a faith-based home where people and organizations connect and manage their agents. Redesigned agent home modeled after agenticprimitives/impact, with an agentic trust-graph. Talks to the live impact-a2a/impact-mcp deployments.",
   "type": "module",
   "scripts": {
     "dev": "next dev --port 5374",
@@ -25,7 +25,8 @@
     "next": "^15.5.16",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "viem": "^2.52.2"
+    "viem": "^2.52.2",
+    "@agenticprimitives/payments": "0.0.0-alpha.9"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

@@ -21,6 +21,16 @@ export interface RelyingApp {
   /** SEC-001: the authoritative delegate SA the site-login delegation binds to. The relayer
    *  re-presents this as `requester`; entitlement gating keys on the DELEGATOR (person SA). */
   delegate: `0x${string}`;
+  /** x402 payment config (only for clients with 'x402-pay' allowed). The home is trusted to know the
+   *  payee from HERE — the Explorer never sends it. Caps bound the per-charge + session budget so a
+   *  compromised client can't drain the treasury. */
+  paymentConfig?: {
+    /** The payee treasury that receives every charge (LBSB treasury). */
+    payee: `0x${string}`;
+    /** Smallest-unit (6-dp USDC) caps: the max a single charge may request, and the session aggregate. */
+    maxAmountPerCharge: string;
+    maxAggregate: string;
+  };
 }
 
 // The shared demo delegate address the relayer re-presents on each vault read. The app never
@@ -35,8 +45,15 @@ const RELYING_APPS: RelyingApp[] = [
       'http://localhost:8795/',
     ],
     allowed_scopes: ['openid', 'agent'],
-    allowed_delegation_templates: ['site-login'],
+    allowed_delegation_templates: ['site-login', 'x402-pay'],
     delegate: DEMO_DELEGATE,
+    // LBSB treasury (payee). Caps: a single charge ≤ the monthly tier (50000 = 0.05 USDC); the session
+    // aggregate ≤ 12× that. The ceremony requests min(pay_amount, maxAmountPerCharge).
+    paymentConfig: {
+      payee: '0xa9e0acecfbce08548358b4f5681b13a00a5cab7a',
+      maxAmountPerCharge: '50000',
+      maxAggregate: '600000',
+    },
   },
   {
     client_id: 'demo-corpus',
@@ -74,6 +91,11 @@ export function clientAllowsTemplate(client: OidcClient, template: string): bool
  *  `?delegate=` is an untrusted hint and is ignored in favor of this. */
 export function getClientDelegate(client: OidcClient): `0x${string}` {
   return client.delegate;
+}
+
+/** The client's x402 payment config (payee + caps), or null if it can't take payments. */
+export function getClientPaymentConfig(client: OidcClient): RelyingApp["paymentConfig"] | null {
+  return client.paymentConfig ?? null;
 }
 
 /** SEC-005: the single source of truth for "which relying-app origins this broker trusts" —

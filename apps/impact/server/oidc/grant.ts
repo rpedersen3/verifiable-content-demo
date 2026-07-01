@@ -26,6 +26,16 @@ const DELEG_BIND_TTL_SEC = 3600; // matches id_token TTL
 interface GrantBody {
   grant_id?: string;
   delegation?: IncomingDelegation;
+  /** x402 (spec 272): the payer-treasury → OPEN/payee payment delegation the reader authorized. Its
+   *  delegate is OPEN/the payee (NOT the client's site delegate), so it is ERC-1271-verified but NOT
+   *  delegate-matched. Carried to the relying app, which stores it in the payee vault + redeems per read. */
+  paymentDelegation?: IncomingDelegation;
+  /** x402 subscription: the standing treasury → payee PULL mandate (delegate = payee). */
+  pullDelegation?: IncomingDelegation;
+  /** The settlement tx hash of the first charge done IN the ceremony. Opaque; carried to the app. */
+  settlementHash?: string;
+  /** The payer treasury SA (carried so the app can show/verify it). */
+  treasury?: string;
 }
 
 export const onRequestPost = async ({ request, env }: FnContext): Promise<Response> => {
@@ -58,6 +68,18 @@ export const onRequestPost = async ({ request, env }: FnContext): Promise<Respon
   const v = await verifyDelegation(env, body.delegation);
   if (!v.ok) return json({ error: `delegation proof failed: ${v.reason}` }, 401);
 
+  // x402 (spec 272): if a payment / pull delegation rode along, verify each independently against ITS
+  // delegator (the treasury SA) — ERC-1271 + window. NOT delegate-matched to the client (its delegate
+  // is OPEN / the payee). Reject an invalid one rather than silently dropping it.
+  if (body.paymentDelegation) {
+    const pv = await verifyDelegation(env, body.paymentDelegation);
+    if (!pv.ok) return json({ error: `payment delegation proof failed: ${pv.reason}` }, 401);
+  }
+  if (body.pullDelegation) {
+    const pv = await verifyDelegation(env, body.pullDelegation);
+    if (!pv.ok) return json({ error: `pull delegation proof failed: ${pv.reason}` }, 401);
+  }
+
   // Mint the id_token bound to the grant's client + nonce + agent_name.
   const sub = toCanonicalAgentId(CHAIN_ID, body.delegation.delegator);
   const { signer } = await getServer(env);
@@ -88,6 +110,10 @@ export const onRequestPost = async ({ request, env }: FnContext): Promise<Respon
     JSON.stringify({
       id_token: idToken,
       delegation: body.delegation,
+      paymentDelegation: body.paymentDelegation ?? null,
+      pullDelegation: body.pullDelegation ?? null,
+      settlementHash: body.settlementHash ?? null,
+      treasury: body.treasury ?? null,
       code_challenge: grant.code_challenge,
       client_id: grant.client_id,
       redirect_uri: grant.redirect_uri,

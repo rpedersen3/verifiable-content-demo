@@ -128,7 +128,7 @@ async function buildClaimCallData(
 }
 
 /** Build → sign → submit a call from a deployed SA (via the live relayer), with a nonce gate. */
-async function executeCall(
+export async function executeCall(
   sender: Address,
   signHash: SignHash,
   callData: Hex,

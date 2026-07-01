@@ -6,6 +6,7 @@ import {
   type Delegation,
   type Caveat,
   buildCaveat,
+  buildPaymentMandateCaveats,
   encodeTimestampTerms,
   encodeAllowedTargetsTerms,
   encodeValueTerms,
@@ -86,6 +87,58 @@ export function buildUnsignedSiteDelegation(
   validitySeconds = 60 * 60 * 12,
 ): { delegation: Delegation; digest: Hex } {
   const d = buildSiteDelegation(delegator, delegateSA, validitySeconds);
+  const digest = hashDelegation(d, CHAIN_ID, CONTRACTS.delegationManager);
+  return { delegation: d, digest };
+}
+
+// ── x402 payment delegation (spec 272) ──
+// The push sentinel: an x402-pay delegation whose delegate is OPEN_DELEGATION is redeemable by
+// whoever presents a valid PaymentMandate (the reader's person SA redeems the charge). A
+// subscription/pull mandate instead sets delegate = the payee treasury.
+export const OPEN_DELEGATION = '0x0000000000000000000000000000000000000a11' as Address;
+
+export interface PaymentDelegationOpts {
+  /** Fee asset (USDC). Defaults to the deployed MockUSDC. */
+  asset?: Address;
+  /** Smallest-unit caps. `maxAggregate` is the session/period budget (X402-D5). */
+  maxAmountPerCharge: bigint;
+  maxAggregate: bigint;
+  maxRedemptionsPerWindow?: number;
+  windowSeconds?: number;
+  validitySeconds?: number;
+}
+
+/** Build an UNSIGNED `payerTreasury → delegate` x402 payment delegation + its EIP-712 `digest`, for
+ *  the caller to sign OFF-CHAIN with the TREASURY's credential (ERC-1271 against the treasury SA).
+ *  Caveats: PaymentEnforcer(payee, asset, per-charge + aggregate caps) + time-box + USDC-only target
+ *  + transfer-only method — the reader can never move more than the caps, only to the payee, in USDC.
+ *  `delegate` = OPEN_DELEGATION for push (reader redeems) | the payee treasury for pull/subscription. */
+export function buildUnsignedPaymentDelegation(
+  payerTreasury: Address,
+  delegate: Address,
+  payee: Address,
+  opts: PaymentDelegationOpts,
+): { delegation: Delegation; digest: Hex } {
+  const validUntil = Math.floor(Date.now() / 1000) + (opts.validitySeconds ?? 60 * 60 * 24 * 365);
+  const caveats = buildPaymentMandateCaveats({
+    enforcers: {
+      payment: CONTRACTS.paymentEnforcer,
+      timestamp: CONTRACTS.timestampEnforcer,
+      allowedTargets: CONTRACTS.allowedTargetsEnforcer,
+      allowedMethods: CONTRACTS.allowedMethodsEnforcer,
+    },
+    payee,
+    asset: opts.asset ?? CONTRACTS.mockUsdc,
+    maxAmountPerCharge: opts.maxAmountPerCharge,
+    maxAggregate: opts.maxAggregate,
+    maxRedemptionsPerWindow: opts.maxRedemptionsPerWindow ?? 1000,
+    windowSeconds: opts.windowSeconds ?? 3600,
+    validUntil,
+  });
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  let salt = 0n;
+  for (const b of bytes) salt = (salt << 8n) | BigInt(b);
+  const d: Delegation = { delegator: payerTreasury, delegate, authority: ROOT_AUTHORITY, caveats, salt, signature: '0x' };
   const digest = hashDelegation(d, CHAIN_ID, CONTRACTS.delegationManager);
   return { delegation: d, digest };
 }

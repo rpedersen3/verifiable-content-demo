@@ -9,7 +9,7 @@
 // the REGISTRY delegate) → POST /oidc/grant → redirect back with ?code&state&ac_iss.
 //
 // The relying app then POSTs /token to exchange the code (PKCE) for { id_token, delegation }.
-import { buildUnsignedSiteDelegation, toWire, type DelegationWire } from "@/lib/delegation";
+import { buildUnsignedSiteDelegation, buildUnsignedPaymentDelegation, toWire, type DelegationWire, type PaymentDelegationOpts } from "@/lib/delegation";
 import { signHashForVia, type ConnectVia } from "@/lib/connect";
 import type { Address } from "@/lib/types";
 
@@ -22,6 +22,10 @@ export interface EnrollReq {
   /** agent_name — OPTIONAL (name-deferred connect). */
   name: string;
   delegationTemplate: string;
+  /** x402-pay only: the tier price (atomic 6-dp USDC string) the reader is buying. */
+  payAmount?: string;
+  /** x402-pay subscription only: the period in seconds (present ⇒ mint a recurring pull mandate too). */
+  subPeriod?: number;
 }
 
 const PENDING_KEY = "impact.pendingEnroll";
@@ -42,6 +46,8 @@ export function parseEnrollReq(): EnrollReq | null {
   if (responseType && responseType !== "code") return null;
   const ccm = q.get("code_challenge_method");
   if (ccm && ccm !== "S256") return null;
+  const payAmount = q.get("pay_amount") || undefined;
+  const subPeriodRaw = q.get("sub_period");
   return {
     clientId,
     redirectUri,
@@ -50,6 +56,8 @@ export function parseEnrollReq(): EnrollReq | null {
     codeChallenge,
     name: q.get("agent_name") ?? "",
     delegationTemplate,
+    payAmount,
+    subPeriod: subPeriodRaw ? Number(subPeriodRaw) : undefined,
   };
 }
 
@@ -118,12 +126,33 @@ export async function issueSiteDelegation(
   return toWire(delegation);
 }
 
+/** Build + sign an x402 payment delegation (payer treasury → delegate). Signed with the TREASURY's
+ *  credential — ERC-1271 verifies against the treasury SA, so `sender` MUST be the treasury (the
+ *  reader's `via`/`token` custody controls both their person SA and the treasury). */
+export async function issuePaymentDelegation(
+  treasury: Address,
+  delegate: Address,
+  payee: Address,
+  via: ConnectVia,
+  token: string | undefined,
+  opts: PaymentDelegationOpts,
+): Promise<DelegationWire> {
+  const { delegation, digest } = buildUnsignedPaymentDelegation(treasury, delegate, payee, opts);
+  const signHash = await signHashForVia(via, treasury, token);
+  delegation.signature = await signHash(digest);
+  return toWire(delegation);
+}
+
 /** Phase 2 — redeem the grant + signed delegation for a single-use OIDC code. */
-export async function submitEnrollGrant(grantId: string, delegation: DelegationWire): Promise<string> {
+export async function submitEnrollGrant(
+  grantId: string,
+  delegation: DelegationWire,
+  extra?: { paymentDelegation?: DelegationWire; pullDelegation?: DelegationWire; settlementHash?: string; treasury?: string },
+): Promise<string> {
   const r = await fetch("/oidc/grant", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ grant_id: grantId, delegation }),
+    body: JSON.stringify({ grant_id: grantId, delegation, ...(extra ?? {}) }),
   });
   const b = (await r.json().catch(() => ({}))) as { code?: string; error?: string };
   if (!r.ok || !b.code) throw new Error(b.error || `grant failed (HTTP ${r.status})`);
